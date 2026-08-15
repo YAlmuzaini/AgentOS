@@ -43,7 +43,7 @@ export function SessionsPage(): React.JSX.Element {
   const running = list.filter((session) => session.status === "running").length;
 
   return (
-    <Page>
+    <Page fill>
       {/* The running count lives in the top bar, where it is true of the whole
           control plane. Repeating it here said the same thing twice. */}
       <PageHeader
@@ -52,14 +52,17 @@ export function SessionsPage(): React.JSX.Element {
         meta={list.length > 0 ? `${list.length} total` : undefined}
       />
 
-      <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
-        <Panel className="h-fit overflow-hidden">
+      <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr]">
+        {/* The list scrolls inside its own panel: a seeded database returns 32
+            sessions, and a list that grows the page takes the detail pane it
+            is meant to be driving off the bottom of the screen. */}
+        <Panel className="h-fit overflow-hidden lg:flex lg:h-auto lg:min-h-0 lg:flex-col">
           {sessions.isLoading ? (
             <SkeletonRows rows={5} />
           ) : list.length === 0 ? (
             <EmptyState icon={<Terminal />} title="No sessions yet" hint="Run a task." />
           ) : (
-            <ul>
+            <ul className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               {list.map((session) => (
                 <li key={session.id} className="border-b border-edge last:border-0">
                   <button
@@ -85,8 +88,8 @@ export function SessionsPage(): React.JSX.Element {
           )}
         </Panel>
 
-        <Panel className="min-w-0">
-          <PanelHeader className="border-b border-edge">
+        <Panel className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
+          <PanelHeader className="shrink-0 border-b border-edge">
             <PanelTitle accent="sky" icon={<Terminal />}>
               Tool calls
             </PanelTitle>
@@ -115,13 +118,13 @@ export function SessionsPage(): React.JSX.Element {
             </div>
           </PanelHeader>
 
-          <div className="p-4">
+          <div className="p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
             {!selected ? (
               <EmptyState title="Select a session" hint="Its tool calls stream in here." />
             ) : entries.length === 0 ? (
               <EmptyState title="No tool calls logged yet" />
             ) : (
-              <Well className="max-h-[60vh] overflow-auto p-0">
+              <Well className="overflow-auto p-0">
                 <ol className="machine divide-y divide-edge text-xs">
                   {entries.map((entry, index) => (
                     <li

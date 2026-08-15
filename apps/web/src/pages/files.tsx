@@ -73,15 +73,15 @@ export function FilesPage(): React.JSX.Element {
   const list = entries.data ?? [];
 
   return (
-    <Page>
+    <Page fill>
       <PageHeader icon={<Folder />} title="Files" meta={path} />
 
-      <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
-        <Panel className="h-fit overflow-hidden">
+      <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr]">
+        <Panel className="h-fit overflow-hidden lg:flex lg:h-auto lg:min-h-0 lg:flex-col">
           {entries.isLoading ? (
             <SkeletonRows rows={5} />
           ) : (
-            <ul>
+            <ul className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               {path !== "/" ? (
                 <li className="border-b border-edge">
                   <button
@@ -133,10 +133,10 @@ export function FilesPage(): React.JSX.Element {
           )}
         </Panel>
 
-        <Panel className="min-w-0">
+        <Panel className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
           {selected ? (
             <>
-              <PanelHeader className="border-b border-edge">
+              <PanelHeader className="shrink-0 border-b border-edge">
                 <PanelTitle icon={<File />}>
                   <span className="machine text-xs">{selected}</span>
                 </PanelTitle>
@@ -156,9 +156,9 @@ export function FilesPage(): React.JSX.Element {
                   </Button>
                 </div>
               </PanelHeader>
-              <div className="p-4">
+              <div className="p-4 lg:min-h-0 lg:flex-1">
                 <textarea
-                  className="machine h-[60vh] w-full resize-none rounded-control bg-sunken p-3.5 text-xs leading-relaxed text-ink focus:outline-none focus-visible:outline-2 focus-visible:outline-solid"
+                  className="machine h-[60vh] w-full resize-none rounded-control bg-sunken p-3.5 text-xs leading-relaxed text-ink focus:outline-none focus-visible:outline-2 focus-visible:outline-solid lg:h-full"
                   value={content}
                   onChange={(event) => setContent(event.target.value)}
                   aria-label={`Contents of ${selected}`}

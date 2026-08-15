@@ -37,3 +37,14 @@ export interface SessionDto {
   startedAt: string;
   endedAt: string | null;
 }
+
+/**
+ * What `GET /sessions` returns.
+ *
+ * The tool-call log is deliberately absent. A finished run's log is the bulk of
+ * a session row, the list renders none of it, and the list is polled every few
+ * seconds by the session viewer and the top bar — shipping every log on every
+ * poll made the list two orders of magnitude larger than the data it displays.
+ * Fetch a single session (`GET /sessions/:id`) to replay its log.
+ */
+export type SessionSummaryDto = Omit<SessionDto, "toolCallLog">;

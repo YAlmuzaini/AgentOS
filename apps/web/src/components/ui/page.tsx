@@ -37,16 +37,30 @@ export function Page({
   children,
   className,
   width = "full",
+  fill,
 }: {
   children: ReactNode;
   className?: string;
   /** `reading` narrows to a comfortable measure for text-led screens. */
   width?: "full" | "reading" | "form";
+  /**
+   * Make the page exactly as tall as the viewport and let its own regions
+   * scroll, instead of growing the main scroller.
+   *
+   * Screens whose content is a list of unknown length need this: with a seeded
+   * database the Kanban board ran to 25 cards in one column and the session
+   * list to 32 rows, which pushed every column heading and every detail pane
+   * off the screen. Fixtures never showed it because fixtures were small.
+   */
+  fill?: boolean;
 }): React.JSX.Element {
   return (
     <div
       className={cn(
-        "rise space-y-5",
+        "rise",
+        // Only from lg up. On a phone the whole page scrolling is correct —
+        // turning a single stacked column into its own little scroller is not.
+        fill ? "space-y-5 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:space-y-0 lg:gap-5" : "space-y-5",
         width === "reading" ? "mx-auto max-w-3xl" : null,
         width === "form" ? "max-w-2xl" : null,
         className,

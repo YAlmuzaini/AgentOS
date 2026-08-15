@@ -90,7 +90,7 @@ export function TasksPage(): React.JSX.Element {
   ).length;
 
   return (
-    <Page>
+    <Page fill>
       <PageHeader
         icon={<SquareKanban />}
         title="Tasks"
@@ -104,34 +104,42 @@ export function TasksPage(): React.JSX.Element {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:min-h-0 lg:flex-1 xl:grid-cols-4">
         {TASK_STATUSES.map((status) => {
           const columnTasks = (tasks.data ?? []).filter((task) => task.status === status);
           return (
-            <section key={status} className="flex min-w-0 flex-col gap-2">
-              <div className="flex items-center gap-2 px-0.5">
+            <section key={status} className="flex min-w-0 flex-col gap-2 lg:min-h-0">
+              {/* The heading stays put while the column scrolls under it —
+                  otherwise a long Done column takes every other column's
+                  heading off the screen with it. */}
+              <div className="flex shrink-0 items-center gap-2 px-0.5">
                 <span aria-hidden className={`size-1.5 rounded-full ${COLUMN_DOT[status]}`} />
                 <h2 className="text-[13px] font-medium text-ink">{COLUMN_TITLE[status]}</h2>
                 <CountChip>{columnTasks.length}</CountChip>
               </div>
 
-              <ul className="space-y-2">
-                {columnTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    busy={run.isPending || patch.isPending}
-                    onRun={() => run.mutate(task.id)}
-                    onAdvance={(next) => patch.mutate({ id: task.id, status: next })}
-                  />
-                ))}
-              </ul>
-
-              {columnTasks.length === 0 ? (
-                <p className="rounded-panel border border-dashed border-edge px-3 py-6 text-center text-[13px] text-ink-faint">
-                  {EMPTY_COLUMN_TEXT[status]}
-                </p>
-              ) : null}
+              {/* One scroll region per column. The empty state lives inside it
+                  rather than after it, so an empty column shows its message at
+                  the top instead of pinned to the bottom of the fill. */}
+              <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+                {columnTasks.length === 0 ? (
+                  <p className="rounded-panel border border-dashed border-edge px-3 py-6 text-center text-[13px] text-ink-faint">
+                    {EMPTY_COLUMN_TEXT[status]}
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {columnTasks.map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        busy={run.isPending || patch.isPending}
+                        onRun={() => run.mutate(task.id)}
+                        onAdvance={(next) => patch.mutate({ id: task.id, status: next })}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </div>
             </section>
           );
         })}

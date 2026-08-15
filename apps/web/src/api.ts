@@ -23,6 +23,7 @@ import type {
   RepoDto,
   SecretRefDto,
   SessionDto,
+  SessionSummaryDto,
   SettingsDto,
   SkillDto,
   TaskActivityDto,
@@ -127,7 +128,8 @@ export const api = {
   taskActivity: (projectId: string, id: string) =>
     request<TaskActivityDto[]>(`/projects/${projectId}/tasks/${id}/activity`),
 
-  sessions: () => request<SessionDto[]>("/sessions"),
+  // The list carries no tool-call log — fetch a single session to replay one.
+  sessions: () => request<SessionSummaryDto[]>("/sessions"),
   session: (id: string) => request<SessionDto>(`/sessions/${id}`),
 
   inbox: (status?: string) =>
@@ -203,11 +205,12 @@ export const api = {
     request<{ path: string; content: string; mime: string }>(
       `/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`,
     ),
+  // Returns the written directory entry, not the content that was just sent.
   writeFileContent: (projectId: string, body: WriteFileInput) =>
-    request<{ path: string; content: string; mime: string }>(
-      `/projects/${projectId}/files/content`,
-      { method: "PUT", body: JSON.stringify(body) },
-    ),
+    request<FileEntryDto>(`/projects/${projectId}/files/content`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   deleteFileContent: (projectId: string, path: string) =>
     request<void>(`/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`, {
       method: "DELETE",
