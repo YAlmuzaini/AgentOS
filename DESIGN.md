@@ -45,6 +45,11 @@ typography:
     fontWeight: 600
     lineHeight: 1
     letterSpacing: "-0.02em"
+  figure:
+    fontFamily: "Inter Tight Variable, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "1.375rem"
+    fontWeight: 600
+    lineHeight: 1
   machine:
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
     fontSize: "0.75rem"
@@ -187,6 +192,7 @@ deliberately short and small — density is the point.
 | Step | Size | Use |
 |---|---|---|
 | metric | 28px / 600 | the one number a metric card is about |
+| figure | 22px / 600 | a supporting count beside others, never the headline |
 | title | 15px / 600 | page titles, dialog titles |
 | body | 13px / 400 | everything the operator reads and every control label |
 | label | 11px / 500, 0.06em, uppercase | sidebar group captions, day headings |

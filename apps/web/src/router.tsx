@@ -1,6 +1,7 @@
-import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { Layout } from "./app/layout";
 import { ActivityPage } from "./pages/activity";
+import { DashboardPage } from "./pages/dashboard";
 import { AgentsPage } from "./pages/agents";
 import { AutomationsPage } from "./pages/automations";
 import { EnvironmentPage } from "./pages/environment";
@@ -22,12 +23,11 @@ const rootRoute = createRootRoute({ component: Layout });
 // Routes are declared one by one rather than through a helper: TanStack infers
 // the literal path of each route, and that inference is what makes <Link to>
 // type-checked across the app.
+// The app opens on the overview: what ran, what broke, what is parked on you.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  beforeLoad: () => {
-    throw redirect({ to: "/tasks" });
-  },
+  component: DashboardPage,
 });
 
 const tasksRoute = createRoute({

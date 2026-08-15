@@ -8,6 +8,7 @@ import {
   History,
   Inbox,
   KeyRound,
+  LayoutDashboard,
   ShieldCheck,
   Sparkles,
   SquareKanban,
@@ -38,6 +39,7 @@ export const NAV: NavGroup[] = [
   {
     label: null,
     items: [
+      { to: "/", label: "Overview", icon: LayoutDashboard },
       { to: "/tasks", label: "Tasks", icon: SquareKanban },
       { to: "/goals", label: "Goals", icon: Target },
       { to: "/inbox", label: "Inbox", icon: Inbox },
