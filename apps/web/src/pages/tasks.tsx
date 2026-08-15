@@ -1,4 +1,9 @@
-import { TASK_STATUSES, type TaskDto, type TaskStatus } from "@agentos/shared";
+import {
+  SCHEDULE_KINDS,
+  TASK_STATUSES,
+  type TaskDto,
+  type TaskStatus,
+} from "@agentos/shared";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -9,9 +14,10 @@ import { Button } from "../components/ui/button";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { CheckboxField, Field, FormActions, Input, Select, Textarea } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
-import { Panel } from "../components/ui/panel";
+import { MicroLabel, Panel } from "../components/ui/panel";
 import { CountChip, StatusPill } from "../components/ui/pill";
 import { useActiveProject } from "../hooks/use-project";
+import { TaskDetail } from "./task-detail";
 
 const COLUMN_TITLE: Record<TaskStatus, string> = {
   todo: "To do",
@@ -26,6 +32,19 @@ const EMPTY_COLUMN_TEXT: Record<TaskStatus, string> = {
   review: "Nothing waiting on review.",
   done: "No completed tasks yet.",
 };
+
+type ScheduleKind = (typeof SCHEDULE_KINDS)[number];
+
+const SCHEDULE_LABEL: Record<ScheduleKind, string> = {
+  now: "Now",
+  at: "At a time",
+  cron: "On a cron",
+};
+
+const SCHEDULE_CHOICES = SCHEDULE_KINDS.map((kind) => ({
+  kind,
+  label: SCHEDULE_LABEL[kind],
+}));
 
 /** The column head keeps its status colour; the cards below stay neutral. */
 const COLUMN_DOT: Record<TaskStatus, string> = {
@@ -45,6 +64,7 @@ export function TasksPage(): React.JSX.Element {
   const search = useSearch({ from: "/tasks" });
   const navigate = useNavigate();
   const creating = search.new === true;
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const setCreating = (open: boolean): void => {
     void navigate({ to: "/tasks", search: open ? { new: true } : {}, replace: true });
   };
@@ -88,6 +108,8 @@ export function TasksPage(): React.JSX.Element {
   const gated = (tasks.data ?? []).filter(
     (task) => task.status === "review" && task.approvalGate,
   ).length;
+  // Read from the live list so the sheet follows a card that moves under it.
+  const openTask = (tasks.data ?? []).find((task) => task.id === openTaskId) ?? null;
 
   return (
     <Page fill>
@@ -133,6 +155,7 @@ export function TasksPage(): React.JSX.Element {
                         key={task.id}
                         task={task}
                         busy={run.isPending || patch.isPending}
+                        onOpen={() => setOpenTaskId(task.id)}
                         onRun={() => run.mutate(task.id)}
                         onAdvance={(next) => patch.mutate({ id: task.id, status: next })}
                       />
@@ -144,6 +167,18 @@ export function TasksPage(): React.JSX.Element {
           );
         })}
       </div>
+
+      {openTask ? (
+        <TaskDetail
+          projectId={project.id}
+          task={openTask}
+          agents={agents.data ?? []}
+          busy={run.isPending || patch.isPending}
+          onClose={() => setOpenTaskId(null)}
+          onRun={() => run.mutate(openTask.id)}
+          onApprove={() => patch.mutate({ id: openTask.id, status: "done" })}
+        />
+      ) : null}
 
       <CreateTaskDialog
         open={creating}
@@ -162,6 +197,7 @@ export function TasksPage(): React.JSX.Element {
 function TaskCard(props: {
   task: TaskDto;
   busy: boolean;
+  onOpen: () => void;
   onRun: () => void;
   onAdvance: (next: TaskStatus) => void;
 }): React.JSX.Element {
@@ -182,7 +218,15 @@ function TaskCard(props: {
   return (
     <li>
       <Panel className="p-3 transition-colors hover:border-edge-strong">
-        <p className="text-[13px] font-medium text-ink">{task.name}</p>
+        {/* The whole card opens the detail; the action buttons below stop the
+            click so running a task never also opens a sheet over it. */}
+        <button
+          type="button"
+          className="block w-full text-left text-[13px] font-medium text-ink"
+          onClick={props.onOpen}
+        >
+          {task.name}
+        </button>
         {/* A pill is a label, not a sentence. The full promise — that an agent
             physically cannot close this — is the title, so the card keeps a
             clean single-line badge at any column width. */}
@@ -208,6 +252,12 @@ function CreateTaskDialog(props: {
   const [description, setDescription] = useState("");
   const [agentId, setAgentId] = useState("");
   const [approvalGate, setApprovalGate] = useState(false);
+  const [scheduleKind, setScheduleKind] = useState<ScheduleKind>("now");
+  const [runAt, setRunAt] = useState("");
+  const [cron, setCron] = useState("");
+  const [timezone, setTimezone] = useState(
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  );
 
   const create = useMutation({
     mutationFn: () =>
@@ -217,14 +267,24 @@ function CreateTaskDialog(props: {
         assigneeType: "agent",
         assigneeAgentId: agentId,
         approvalGate,
-        scheduleKind: "now",
+        scheduleKind,
+        // The server rejects a mismatched pair, so only send the fields the
+        // chosen kind actually uses.
+        runAt: scheduleKind === "at" && runAt ? new Date(runAt) : null,
+        cron: scheduleKind === "cron" ? cron : null,
+        timezone: scheduleKind === "cron" ? timezone : null,
       }),
     onSuccess: () => {
       setName("");
       setDescription("");
+      setRunAt("");
+      setCron("");
       props.onCreated();
     },
   });
+
+  const scheduleIncomplete =
+    (scheduleKind === "at" && !runAt) || (scheduleKind === "cron" && (!cron || !timezone));
 
   return (
     <Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
@@ -285,6 +345,73 @@ function CreateTaskDialog(props: {
                   </Select>
                 )}
               </Field>
+              {/* The API has supported at/cron scheduling all along; this form
+                  used to hardcode "now", so the only way to schedule a task
+                  was to write an automation for it. */}
+              <div>
+                <MicroLabel className="mb-1.5">Run</MicroLabel>
+                <div
+                  role="radiogroup"
+                  aria-label="Schedule"
+                  className="inline-flex rounded-control border border-edge bg-sunken p-0.5"
+                >
+                  {SCHEDULE_CHOICES.map((choice) => (
+                    <button
+                      key={choice.kind}
+                      type="button"
+                      role="radio"
+                      aria-checked={scheduleKind === choice.kind}
+                      onClick={() => setScheduleKind(choice.kind)}
+                      className={`rounded-[6px] px-3 py-1 text-[13px] transition-colors ${
+                        scheduleKind === choice.kind
+                          ? "bg-panel font-medium text-ink shadow-lift"
+                          : "text-ink-muted hover:text-ink"
+                      }`}
+                    >
+                      {choice.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {scheduleKind === "at" ? (
+                <Field label="Run at">
+                  {(id) => (
+                    <Input
+                      id={id}
+                      type="datetime-local"
+                      value={runAt}
+                      onChange={(event) => setRunAt(event.target.value)}
+                    />
+                  )}
+                </Field>
+              ) : null}
+
+              {scheduleKind === "cron" ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Cron" hint="Five fields, e.g. 0 9 * * *">
+                    {(id) => (
+                      <Input
+                        id={id}
+                        className="machine"
+                        placeholder="0 9 * * *"
+                        value={cron}
+                        onChange={(event) => setCron(event.target.value)}
+                      />
+                    )}
+                  </Field>
+                  <Field label="Timezone">
+                    {(id) => (
+                      <Input
+                        id={id}
+                        value={timezone}
+                        onChange={(event) => setTimezone(event.target.value)}
+                      />
+                    )}
+                  </Field>
+                </div>
+              ) : null}
+
               <CheckboxField
                 label="Require my approval before this can be marked done"
                 checked={approvalGate}
@@ -305,9 +432,13 @@ function CreateTaskDialog(props: {
                 <Button
                   type="submit"
                   variant="solid"
-                  disabled={!name || !agentId || create.isPending}
+                  disabled={!name || !agentId || scheduleIncomplete || create.isPending}
                 >
-                  {create.isPending ? "Creating…" : "Create & run"}
+                  {create.isPending
+                    ? "Creating…"
+                    : scheduleKind === "now"
+                      ? "Create & run"
+                      : "Create & schedule"}
                 </Button>
               </FormActions>
             </div>
