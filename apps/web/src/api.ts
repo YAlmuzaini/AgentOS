@@ -16,6 +16,7 @@ import type {
   EnvironmentDto,
   FileEntryDto,
   GoalDto,
+  InstantiateTemplateInput,
   InboxMessageDto,
   McpConnectionDto,
   PatchTaskInput,
@@ -271,6 +272,17 @@ export const api = {
 
   templates: (projectId: string) =>
     request<TaskTemplateDto[]>(`/projects/${projectId}/templates`),
+  /** Re-installs the built-in workflows over whatever is there. */
+  installBuiltInTemplates: (projectId: string) =>
+    request<TaskTemplateDto[]>(`/projects/${projectId}/templates/install-built-ins`, {
+      method: "POST",
+    }),
+  /** Creates every card in the chain at once; returns them in step order. */
+  instantiateTemplate: (projectId: string, id: string, body: InstantiateTemplateInput) =>
+    request<TaskDto[]>(`/projects/${projectId}/templates/${id}/instantiate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   activity: (projectId: string, limit = 100) =>
     request<ActivityEntryDto[]>(`/projects/${projectId}/activity?limit=${limit}`),

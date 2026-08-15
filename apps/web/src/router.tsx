@@ -14,6 +14,7 @@ import { SessionsPage } from "./pages/sessions";
 import { SettingsPage } from "./pages/settings";
 import { SkillsPage } from "./pages/skills";
 import { TasksPage } from "./pages/tasks";
+import { TemplatesPage } from "./pages/templates";
 import { TriggersPage } from "./pages/triggers";
 
 const rootRoute = createRootRoute({ component: Layout });
@@ -73,6 +74,12 @@ const activityRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/activity",
   component: ActivityPage,
+});
+
+const templatesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/templates",
+  component: TemplatesPage,
 });
 
 const skillsRoute = createRoute({
@@ -137,6 +144,7 @@ const routeTree = rootRoute.addChildren([
   inboxRoute,
   goalsRoute,
   activityRoute,
+  templatesRoute,
   skillsRoute,
   filesRoute,
   mcpsRoute,

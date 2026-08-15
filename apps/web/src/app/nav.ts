@@ -3,6 +3,7 @@ import {
   Bot,
   CalendarClock,
   Folder,
+  FolderGit2,
   GitBranch,
   History,
   Inbox,
@@ -46,6 +47,7 @@ export const NAV: NavGroup[] = [
     label: "Agents",
     items: [
       { to: "/agents", label: "Agents", icon: Bot },
+      { to: "/templates", label: "Templates", icon: FolderGit2 },
       { to: "/skills", label: "Skills", icon: Sparkles },
       { to: "/sessions", label: "Sessions", icon: Terminal },
       { to: "/activity", label: "Activity", icon: History },
