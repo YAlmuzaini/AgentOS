@@ -60,7 +60,7 @@ export function Sidebar({
         <Kbd>K</Kbd>
       </Link>
 
-      <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+      <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-0.5">
         {NAV.map((group, index) => (
           <div key={group.label ?? `lead-${index}`} className="space-y-0.5">
             {group.label ? (

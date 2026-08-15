@@ -37,8 +37,12 @@ const tasksRoute = createRoute({
   // so there is one create control in the app rather than one per surface.
   // Returning the key only when it is on keeps `?new=false` out of the URL:
   // an omitted flag is the closed state, and the bare /tasks stays clean.
+  // The router parses search values as JSON, so a hand-typed `?new=1` arrives
+  // as the number 1 and `?new=true` as a boolean. Accept the lot.
   validateSearch: (search: Record<string, unknown>): { new?: true } =>
-    search.new === true || search.new === "true" || search.new === "1" ? { new: true } : {},
+    search.new === true || search.new === "true" || search.new === "1" || search.new === 1
+      ? { new: true }
+      : {},
 });
 
 const agentsRoute = createRoute({
