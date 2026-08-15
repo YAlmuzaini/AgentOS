@@ -5,20 +5,123 @@ import {
   type EnvBindingDto,
   type EnvironmentDto,
 } from "@agentos/shared";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, ShieldCheck } from "lucide-react";
+import { Pencil, Plus, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { CreatePanel } from "../components/ui/create-panel";
-import { EmptyState, SkeletonRows } from "../components/ui/feedback";
-import { Field, Input, Select } from "../components/ui/form";
+import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
+import { Field, FormActions, Input, Select } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useActiveProject } from "../hooks/use-project";
 import { NoProject } from "./tasks";
+
+/**
+ * Editing an existing environment. The API has had PUT since the beginning and
+ * nothing called it, so a network policy could be created and then never
+ * corrected — which matters more here than on any other resource, because this
+ * is the wall that decides which hosts a session can reach.
+ */
+function EditEnvironmentDialog(props: {
+  environment: EnvironmentDto;
+  pending: boolean;
+  onClose: () => void;
+  onSave: (body: CreateEnvironmentInput) => void;
+}): React.JSX.Element {
+  const [name, setName] = useState(props.environment.name);
+  const [networking, setNetworking] = useState<CreateEnvironmentInput["networking"]>(
+    props.environment.networking,
+  );
+  const [hosts, setHosts] = useState(props.environment.allowedHosts.join(", "));
+
+  return (
+    <Dialog.Root open onOpenChange={(open) => !open && props.onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay" />
+        <Dialog.Content className="rise fixed top-1/2 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-panel border border-edge bg-panel shadow-pop outline-none">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              props.onSave({
+                name,
+                networking,
+                allowedHosts: hosts
+                  .split(",")
+                  .map((host) => host.trim())
+                  .filter(Boolean),
+              });
+            }}
+          >
+            <div className="border-b border-edge px-5 py-4">
+              <Dialog.Title className="text-[15px] font-semibold text-ink">
+                Edit environment
+              </Dialog.Title>
+              <Dialog.Description className="mt-1 text-[13px] text-ink-muted">
+                Sessions already running keep the policy they started with.
+              </Dialog.Description>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <Field label="Name">
+                {(id) => (
+                  <Input id={id} value={name} onChange={(event) => setName(event.target.value)} />
+                )}
+              </Field>
+              <Field label="Networking">
+                {(id) => (
+                  <Select
+                    id={id}
+                    value={networking}
+                    onChange={(event) =>
+                      setNetworking(event.target.value as CreateEnvironmentInput["networking"])
+                    }
+                  >
+                    {NETWORKING_MODES.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {mode}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+              <Field label="Allowed hosts" hint="Comma separated. Ignored when networking is open.">
+                {(id) => (
+                  <Input
+                    id={id}
+                    className="machine"
+                    value={hosts}
+                    onChange={(event) => setHosts(event.target.value)}
+                  />
+                )}
+              </Field>
+              {networking === "open" ? (
+                <InlineError>
+                  Open networking lets a session reach any host. The allowlist below stops applying.
+                </InlineError>
+              ) : null}
+            </div>
+
+            <div className="border-t border-edge px-5 py-3.5">
+              <FormActions>
+                <Button variant="ghost" onClick={props.onClose}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="solid" disabled={!name || props.pending}>
+                  {props.pending ? "Saving…" : "Save"}
+                </Button>
+              </FormActions>
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
 
 /**
  * There are two modes and only two: `limited` is an allowlist, `open` is not.
@@ -67,6 +170,17 @@ export function EnvironmentPage(): React.JSX.Element {
     onSuccess: () => {
       setCreatingBinding(false);
       void queryClient.invalidateQueries({ queryKey: ["env-bindings", projectId] });
+    },
+  });
+
+  const [editing, setEditing] = useState<EnvironmentDto | null>(null);
+
+  const updateEnvironment = useMutation({
+    mutationFn: (input: { id: string; body: CreateEnvironmentInput }) =>
+      api.updateEnvironment(projectId!, input.id, input.body),
+    onSuccess: () => {
+      setEditing(null);
+      void queryClient.invalidateQueries({ queryKey: ["environments", projectId] });
     },
   });
 
@@ -191,6 +305,7 @@ export function EnvironmentPage(): React.JSX.Element {
                   <TH>Name</TH>
                   <TH>Networking</TH>
                   <TH>Allowed hosts</TH>
+                  <TH className="w-0" />
                 </tr>
               </THead>
               <tbody>
@@ -205,12 +320,28 @@ export function EnvironmentPage(): React.JSX.Element {
                     <TD className="machine text-xs text-ink-muted">
                       {environment.allowedHosts.join(", ") || "—"}
                     </TD>
+                    <TD>
+                      <div className="flex justify-end">
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(environment)}>
+                          <Pencil />
+                          Edit
+                        </Button>
+                      </div>
+                    </TD>
                   </TR>
                 ))}
               </tbody>
             </Table>
           </TableCard>
         )}
+        {editing ? (
+          <EditEnvironmentDialog
+            environment={editing}
+            pending={updateEnvironment.isPending}
+            onClose={() => setEditing(null)}
+            onSave={(body) => updateEnvironment.mutate({ id: editing.id, body })}
+          />
+        ) : null}
       </section>
 
       <section className="space-y-3">

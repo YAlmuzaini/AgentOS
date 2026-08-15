@@ -249,6 +249,11 @@ export const api = {
     }),
   triggerFires: (projectId: string, id: string) =>
     request<TriggerFireDto[]>(`/projects/${projectId}/triggers/${id}/fires`),
+  /** Installs the example webhook triggers, for a project starting from nothing. */
+  installExampleTriggers: (projectId: string) =>
+    request<TriggerDto[]>(`/projects/${projectId}/triggers/install-examples`, {
+      method: "POST",
+    }),
 
   automations: (projectId: string) =>
     request<AutomationDto[]>(`/projects/${projectId}/automations`),

@@ -1,6 +1,6 @@
 import type { AgentDto, TriggerFireDto, TriggerSecretDto } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, KeyRound, Plus, RefreshCw, Webhook } from "lucide-react";
+import { Copy, Download, KeyRound, Plus, RefreshCw, Webhook } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
@@ -52,6 +52,11 @@ export function TriggersPage(): React.JSX.Element {
     },
   });
 
+  const installExamples = useMutation({
+    mutationFn: () => api.installExampleTriggers(projectId!),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["triggers", projectId] }),
+  });
+
   const fires = useQuery({
     queryKey: ["trigger-fires", projectId, selected],
     queryFn: () => api.triggerFires(projectId!, selected!),
@@ -76,10 +81,21 @@ export function TriggersPage(): React.JSX.Element {
         title="Triggers"
         meta={list.length > 0 ? `${list.length} endpoint${list.length === 1 ? "" : "s"}` : undefined}
         actions={
-          <Button variant="solid" onClick={() => setCreating(true)}>
-            <Plus />
-            New trigger
-          </Button>
+          <>
+            {list.length === 0 ? (
+              <Button
+                onClick={() => installExamples.mutate()}
+                disabled={installExamples.isPending}
+              >
+                <Download />
+                {installExamples.isPending ? "Installing…" : "Install examples"}
+              </Button>
+            ) : null}
+            <Button variant="solid" onClick={() => setCreating(true)}>
+              <Plus />
+              New trigger
+            </Button>
+          </>
         }
       />
 
@@ -146,12 +162,18 @@ export function TriggersPage(): React.JSX.Element {
           <EmptyState
             icon={<Webhook />}
             title="No triggers"
-            hint="Create one to receive webhooks."
+            hint="Create one to receive webhooks, or install the examples to see the shape."
             action={
-              <Button variant="solid" onClick={() => setCreating(true)}>
-                <Plus />
-                New trigger
-              </Button>
+              <div className="flex gap-2">
+                <Button onClick={() => installExamples.mutate()}>
+                  <Download />
+                  Install examples
+                </Button>
+                <Button variant="solid" onClick={() => setCreating(true)}>
+                  <Plus />
+                  New trigger
+                </Button>
+              </div>
             }
           />
         </Panel>

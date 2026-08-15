@@ -72,6 +72,30 @@ export function GoalDetail(props: {
         <p className="mt-2 text-[13px] leading-relaxed whitespace-pre-wrap text-ink-muted">
           {data.spec}
         </p>
+
+        {/*
+          The rails. A goal loops on its own, so the three things that can stop
+          it — spend, wall-clock, and repeated no-progress iterations — are the
+          operator's whole safety net and were not rendered anywhere.
+        */}
+        <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-edge pt-4 text-xs">
+          <Rail label="Spend cap">
+            {data.spendCapUsd === null ? (
+              <span className="text-gate">none</span>
+            ) : (
+              `$${data.spendCapUsd.toFixed(2)}`
+            )}
+          </Rail>
+          <Rail label="Time cap">
+            {data.maxDurationMinutes === null ? (
+              <span className="text-gate">none</span>
+            ) : (
+              `${data.maxDurationMinutes} min`
+            )}
+          </Rail>
+          <Rail label="Stuck after">{data.stuckThreshold} iterations</Rail>
+          <Rail label="Runner">{data.runnerPreference}</Rail>
+        </dl>
       </Panel>
 
       {!data.dodApproved ? (
@@ -182,7 +206,7 @@ export function GoalDetail(props: {
                 <li key={item.id} className="flex items-start gap-2.5 px-4 py-2.5">
                   <span
                     aria-hidden
-                    className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] border ${
+                    className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm border ${
                       item.done
                         ? "border-live bg-live text-on-solid"
                         : "border-edge-strong bg-panel"
@@ -218,6 +242,15 @@ export function GoalDetail(props: {
           ) : null}
         </>
       )}
+    </div>
+  );
+}
+
+function Rail(props: { label: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div>
+      <dt className="text-ink-faint">{props.label}</dt>
+      <dd className="tnum mt-0.5 font-medium text-ink">{props.children}</dd>
     </div>
   );
 }
