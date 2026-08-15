@@ -1,0 +1,64 @@
+# The local runner, as its own Coolify resource (DEPLOY.md §6).
+#
+# Deployed separately from the control plane on purpose. The worker executes
+# agent code with a shell, and an agent can read the environment of any process
+# sharing its unix user — so it must not share one with the control plane. A
+# container of its own, running as `node`, is that boundary.
+#
+# The shared secret has to match the control plane's `LOCAL_RUNNER_TOKEN`.
+# Magic variables are per-resource, so use a **project-level shared variable**
+# in Coolify and reference it from both resources as
+# `{{project.LOCAL_RUNNER_TOKEN}}` — that is the one value living in two places,
+# and this is how you keep it as one value.
+
+services:
+  local-runner:
+    build:
+      context: .
+      dockerfile: apps/local-runner/Dockerfile
+    restart: unless-stopped
+    environment:
+      # Gives this worker a TLS domain, so a control plane on another host can
+      # reach it. The bearer token below is what actually protects it.
+      - SERVICE_FQDN_LOCALRUNNER_4600
+      - LOCAL_RUNNER_PORT=4600
+      # Required, and shared with the control plane. The worker refuses to
+      # start without it rather than listening unauthenticated.
+      - LOCAL_RUNNER_TOKEN=${LOCAL_RUNNER_TOKEN:?}
+      # Preferred credential: a Claude subscription, which is the entire reason
+      # this backend exists. `claude setup-token` mints it.
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # Metered fallback. Leave blank if you set the OAuth token above; on an
+      # API key this backend costs more than the cloud runner and gives up the
+      # sandbox, so it is rarely what you want.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LOCAL_RUNNER_WORK_ROOT=/var/lib/agentos-local
+      # A hard ceiling this worker enforces itself. If the control plane dies
+      # mid-run, nothing else will stop Claude Code.
+      - LOCAL_RUNNER_MAX_SESSION_MINUTES=${LOCAL_RUNNER_MAX_SESSION_MINUTES:-120}
+      # This process cannot enforce an egress firewall, so by default it
+      # REFUSES sessions whose agent asks for a limited network, and those fall
+      # back to the cloud runner. Set to 1 only if you have firewalled this
+      # container yourself.
+      - LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=${LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK:-}
+    volumes:
+      # Session workspaces. A named volume keeps repo clones out of the
+      # container layer; the worker deletes each session's directory itself.
+      - agentos_local_workspaces:/var/lib/agentos-local
+    expose:
+      - "4600"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4600/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  agentos_local_workspaces:

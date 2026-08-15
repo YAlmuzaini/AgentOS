@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "runtime_vault_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;

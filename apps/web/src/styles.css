@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/*
+ * Tokens. DESIGN.md is normative — this file is its implementation, and the
+ * two are meant to be read together. Adding a colour here without adding it
+ * there is how a design system starts lying.
+ *
+ * "The Night Shift Control Room": a near-black field, hairline separation, and
+ * four signal hues that each own exactly one meaning.
+ */
+@theme {
+  /* Surfaces — three tonal steps, no shadows anywhere in the system. */
+  --color-surface: oklch(0.17 0.01 260);
+  --color-surface-raised: oklch(0.22 0.012 260);
+  --color-surface-sunken: oklch(0.13 0.01 260);
+
+  /* The only separator in the system. */
+  --color-edge: oklch(0.32 0.015 260);
+  --color-edge-strong: oklch(0.44 0.02 260);
+
+  /* Text. */
+  --color-ink: oklch(0.97 0.005 260);
+  --color-ink-muted: oklch(0.72 0.02 260);
+  --color-ink-faint: oklch(0.58 0.02 260);
+
+  /* Signal hues. One meaning each — see DESIGN.md, The One Meaning Rule. */
+  --color-live: oklch(0.78 0.16 165); /* running right now */
+  --color-gate: oklch(0.83 0.14 85); /* waiting on you */
+  --color-danger: oklch(0.72 0.17 25); /* broken, or breaks things */
+  --color-link: oklch(0.8 0.1 230); /* leaves the app */
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-surface text-ink antialiased;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Machine values: ids, paths, cron, YAML, tool names. The Machine Voice Rule. */
+code,
+pre,
+.machine {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/*
+ * Focus is never removed: this app is used keyboard-first at a desk and
+ * one-handed on a phone.
+ */
+:focus-visible {
+  outline: 1px solid var(--color-edge-strong);
+  outline-offset: 1px;
+}
+
+/* Respect the operator's own motion setting; nothing here needs animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,55 @@
+# Local dev dependencies only. Production deploy is Coolify + docker-compose.prod.yml
+# (RECIPE A8) and is not in scope for Phase 0/1.
+#
+# Ports are offset from the defaults so a locally-installed Postgres/Redis keeps
+# working alongside this stack.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: agentos
+      POSTGRES_PASSWORD: agentos
+      POSTGRES_DB: agentos
+    ports:
+      - "5433:5432"
+    volumes:
+      # Postgres 18 images want the whole directory, not the data subdirectory.
+      - agentos_pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentos -d agentos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - agentos_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Phase 2 filesystem. Stood up now so the bucket exists before the filesystem
+  # MCP lands; nothing in Phase 1 reads from it.
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: agentos
+      MINIO_ROOT_PASSWORD: agentos123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - agentos_minio:/data
+
+volumes:
+  agentos_pg:
+  agentos_redis:
+  agentos_minio:

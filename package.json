@@ -1,0 +1,28 @@
+{
+  "name": "agentos",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @agentos/db run generate",
+    "db:migrate": "pnpm --filter @agentos/db run migrate",
+    "db:seed": "pnpm --filter @agentos/db run seed",
+    "infra:up": "docker compose -f docker-compose.dev.yml up -d",
+    "infra:down": "docker compose -f docker-compose.dev.yml down"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.5",
+    "typescript": "^5.9.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "msgpackr-extract"]
+  }
+}

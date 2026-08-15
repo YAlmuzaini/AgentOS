@@ -1,0 +1,41 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# Tool caches
+.vite/
+.cache/
+.eslintcache
+.pnpm-store/
+.parcel-cache/
+
+# Secrets — RECIPE A2. Only the template is tracked.
+.env
+.env.*
+!.env.example
+
+# Operational state, not source
+.omc/
+.claude/settings.local.json
+*.log
+logs/
+*.pid
+
+# Local scratch: browser diagnosis output, ad-hoc screenshots
+.playwright-mcp/
+
+# Editor and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Claude
+.claude/
+
+# Impeccable
+.impeccable/

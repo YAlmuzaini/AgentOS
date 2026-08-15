@@ -1,0 +1,1 @@
+ALTER TABLE "goals" ADD COLUMN "dispatch_lease_at" timestamp with time zone;

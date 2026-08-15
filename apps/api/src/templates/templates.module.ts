@@ -1,0 +1,14 @@
+import { Module } from "@nestjs/common";
+import { ProjectsModule } from "../projects/projects.module";
+import { QueueModule } from "../queue/queue.module";
+import { TasksModule } from "../tasks/tasks.module";
+import { TemplatesController } from "./templates.controller";
+import { TemplatesService } from "./templates.service";
+
+@Module({
+  imports: [ProjectsModule, TasksModule, QueueModule],
+  controllers: [TemplatesController],
+  providers: [TemplatesService],
+  exports: [TemplatesService],
+})
+export class TemplatesModule {}

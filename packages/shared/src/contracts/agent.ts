@@ -1,0 +1,66 @@
+import { z } from "zod";
+import { RUNNER_PREFERENCES, REPO_PERMISSIONS } from "../enums";
+import { slugSchema } from "./project";
+import { mountPathSchema } from "./resources";
+
+/**
+ * Grants are default-deny (SPEC §5.1): anything absent from these arrays is
+ * denied. Phase 1 stores them; Phase 2 enforces them at the runner boundary.
+ */
+export const repoAccessSchema = z.object({
+  repoId: z.string().uuid(),
+  mountPath: mountPathSchema,
+  permissions: z.enum(REPO_PERMISSIONS),
+});
+export type RepoAccess = z.infer<typeof repoAccessSchema>;
+
+export const filesystemGrantSchema = z.object({
+  folderPath: z.string().startsWith("/"),
+  canRead: z.boolean(),
+  canWrite: z.boolean(),
+  canDelete: z.boolean(),
+});
+export type FilesystemGrant = z.infer<typeof filesystemGrantSchema>;
+
+export const createAgentSchema = z.object({
+  name: slugSchema,
+  title: z.string().min(1).max(200),
+  model: z.string().min(1),
+  /** Shared AgentOS prompt. Defaults to the reconstructed contract in prompts/. */
+  foundationalPrompt: z.string().optional(),
+  /** The one-job contract for this role. */
+  rolePrompt: z.string().min(1),
+  skillIds: z.array(z.string().uuid()).default([]),
+  mcpConnectionIds: z.array(z.string().uuid()).default([]),
+  repoAccess: z.array(repoAccessSchema).default([]),
+  filesystemGrants: z.array(filesystemGrantSchema).default([]),
+  /** Agent names this agent may spawn as a subtask. Only path to spawn (SPEC §5.10). */
+  collaborationList: z.array(slugSchema).default([]),
+  environmentId: z.string().uuid().nullable().default(null),
+  runnerPreference: z.enum(RUNNER_PREFERENCES).default("inherit"),
+  inboxAccess: z.boolean().default(true),
+});
+export type CreateAgentInput = z.infer<typeof createAgentSchema>;
+
+export const updateAgentSchema = createAgentSchema.partial().omit({ name: true });
+export type UpdateAgentInput = z.infer<typeof updateAgentSchema>;
+
+export interface AgentDto {
+  id: string;
+  projectId: string;
+  name: string;
+  title: string;
+  model: string;
+  foundationalPrompt: string;
+  rolePrompt: string;
+  skillIds: string[];
+  mcpConnectionIds: string[];
+  repoAccess: RepoAccess[];
+  filesystemGrants: FilesystemGrant[];
+  collaborationList: string[];
+  environmentId: string | null;
+  runnerPreference: (typeof RUNNER_PREFERENCES)[number];
+  inboxAccess: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

@@ -1,0 +1,293 @@
+# agentos.yml — this project as code (SPEC §17).
+#
+# Everything is keyed by name, so this file can be hand-edited, diffed, and
+# applied to a fresh project:
+#
+#   agentos push          apply this file
+#   agentos pull          rewrite this file from the control plane
+#
+# `push` then `pull` is an identity, which is what makes the file safe to keep
+# in git. Secrets appear here only as references — never values.
+
+agents:
+  coherence:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-opus-5
+    prompt: |-
+      You review the attached plan only through your lens (coherence).
+      Write a report. Finish.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Coherence reviewer
+  default:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-sonnet-5
+    prompt: |-
+      You are the default AgentOS agent. Do the assigned task with the tools
+      you have. Finish or inbox if stuck.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Default agent
+  feasibility:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-opus-5
+    prompt: |-
+      You review the attached plan only through your lens (feasibility).
+      Write a report. Finish.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Feasibility reviewer
+  implementation-plan-executioner:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-sonnet-5
+    prompt: |-
+      You implement the code according to the attached implementation plan.
+      Do not re-litigate the plan. Commit. Leave notes in activity.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Implementation plan executioner
+  librarian:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-sonnet-5
+    prompt: |-
+      You update the internal wiki (filesystem folder you are granted) to
+      reflect how the codebase actually works after this change. Do not
+      change product code.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Librarian
+  plan:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-opus-5
+    prompt: |-
+      You are a plan agent. You have one job: turn an approved specification
+      into a concrete, ordered implementation plan. Write the plan onto the
+      task (and as a file attachment). Then finish the task. You do not
+      implement. You do not open unrelated tools.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Plan agent
+  plan-risk:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-opus-5
+    prompt: |-
+      You review the attached plan only through your lens (risk and missing
+      tests). Call out steps that can fail silently, steps with no verification,
+      and paths the plan leaves untested. Write a report. Finish.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Plan risk reviewer
+  review-coordinator:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-opus-5
+    prompt: |-
+      You are a review coordinator. Spawn the listed review specialists
+      (feasibility, scope-guardian, coherence for plans; the code-review
+      specialists for implementation). Each writes a report. You consolidate
+      into must-fix and should-fix. Attach the consolidated report. Do not
+      implement fixes yourself.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Review coordinator
+  scope-guardian:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-opus-5
+    prompt: |-
+      You review the attached plan only through your lens (scope creep).
+      Write a report. Finish.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Scope guardian
+  senior-dev:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-sonnet-5
+    prompt: |-
+      You are a senior developer. Implement the assigned work, or apply review
+      fixes, in the granted repo. Follow the plan if one is attached. Commit
+      when done. Run available tests. Inbox the human only if you are blocked.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Senior developer
+  spec:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-opus-5
+    prompt: |-
+      You are a spec agent. Produce a detailed specification for the requested
+      feature. Attach the spec file. Refine it if the human replies. You cannot
+      mark this task done — it is approval-gated. Inbox the human when the spec
+      is ready for review.
+    repos: []
+    runner: cloud
+    skills: []
+    title: Spec agent
+environments:
+  limited-none:
+    allowedHosts: []
+    networking: limited
+  open:
+    allowedHosts: []
+    networking: open
+mcp: {}
+project: acme
+repos: {}
+secrets: {}
+skills: {}
+templates:
+  bugfix-workflow:
+    description: Approved bug report → plan → plan review → fix → E2E → you merge.
+    steps:
+      - agentName: plan
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: Plan the fix
+        prompt: |-
+          Read the attached cause report for: {{bug}}
+
+          Write an ordered plan for the fix on branch {{branchName}}.
+      - agentName: review-coordinator
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: Plan review
+        prompt: Review the fix plan through the four lenses. Consolidate must-fix / should-fix.
+      - agentName: senior-dev
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: Fix
+        prompt: Apply the reviewed plan on branch {{branchName}}. Add a regression test that fails without
+          the fix. Commit.
+      - agentName: senior-dev
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: E2E test
+        prompt: Run the repository's end-to-end suite against branch {{branchName}} and report the result on
+          the task. If it fails, fix and re-run.
+      - agentName: human
+        approvalGate: true
+        attachmentsFromPrevious: true
+        name: Human review of deployment / PR
+        prompt: Review and merge branch {{branchName}}.
+    variables:
+      - branchName
+      - bug
+  compound-engineer-workflow:
+    description: "Fully managed feature build: spec (you approve) → plan → multi-agent plan review →
+      revise → implement with E2E → code review → fixes → wiki → you merge."
+    steps:
+      - agentName: spec
+        approvalGate: true
+        attachmentsFromPrevious: false
+        name: Write a spec
+        prompt: >-
+          Write a detailed specification for: {{feature}}
+
+
+          Attach the spec as a file. Inbox the operator when it is ready for review. You cannot mark
+          this task done — it is approval-gated.
+      - agentName: plan
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: Plan
+        prompt: Turn the approved specification into a concrete, ordered implementation plan for branch
+          {{branchName}}. Write the plan onto the task and attach it as a file. Do not implement.
+      - agentName: review-coordinator
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: Plan review
+        prompt: Spawn the four plan reviewers — feasibility, scope-guardian, coherence, plan-risk — each
+          reviewing the attached plan through its own lens only. Consolidate their reports into
+          must-fix and should-fix. Attach the consolidated report. Do not implement fixes yourself.
+      - agentName: plan
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: Revise plan
+        prompt: Take the plan and the consolidated review. Resolve every must-fix. Decide on each should-fix
+          and say why. Attach the revised plan.
+      - agentName: implementation-plan-executioner
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: Implementation
+        prompt: Implement the attached plan on branch {{branchName}}. Do not re-litigate the plan. Run the
+          repository's existing end-to-end tests as part of this work — if the repo has an E2E
+          suite, it must pass before you finish. Commit.
+      - agentName: review-coordinator
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: Code review
+        prompt: Review the implementation on branch {{branchName}}. Spawn the code-review specialists.
+          Consolidate into must-fix and should-fix, each with the file and line it applies to.
+          Attach the report.
+      - agentName: senior-dev
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: Apply review fixes
+        prompt: Apply every must-fix from the attached code review on branch {{branchName}}. Re-run the
+          tests, including E2E. Commit.
+      - agentName: librarian
+        approvalGate: false
+        attachmentsFromPrevious: true
+        name: Librarian
+        prompt: Update the internal wiki to reflect how the codebase actually works after this change. Do
+          not change product code.
+      - agentName: human
+        approvalGate: true
+        attachmentsFromPrevious: true
+        name: Human review of deployment / PR
+        prompt: Check out branch {{branchName}}, review the PR, and merge it. Nothing else runs until you
+          close this card.
+    variables:
+      - branchName
+      - feature

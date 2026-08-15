@@ -1,0 +1,21 @@
+{
+  "name": "@agentos/cli",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "agentos": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@agentos/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2"
+  }
+}
