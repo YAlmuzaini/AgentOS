@@ -20,11 +20,13 @@ import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useActiveProject } from "../hooks/use-project";
 import { NoProject } from "./tasks";
 
-/** `none` is the safe default; `open` is the one worth a warning colour. */
-function networkTone(mode: string): "live" | "gate" | "danger" | "neutral" {
-  if (mode === "none") return "live";
-  if (mode === "limited") return "neutral";
-  return "danger";
+/**
+ * There are two modes and only two: `limited` is an allowlist, `open` is not.
+ * An earlier version also branched on a `none` mode that does not exist in
+ * NETWORKING_MODES, so the safe case was never actually coloured.
+ */
+function networkTone(mode: string): "live" | "danger" {
+  return mode === "limited" ? "live" : "danger";
 }
 
 export function EnvironmentPage(): React.JSX.Element {

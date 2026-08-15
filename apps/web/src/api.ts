@@ -111,6 +111,8 @@ export interface ActivityEntryDto {
 export const api = {
   projects: () => request<ProjectDto[]>("/projects"),
   agents: (projectId: string) => request<AgentDto[]>(`/projects/${projectId}/agents`),
+  agent: (projectId: string, id: string) =>
+    request<AgentDto>(`/projects/${projectId}/agents/${id}`),
 
   tasks: (projectId: string) => request<TaskDto[]>(`/projects/${projectId}/tasks`),
   createTask: (projectId: string, body: Partial<CreateTaskInput>) =>

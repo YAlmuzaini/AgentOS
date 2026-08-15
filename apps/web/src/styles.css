@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "@fontsource-variable/inter";
+@import "@fontsource-variable/inter-tight";
 
 /*
  * Tokens. DESIGN.md is normative — this file is its implementation, and the
@@ -64,11 +64,14 @@
 
   /* ---- Data ---------------------------------------------------------------
    * Chart and meter hues only. Never used to carry status.
+   *
+   * These four are the reference's own published palette, taken verbatim from
+   * its spec sheet (design-refs/agents/05.jpg) rather than matched by eye.
    */
-  --color-data-violet: oklch(0.5854 0.2041 285.5);
-  --color-data-sky: oklch(0.7343 0.1281 235.9);
-  --color-data-amber: oklch(0.7686 0.1454 70.1);
-  --color-data-emerald: oklch(0.6959 0.1491 162.5);
+  --color-data-violet: #6155f5;
+  --color-data-sky: #47c2ff;
+  --color-data-amber: #f6b51e;
+  --color-data-emerald: #1fc16b;
 
   /* ---- Shape --------------------------------------------------------------
    * Controls 8px, panels 10px, pills full. No third radius.
@@ -83,7 +86,8 @@
   --shadow-lift: 0 1px 2px 0 oklch(0.2178 0.004 106.42 / 0.05);
   --shadow-pop: 0 4px 12px -2px oklch(0.2178 0.004 106.42 / 0.1), 0 2px 4px -2px oklch(0.2178 0.004 106.42 / 0.06);
 
-  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* The reference names its face on its own spec sheet: Inter Tight. */
+  --font-sans: "Inter Tight Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -103,8 +107,6 @@ body {
   /* The documented `body` step. Unstyled text lands on the ramp rather than on
      a base that no component actually uses. */
   font-size: 13px;
-  font-feature-settings: "cv11", "ss01";
-  font-variation-settings: "opsz" 24;
 }
 
 /* Machine values: ids, paths, cron, YAML, tool names. The Machine Voice Rule. */

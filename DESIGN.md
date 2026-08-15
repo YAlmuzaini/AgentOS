@@ -17,30 +17,30 @@ colors:
   gate: "oklch(0.5623 0.1416 52.2)"
   danger: "oklch(0.5271 0.1738 27.3)"
   link: "oklch(0.5083 0.1852 264.4)"
-  data-violet: "oklch(0.5854 0.2041 285.5)"
-  data-sky: "oklch(0.7343 0.1281 235.9)"
-  data-amber: "oklch(0.7686 0.1454 70.1)"
-  data-emerald: "oklch(0.6959 0.1491 162.5)"
+  data-violet: "#6155F5"
+  data-sky: "#47C2FF"
+  data-amber: "#F6B51E"
+  data-emerald: "#1FC16B"
 typography:
   title:
-    fontFamily: "Inter Variable, ui-sans-serif, system-ui, sans-serif"
+    fontFamily: "Inter Tight Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "0.9375rem"
     fontWeight: 600
     lineHeight: 1.3
     letterSpacing: "-0.01em"
   body:
-    fontFamily: "Inter Variable, ui-sans-serif, system-ui, sans-serif"
+    fontFamily: "Inter Tight Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "0.8125rem"
     fontWeight: 400
     lineHeight: 1.5
   label:
-    fontFamily: "Inter Variable, ui-sans-serif, system-ui, sans-serif"
+    fontFamily: "Inter Tight Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "0.6875rem"
     fontWeight: 500
     lineHeight: 1.2
     letterSpacing: "0.06em"
   metric:
-    fontFamily: "Inter Variable, ui-sans-serif, system-ui, sans-serif"
+    fontFamily: "Inter Tight Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "1.75rem"
     fontWeight: 600
     lineHeight: 1
@@ -166,17 +166,23 @@ signal hue. It gets a neutral pill with a data-hue dot.
 
 ### Data — never status
 
-`data-violet`, `data-sky`, `data-amber`, `data-emerald`. These are for meter segments, panel
-accent marks, and category dots. A data hue must never be the thing that tells an operator
-something is wrong.
+`data-violet` `#6155F5`, `data-sky` `#47C2FF`, `data-amber` `#F6B51E`, `data-emerald` `#1FC16B`.
+These are for meter segments, panel accent marks, and category dots. A data hue must never be the
+thing that tells an operator something is wrong.
+
+**These four are not approximations.** They are the reference's own published palette, read off its
+spec sheet at `design-refs/agents/05.jpg`, which also names the typeface as **Inter Tight**. An
+earlier pass matched both by eye and got both slightly wrong; when a reference states its tokens,
+use the stated values.
 
 **The Rationing Rule.** On a resting screen, signal hues stay under about 5% of the surface. A
 screen showing three colours is telling you three things are happening.
 
 ## Typography
 
-Inter Variable, self-hosted via `@fontsource-variable/inter`; monospace for machine values. The
-ramp is deliberately short and small — density is the point.
+Inter Tight Variable, self-hosted via `@fontsource-variable/inter-tight`; monospace for machine
+values. The face is the one the reference names on its own spec sheet, not a lookalike. The ramp is
+deliberately short and small — density is the point.
 
 | Step | Size | Use |
 |---|---|---|
