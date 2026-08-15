@@ -28,7 +28,13 @@ export async function createWorkspace(root: string, input: ProvisionBody): Promi
     async destroy() {
       // The clone carries a credential in its remote URL if one was supplied,
       // so this removal is part of the security story, not just tidiness.
-      await rm(dir, { recursive: true, force: true });
+      //
+      // Retried, because `fs.rm` does not retry by default and a real run
+      // proved why: the agent's own tooling was still writing under the
+      // workspace as it was torn down, and `rmdir` failed with `ENOTEMPTY` on
+      // a directory that had been empty a moment earlier. The session then
+      // reported a destroy failure and left the whole workspace on disk.
+      await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     },
   };
 }

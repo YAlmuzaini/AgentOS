@@ -1,4 +1,4 @@
-import { type Database, inboxMessages } from "@agentos/db";
+import { type Database, inboxMessages, sessions } from "@agentos/db";
 import type {
   InboxChoice,
   InboxKind,
@@ -9,6 +9,7 @@ import type {
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
+import { ERROR_REPORTER, type ErrorReporter } from "../observability/error-reporter";
 import { PushService } from "../push/push.service";
 import { SessionQueue } from "../queue/session.queue";
 import { SessionsService } from "../sessions/sessions.service";
@@ -24,6 +25,7 @@ export class InboxService {
     private readonly queue: SessionQueue,
     private readonly push: PushService,
     private readonly sessions: SessionsService,
+    @Inject(ERROR_REPORTER) private readonly errors: ErrorReporter,
   ) {}
 
   async list(status?: InboxStatus): Promise<InboxMessageDto[]> {
@@ -124,19 +126,50 @@ export class InboxService {
       }
       return toDto(row!);
     } catch (error) {
-      // The claim already moved the session to `running`. Left there, it is
-      // invisible to the reaper and untouchable by a retry — a container with
-      // no way back. Put it where it was and let the operator try again.
+      // Both halves of the answer have to come back, not just one.
+      //
+      // The claim moved the session to `running`; left there it is invisible to
+      // the reaper and untouchable by a retry. And if the row committed as
+      // `answered` before the enqueue failed, the guard at the top of this
+      // method refuses every later attempt — so the park would be
+      // unanswerable, and its container would sit billing until the timeout (or
+      // forever, where the operator disabled it).
       if (parked && message.sessionId) {
-        await this.sessions
-          .returnToPark(message.sessionId)
-          .catch((restoreError: unknown) =>
-            this.logger.error(
-              `session ${message.sessionId} is stuck as running after a failed reply: ${String(restoreError)}`,
-            ),
-          );
+        await this.rollback(id, message.body, message.sessionId);
       }
       throw error;
+    }
+  }
+
+  /**
+   * Undoes an answer whose resume could not be handed to the queue.
+   *
+   * Both halves in one transaction, because either alone is a trap. A message
+   * left `answered` beside a parked session refuses every retry as already
+   * answered; a session left `running` beside an open message is invisible to
+   * the reaper and fails every resume claim. Both end the same way: a container
+   * billing with nothing able to reach it.
+   *
+   * A rollback that itself fails is reported rather than logged — it is the one
+   * outcome nothing downstream can repair.
+   */
+  private async rollback(id: string, originalBody: string, sessionId: string): Promise<void> {
+    try {
+      await this.db.transaction(async (tx) => {
+        await tx
+          .update(inboxMessages)
+          .set({ status: "open", selectedChoiceId: null, body: originalBody, answeredAt: null })
+          .where(and(eq(inboxMessages.id, id), eq(inboxMessages.status, "answered")));
+        await tx
+          .update(sessions)
+          .set({ status: "waiting-inbox", parkedAt: new Date() })
+          .where(and(eq(sessions.id, sessionId), eq(sessions.status, "running")));
+      });
+    } catch (rollbackError) {
+      this.errors.capture(rollbackError, {
+        scope: "inbox.rollback",
+        tags: { inboxMessageId: id, sessionId },
+      });
     }
   }
 

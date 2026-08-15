@@ -8,7 +8,7 @@ import {
   type ToolCallLogEntry,
 } from "@agentos/shared";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, inArray, lt, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 
 export type SessionRow = typeof sessions.$inferSelect;
@@ -146,25 +146,36 @@ export class SessionsService {
    * retry queue — no separate bookkeeping, and nothing is forgotten because a
    * process died between the failure and the retry.
    */
-  async sessionsWithPendingVaults(staleMinutes = 60): Promise<SessionRow[]> {
+  async sessionsWithPendingVaults(
+    staleMinutes = 60,
+    limit = 500,
+    after: Date | null = null,
+  ): Promise<SessionRow[]> {
     const cutoff = new Date(Date.now() - staleMinutes * 60_000);
-    const rows = await this.db
+    // Selected in SQL rather than by filtering a page of recent rows. Taking
+    // the newest 200 and filtering meant a stranded vault fell off the list as
+    // soon as 200 newer sessions existed — permanently, and silently. Oldest
+    // first for the same reason: the page has to drain the backlog, not the
+    // fresh end of it.
+    return this.db
       .select()
       .from(sessions)
-      .orderBy(desc(sessions.startedAt))
-      .limit(200);
-    return rows.filter((row) => {
-      if (row.runtimeVaultIds.length === 0) {
-        return false;
-      }
-      if (isTerminalSessionStatus(row.status)) {
-        return true;
-      }
-      // A session still `starting` long after it began is a crash between
-      // minting the vault and attaching the runtime. Restricting this to
-      // terminal rows left exactly those credentials stranded forever.
-      return row.status === "starting" && row.startedAt < cutoff;
-    });
+      .where(
+        and(
+          sql`jsonb_array_length(${sessions.runtimeVaultIds}) > 0`,
+          // The cursor is what lets the caller walk past rows whose deletion
+          // keeps failing, instead of retrying the same page forever.
+          after ? gt(sessions.startedAt, after) : undefined,
+          or(
+            inArray(sessions.status, [...TERMINAL_SESSION_STATUSES]),
+            // A session still `starting` long after it began is a crash
+            // between minting the vault and attaching the runtime.
+            and(eq(sessions.status, "starting"), lt(sessions.startedAt, cutoff)),
+          ),
+        ),
+      )
+      .orderBy(asc(sessions.startedAt))
+      .limit(limit);
   }
 
   async attachRuntime(

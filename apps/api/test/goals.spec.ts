@@ -193,13 +193,18 @@ describe("goal loop", () => {
     const stopped = await goals.get(projectId, goal.id);
     expect(stopped.status).toBe("stopped-stuck");
     expect(stopped.stoppedReason).toMatch(/no progress/);
-    // The threshold counts *repeats*, so a threshold of 2 allows the first
-    // attempt plus two fruitless retries — then the loop stops rather than
-    // queueing a fourth.
-    expect(harness.runner.provisioned).toHaveLength(3);
-    // The first two turns queued a successor; the one that tripped the rail
-    // did not, so the loop ends rather than idling in the queue.
-    expect(iterations).toHaveLength(2);
+    // The threshold counts no-progress iterations, full stop: two of them at a
+    // threshold of 2 ends the goal.
+    //
+    // It used to also reset whenever the next specialist differed from the
+    // last, which made the first turn free (there is no previous agent) and let
+    // two alternating agents circle forever without the rail counting past one.
+    // A different specialist is what a stuck goal *looks like*, so the reset is
+    // gone and the rail fires a turn earlier than it once did.
+    expect(harness.runner.provisioned).toHaveLength(2);
+    // The first turn queued a successor; the one that tripped the rail did not,
+    // so the loop ends rather than idling in the queue.
+    expect(iterations).toHaveLength(1);
   });
 
   /** §22.14 — dispatch is limited to the project's own agents. */

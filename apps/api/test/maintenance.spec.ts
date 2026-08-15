@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { InboxService } from "../src/inbox/inbox.service";
 import { SessionQueue } from "../src/queue/session.queue";
 import { MaintenanceService } from "../src/runner/maintenance.service";
+import { VaultCleanup } from "../src/runner/vault-cleanup";
 import { OrphanSweep } from "../src/runner/orphan-sweep";
 import { SessionOrchestrator } from "../src/runner/session-orchestrator";
 import { SessionsService } from "../src/sessions/sessions.service";
@@ -21,6 +22,7 @@ import { createHarness, type Harness } from "./harness";
 describe("maintenance", () => {
   let harness: Harness;
   let maintenance: MaintenanceService;
+  let vaults: VaultCleanup;
   let orchestrator: SessionOrchestrator;
   let tasks: TasksService;
   let inbox: InboxService;
@@ -31,6 +33,7 @@ describe("maintenance", () => {
   beforeAll(async () => {
     harness = await createHarness();
     maintenance = harness.app.get(MaintenanceService);
+    vaults = harness.app.get(VaultCleanup);
     orchestrator = harness.app.get(SessionOrchestrator);
     tasks = harness.app.get(TasksService);
     inbox = harness.app.get(InboxService);
@@ -262,7 +265,7 @@ describe("maintenance", () => {
       .set({ status: "destroyed", runtimeVaultIds: ["vlt_stranded"], endedAt: new Date() })
       .where(eq(sessionsTable.id, sessionId));
 
-    expect(await maintenance.retryPendingVaultCleanups()).toBe(1);
+    expect(await vaults.drain()).toBe(1);
     // Cleared only because the delete succeeded: the row is the retry queue.
     expect((await sessions.get(sessionId)).runtimeHandle).toBeTruthy();
     const row = await harness.db.query.sessions.findFirst({

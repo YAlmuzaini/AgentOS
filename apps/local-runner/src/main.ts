@@ -82,6 +82,8 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
       send(response, 200, { costUsd: session.cost });
       return;
     case "DELETE ":
+      // Ends the run, then removes the workspace — and if removal fails, the
+      // session stays listed so this can be retried rather than forgotten.
       await session.destroy();
       sessions.delete(session.id);
       send(response, 204, null);
@@ -105,6 +107,21 @@ async function provision(request: IncomingMessage, response: ServerResponse): Pr
         "and this worker cannot enforce egress. Configure a firewall on this machine and set " +
         "LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=1 to accept the risk, or leave it unset to keep " +
         "these sessions on the cloud runner.",
+    });
+    return;
+  }
+
+  // Same refusal the cloud runner makes, for the same reason. A repo granted
+  // without a resolved credential used to be cloned anonymously here: a private
+  // one failed obscurely mid-run, and a public one succeeded while the session
+  // prompt advertised write access the agent did not have. Refusing is the
+  // honest answer, and it is the one the operator can act on.
+  const credentialless = input.repos.filter((repo) => repo.token === null).map((repo) => repo.name);
+  if (credentialless.length > 0) {
+    send(response, 409, {
+      error:
+        `these repositories were granted without a credential that resolved: ${credentialless.join(", ")}. ` +
+        "Attach a secret to each repo, or remove the grant from this agent.",
     });
     return;
   }
@@ -145,15 +162,57 @@ function streamEvents(session: LocalSession, response: ServerResponse): void {
 function expireLater(session: LocalSession, worker: WorkerConfig): void {
   const timer = setTimeout(
     () => {
-      if (!session.isFinished) {
-        session.emit({ kind: "error", message: `session exceeded ${worker.maxSessionMinutes}m` });
-        void session.destroy().finally(() => sessions.delete(session.id));
+      if (session.isFinished) {
+        return;
       }
+      session.emit({ kind: "error", message: `session exceeded ${worker.maxSessionMinutes}m` });
+      void cleanUp(session);
     },
     worker.maxSessionMinutes * 60_000,
   );
   timer.unref();
 }
+
+/**
+ * Ends a timed-out session and keeps trying to remove its workspace.
+ *
+ * The run itself stops immediately — `destroy` closes the event stream first,
+ * so the control plane's consumer is never left blocked on a session that has
+ * already been abandoned. Only the directory removal is retried, because that
+ * is the part that fails transiently: an agent's own tooling writing under the
+ * workspace as it is torn down produced `ENOTEMPTY` on a real run.
+ *
+ * A session whose workspace survives every attempt stays in the map on
+ * purpose. It remains visible to `GET /sessions`, which is what the control
+ * plane's orphan sweep reads, so the operator gets a retry rather than a
+ * directory nothing remembers.
+ */
+async function cleanUp(session: LocalSession): Promise<void> {
+  for (let attempt = 1; attempt <= CLEANUP_ATTEMPTS; attempt += 1) {
+    try {
+      await session.destroy();
+      sessions.delete(session.id);
+      return;
+    } catch (error) {
+      console.error(
+        `session ${session.id}: cleanup attempt ${attempt}/${CLEANUP_ATTEMPTS} failed: ${String(error)}`,
+      );
+      if (attempt < CLEANUP_ATTEMPTS) {
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, attempt * CLEANUP_BACKOFF_MS);
+          timer.unref?.();
+        });
+      }
+    }
+  }
+  console.error(
+    `session ${session.id}: workspace ${session.dir} could not be removed; ` +
+      "it stays listed so the control plane can retry the delete",
+  );
+}
+
+const CLEANUP_ATTEMPTS = 4;
+const CLEANUP_BACKOFF_MS = 2_000;
 
 function authorised(request: IncomingMessage): boolean {
   return request.headers.authorization === `Bearer ${config.authToken}`;

@@ -38,6 +38,7 @@ export class FakeRunner implements Runner {
   private nextEventId = 0;
   private failProvisionWith: Error | null = null;
   private failStreamWith: Error | null = null;
+  private hangStream = false;
 
   /**
    * Queue the calls the agent will make on its next run.
@@ -60,6 +61,20 @@ export class FakeRunner implements Runner {
     this.failStreamWith = error;
   }
 
+  /**
+   * Provisions and then never emits anything again, for ever.
+   *
+   * Deliberately *not* bounded by a timer. An earlier version resolved after
+   * ten seconds, and that hid the bug it was supposed to catch: the deadline
+   * appeared to work while it was really the timer ending the stream. A real
+   * silent session never resolves, and the only thing that can end it is the
+   * abort signal — which is what this now models, the way both real backends
+   * do by handing the signal to their own request.
+   */
+  hangNextStream(): void {
+    this.hangStream = true;
+  }
+
   async provision(input: ProvisionInput): Promise<RunnerHandle> {
     if (this.failProvisionWith) {
       const error = this.failProvisionWith;
@@ -76,11 +91,35 @@ export class FakeRunner implements Runner {
     };
   }
 
-  async *streamEvents(_handle: RunnerHandle, seen: Set<string>): AsyncIterable<RunnerEvent> {
+  async *streamEvents(
+    _handle: RunnerHandle,
+    seen: Set<string>,
+    signal?: AbortSignal,
+  ): AsyncIterable<RunnerEvent> {
     if (this.failStreamWith) {
       const error = this.failStreamWith;
       this.failStreamWith = null;
       throw error;
+    }
+    if (this.hangStream) {
+      this.hangStream = false;
+      // Never resolves on its own. Rejecting on abort is what a real backend
+      // does when the request carrying its stream is cancelled — and it is the
+      // only thing that can end a session which has gone silent.
+      await new Promise((_resolve, reject) => {
+        // Both real backends reject immediately on an already-aborted signal;
+        // only checking the event would hang where they would not.
+        if (signal?.aborted) {
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+          return;
+        }
+        signal?.addEventListener(
+          "abort",
+          () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+          { once: true },
+        );
+      });
+      return;
     }
     const script = this.script;
     this.script = [];
@@ -153,6 +192,7 @@ export class FakeRunner implements Runner {
     this.failProvisionWith = null;
     this.failStreamWith = null;
     this.failDestroyWith = null;
+    this.hangStream = false;
     this.destroyedVaults.length = 0;
     this.runtimeSessions = [];
     this.vaultsDeleted.length = 0;

@@ -74,9 +74,16 @@ export class LocalVmRunner implements Runner {
     return { runtimeSessionId: body.id, traceUrl: null };
   }
 
-  async *streamEvents(handle: RunnerHandle, seen: Set<string>): AsyncIterable<RunnerEvent> {
+  async *streamEvents(
+    handle: RunnerHandle,
+    seen: Set<string>,
+    signal?: AbortSignal,
+  ): AsyncIterable<RunnerEvent> {
     const response = await this.call(`/sessions/${handle.runtimeSessionId}/events`, {
       headers: { accept: "text/event-stream" },
+      // Aborting the fetch is what actually ends a read that is waiting on a
+      // worker with nothing to say.
+      signal,
     });
     if (!response.body) {
       yield { kind: "error", message: "local runner returned no event stream" };
@@ -84,6 +91,21 @@ export class LocalVmRunner implements Runner {
     }
 
     const reader = response.body.getReader();
+    try {
+      yield* this.readFrames(reader, seen);
+    } finally {
+      // The reader holds the socket. Leaving it locked kept a connection open
+      // for the life of the process every time a run ended early.
+      await reader.cancel().catch(() => {
+        // The stream is already gone; nothing left to release.
+      });
+    }
+  }
+
+  private async *readFrames(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    seen: Set<string>,
+  ): AsyncIterable<RunnerEvent> {
     const decoder = new TextDecoder();
     let buffer = "";
 

@@ -78,8 +78,19 @@ export class CloudManagedAgentsRunner implements Runner {
    * than "waiting on us", or terminates. `seenEventIds` carries across
    * reconnects so a resumed session never re-processes a tool call.
    */
-  async *streamEvents(handle: RunnerHandle, seenEventIds: Set<string>): AsyncIterable<RunnerEvent> {
-    const stream = await this.api.sessions.events.stream(handle.runtimeSessionId);
+  async *streamEvents(
+    handle: RunnerHandle,
+    seenEventIds: Set<string>,
+    signal?: AbortSignal,
+  ): AsyncIterable<RunnerEvent> {
+    // The signal goes to the request itself. Abandoning the iterator does not
+    // interrupt a pending read from the provider's SSE connection; aborting the
+    // request does, which is what lets a deadline actually end a quiet session.
+    const stream = await this.api.sessions.events.stream(
+      handle.runtimeSessionId,
+      undefined,
+      signal ? { signal } : undefined,
+    );
 
     for await (const event of stream as AsyncIterable<MaEvent>) {
       const eventId = typeof event.id === "string" ? event.id : null;
@@ -195,7 +206,19 @@ export class CloudManagedAgentsRunner implements Runner {
 
   async deleteVaults(vaultIds: string[]): Promise<void> {
     for (const vaultId of vaultIds) {
-      await this.api.vaults.delete(vaultId);
+      try {
+        await this.api.vaults.delete(vaultId);
+      } catch (error) {
+        // A vault that is already gone is the outcome this call wanted.
+        // Ownership is now recorded before a vault is filled, so a build that
+        // deleted its own half-finished vault still leaves the id on the
+        // session row — and without this the retry would fail on that 404
+        // forever, keeping a cleared session in the queue for good.
+        if (!isNotFound(error)) {
+          throw error;
+        }
+        this.logger.log(`vault ${vaultId} was already deleted`);
+      }
     }
   }
 
@@ -244,6 +267,11 @@ export class CloudManagedAgentsRunner implements Runner {
 
 /** The session states that still hold a container. Verified against the API. */
 const LIVE_STATUSES = ["idle", "running", "rescheduling"] as const;
+
+/** A 404 from the SDK, whatever wrapper it arrived in. */
+function isNotFound(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { status?: unknown }).status === 404;
+}
 
 function summarize(event: MaEvent): string {
   if (event.type === "agent.message" && Array.isArray(event.content)) {

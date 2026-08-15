@@ -6,6 +6,8 @@ import { PushService } from "../push/push.service";
 import { SessionQueue } from "../queue/session.queue";
 import { SessionOrchestrator } from "../runner/session-orchestrator";
 import { GOAL_EVALUATOR, type GoalEvaluator } from "./goal-evaluator";
+import { DispatchLease } from "./dispatch-lease";
+import { GoalLeases } from "./goal-leases";
 import { GoalLogService } from "./goal-log.service";
 import { type GoalRow, GoalsService } from "./goals.service";
 
@@ -24,6 +26,7 @@ export class GoalOrchestrator {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly goals: GoalsService,
+    private readonly leases: GoalLeases,
     private readonly goalLog: GoalLogService,
     private readonly sessions: SessionOrchestrator,
     private readonly queue: SessionQueue,
@@ -35,36 +38,55 @@ export class GoalOrchestrator {
     // One dispatch at a time, whatever the queue delivered. A duplicate job —
     // two approvals racing, a retry, an operator clicking twice — loses here
     // rather than spending the cap twice.
-    if (!(await this.goals.claimIteration(goalId))) {
+    const token = await this.goals.claimIteration(goalId);
+    if (!token) {
       this.logger.log(`goal ${goalId} is already dispatching; this iteration stands down`);
       return;
     }
+    // Held for the length of this dispatch, renewed while it runs, and
+    // revoked if another dispatch takes the goal's turn (see DispatchLease).
+    const lease = new DispatchLease(this.leases, goalId, token, this.logger);
+
+    let queueNext = false;
     try {
-      await this.runClaimedIteration(goalId);
+      queueNext = await this.runClaimedIteration(goalId, lease.signal);
     } finally {
-      await this.goals.releaseIteration(goalId);
+      await lease.release();
+    }
+
+    // After the release, never before. A successor enqueued while this job
+    // still held the slot could be picked up by another free worker, lose the
+    // claim, and exit — leaving the goal with nothing queued at all until
+    // recovery noticed fifteen minutes later.
+    if (queueNext) {
+      await this.queue.enqueueGoalIteration(goalId);
     }
   }
 
-  private async runClaimedIteration(goalId: string): Promise<void> {
+  private async runClaimedIteration(goalId: string, revoked: AbortSignal): Promise<boolean> {
     let goal = await this.goals.requireById(goalId);
 
     if (goal.status !== "active") {
       this.logger.log(`goal ${goalId} is ${goal.status}; not dispatching`);
-      return;
+      return false;
     }
     if (!goal.dodApproved) {
       // SPEC §22.10: the loop does not start before the operator signs off.
       this.logger.warn(`goal ${goalId} has no approved definition of done`);
-      return;
+      return false;
     }
 
     const breach = this.goals.checkRails(goal);
     if (breach) {
       await this.stop(goal, breach.status, breach.reason);
-      return;
+      return false;
     }
 
+    // Sampled before the evaluator ticks anything. Taking it after meant a
+    // checklist item flipping to done — the strongest progress signal there
+    // is — landed on the wrong side of the comparison and never reset the
+    // stuck counter.
+    const marksBefore = goal.progressMarks;
     const allowedAgents = await this.allowedAgents(goal.projectId);
     const decision = await this.evaluator.evaluate({
       title: goal.title,
@@ -78,7 +100,11 @@ export class GoalOrchestrator {
     goal = await this.goals.markSatisfied(goalId, decision.satisfiedIds);
     const outstanding = goal.definitionOfDone.filter((item) => !item.done);
 
-    if (decision.complete || outstanding.length === 0) {
+    // The persisted checklist decides, not the evaluator's own verdict. The
+    // evaluator reads the progress log, and the progress log is written by
+    // agents — a prompt-injected specialist that writes "the goal is complete"
+    // could otherwise close a goal with every box still unticked.
+    if (outstanding.length === 0) {
       await this.goalLog.appendProgress(goalId, "orchestrator", "every checkbox is satisfied");
       await this.goals.setStatus(goalId, "completed", null);
       await this.push.send({
@@ -86,7 +112,16 @@ export class GoalOrchestrator {
         body: goal.title,
         url: "/goals",
       });
-      return;
+      return false;
+    }
+
+    if (decision.complete) {
+      await this.goalLog.appendProgress(
+        goalId,
+        "orchestrator",
+        `the evaluator called this complete while ${outstanding.length} checklist item(s) are ` +
+          "still unticked; continuing until they are",
+      );
     }
 
     if (!decision.nextAgent) {
@@ -97,18 +132,25 @@ export class GoalOrchestrator {
         "stopped-stuck",
         `orchestrator had no next specialist to dispatch: ${decision.reasoning}`,
       );
-      return;
+      return false;
     }
 
-    await this.dispatch(goal, decision.nextAgent, decision.brief);
+    return this.dispatch(goal, decision.nextAgent, decision.brief, marksBefore, revoked);
   }
 
-  private async dispatch(goal: GoalRow, agentName: string, brief: string): Promise<void> {
+  private async dispatch(
+    goal: GoalRow,
+    agentName: string,
+    brief: string,
+    marksBefore: number,
+    revoked: AbortSignal,
+  ): Promise<boolean> {
     await this.goalLog.appendProgress(goal.id, "orchestrator", `dispatching ${agentName}: ${brief}`);
-    // Measured after the dispatch line is written rather than estimated from
-    // its parts: the stuck rail is what stops a goal burning money in a circle,
-    // and it should not depend on guessing how long a log prefix is.
-    const before = (await this.goals.requireById(goal.id)).progressLog.length;
+    // The slot is consumed before the container exists, not after it returns.
+    // Counting on the way out meant a worker that died mid-specialist launched
+    // one without spending an iteration, so repeated crashes could start far
+    // more than the ceiling allows.
+    await this.goals.reserveIteration(goal.id, agentName);
 
     const result = await this.sessions.runGoalStep({
       goalId: goal.id,
@@ -117,50 +159,62 @@ export class GoalOrchestrator {
       brief: renderBrief(goal, brief),
       budgetUsd: remainingBudget(goal),
       runnerPreference: goal.runnerPreference as "cloud" | "local" | "auto",
+      // The time rail used to be checked only *before* a dispatch, so a goal
+      // with four minutes left could start a specialist that ran for hours.
+      deadlineAt: deadline(goal),
+      // Stops this specialist if the goal's dispatch slot changes hands.
+      signal: revoked,
     });
 
     if (result.summary.trim()) {
       await this.goalLog.appendProgress(goal.id, agentName, result.summary);
     }
+    // Recorded even when the session failed. A failed specialist has usually
+    // already spent money, and booking $0 for it meant the next iteration
+    // re-read the full remaining budget — a repeatable failure could spend the
+    // cap over and over without the cap ever noticing.
     if (result.costUsd !== null) {
       await this.goalLog.recordSpend(goal.id, result.costUsd);
     }
 
+    const after = await this.goals.requireById(goal.id);
+    // Counted, not inferred from the log's length: log growth was satisfied by
+    // any text at all — the specialist's own prose, or the failure summary of a
+    // session that achieved nothing — so a goal could circle forever without
+    // the stuck rail firing.
+    const madeProgress = after.progressMarks > marksBefore;
+    // The row the increment itself returned, so the rails are checked against
+    // the state this dispatch actually produced rather than a later read that
+    // a concurrent dispatch may have moved again. A parked turn is counted too:
+    // a specialist that only ever asks questions is exactly what the stuck rail
+    // is for.
+    const refreshed = await this.goals.recordProgress(goal.id, madeProgress);
+
     // A parked specialist has not finished its turn — it is holding a container
-    // and waiting on the operator. The loop stops here rather than counting an
-    // iteration and dispatching someone else alongside it; answering the
-    // question is what starts the next turn.
+    // and waiting on the operator. The loop stops here rather than dispatching
+    // someone else alongside it; answering the question is what starts the next
+    // turn, and the reaper stops the goal if the answer never comes.
     if (result.parked) {
       await this.goalLog.appendProgress(
         goal.id,
         "orchestrator",
         `${agentName} is waiting on your answer in the inbox; the goal continues when you reply`,
       );
-      return;
+      return false;
     }
-
-    const after = await this.goals.requireById(goal.id);
-    // "Progress" is anything the specialist added to the shared log — its own
-    // summary, or an activity it recorded. An agent that ran and wrote nothing
-    // counts as a stuck iteration.
-    const madeProgress = after.progressLog.length > before;
-    // The row the increment itself returned, so the rails are checked against
-    // the state this dispatch actually produced rather than a later read that
-    // a concurrent dispatch may have moved again.
-    const refreshed = await this.goals.recordIteration(goal.id, { agentName, madeProgress });
 
     // Re-check the rails now rather than at the top of the next iteration:
     // spend and the stuck counter only move here, and queueing another turn we
     // already know is over-budget wastes a container.
     if (refreshed.status !== "active") {
-      return;
+      return false;
     }
     const breach = this.goals.checkRails(refreshed);
     if (breach) {
       await this.stop(refreshed, breach.status, breach.reason);
-      return;
+      return false;
     }
-    await this.queue.enqueueGoalIteration(goal.id);
+    return true;
   }
 
   private async stop(goal: GoalRow, status: GoalRow["status"], reason: string): Promise<void> {
@@ -178,6 +232,19 @@ export class GoalOrchestrator {
       .where(eq(agents.projectId, projectId));
     return rows.map((row) => row.name);
   }
+}
+
+/**
+ * When this goal's time rail runs out, in wall clock.
+ *
+ * Handed to the session so a specialist started just inside the limit is cut
+ * off at it rather than running until it feels finished.
+ */
+function deadline(goal: GoalRow): Date | null {
+  if (goal.maxDurationMinutes === null || !goal.startedAt) {
+    return null;
+  }
+  return new Date(goal.startedAt.getTime() + goal.maxDurationMinutes * 60_000);
 }
 
 /** The remaining cap, so one runaway session cannot blow the whole budget. */

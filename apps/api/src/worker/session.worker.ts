@@ -14,6 +14,7 @@ import { AutomationsService } from "../automations/automations.service";
 import { GoalOrchestrator } from "../goals/goal-orchestrator";
 import { MaintenanceService } from "../runner/maintenance.service";
 import { SessionOrchestrator } from "../runner/session-orchestrator";
+import { ERROR_REPORTER, type ErrorReporter } from "../observability/error-reporter";
 import { SettingsService } from "../settings/settings.service";
 
 /**
@@ -38,6 +39,7 @@ export class SessionWorker implements OnModuleInit, OnModuleDestroy {
     private readonly maintenance: MaintenanceService,
     private readonly queue: SessionQueue,
     private readonly settings: SettingsService,
+    @Inject(ERROR_REPORTER) private readonly errors: ErrorReporter,
   ) {}
 
   onModuleInit(): void {
@@ -66,11 +68,14 @@ export class SessionWorker implements OnModuleInit, OnModuleDestroy {
             await this.automations.fire(data.automationId);
             return;
           case "maintenance": {
-            const { reaped, swept, vaultsCleared, released } = await this.maintenance.run();
-            if (reaped || swept || vaultsCleared || released) {
+            const { reaped, swept, vaultsCleared, released, goalsRecovered } =
+              await this.maintenance.run();
+            if (reaped || swept || vaultsCleared || released || goalsRecovered) {
               this.logger.log(
                 `maintenance: reaped ${reaped} parked, swept ${swept} orphaned, ` +
-                  `cleaned ${vaultsCleared} stranded vault set(s), re-released ${released} chain step(s)`,
+                  `cleaned ${vaultsCleared} stranded vault set(s), ` +
+                  `re-released ${released} chain step(s), ` +
+                  `re-queued ${goalsRecovered} stalled goal(s)`,
               );
             }
             return;
@@ -85,8 +90,13 @@ export class SessionWorker implements OnModuleInit, OnModuleDestroy {
     // policy, so one schedule serves them all.
     void this.startMaintenance();
 
+    // Jobs get one attempt (a container is expensive and side-effecting), so a
+    // failure here is final: this is the last chance anyone hears about it.
     this.worker.on("failed", (job, error) => {
-      this.logger.error(`job ${job?.id ?? "?"} failed: ${error.message}`);
+      this.errors.capture(error, {
+        scope: "worker.job",
+        tags: { jobId: job?.id ?? null, kind: job?.data?.kind ?? null },
+      });
     });
     this.logger.log(`session worker listening on ${SESSION_QUEUE_NAME}`);
   }
@@ -97,7 +107,7 @@ export class SessionWorker implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       // Non-fatal: sessions still run. But nothing will reclaim a container
       // whose operator never answers, so this must not pass quietly.
-      this.logger.error(`could not schedule maintenance: ${String(error)}`);
+      this.errors.capture(error, { scope: "worker.maintenance-schedule" });
     }
   }
 

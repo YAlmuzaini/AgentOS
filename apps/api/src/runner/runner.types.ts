@@ -133,8 +133,20 @@ export type RunnerEvent =
 export interface Runner {
   readonly name: "cloud" | "local";
   provision(input: ProvisionInput): Promise<RunnerHandle>;
-  /** Consume runtime events until the session goes idle or terminates. */
-  streamEvents(handle: RunnerHandle, seenEventIds: Set<string>): AsyncIterable<RunnerEvent>;
+  /**
+   * Consume runtime events until the session goes idle or terminates.
+   *
+   * `signal` must reach the underlying connection. Cancellation cannot be done
+   * by the caller abandoning the iterator: `return()` on an async generator
+   * blocked inside `next()` queues behind that read rather than interrupting
+   * it, so a silent session — the only kind a deadline exists for — would hang
+   * the consumer and leak its container.
+   */
+  streamEvents(
+    handle: RunnerHandle,
+    seenEventIds: Set<string>,
+    signal?: AbortSignal,
+  ): AsyncIterable<RunnerEvent>;
   /** Answer a parked tool call — this is what resumes a waiting session. */
   injectToolResult(handle: RunnerHandle, toolUseId: string, result: string): Promise<void>;
   /** Best-effort spend readout, in USD. */

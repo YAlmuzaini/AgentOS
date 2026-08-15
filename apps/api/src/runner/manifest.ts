@@ -9,6 +9,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { and, eq, inArray } from "drizzle-orm";
 import type { AgentRow } from "../agents/agents.service";
 import { DATABASE } from "../db/db.module";
+import { registerSecret } from "../observability/secret-registry";
 import { SecretsService } from "../secrets/secrets.service";
 import type {
   GrantedEnvVar,
@@ -169,6 +170,10 @@ export class ManifestResolver {
 
   private async resolveSecret(secretId: string, label: string): Promise<string | null> {
     const value = await this.secrets.resolveValue(secretId);
+    // Registered the moment it exists, so anything that later quotes this value
+    // in an error cannot ship it off the machine. Shape-matching alone missed
+    // every credential whose format nobody had listed.
+    registerSecret(value);
     if (value === null) {
       // A missing secret degrades the grant rather than the run: the session
       // starts without it and the agent finds out when the call fails.

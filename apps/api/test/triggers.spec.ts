@@ -8,6 +8,7 @@ import { TemplatesService } from "../src/templates/templates.service";
 import { TriggersService } from "../src/triggers/triggers.service";
 import { sign } from "../src/triggers/webhook-signature";
 import { createHarness, type Harness } from "./harness";
+import { stubQueue, type QueueSink } from "./queue-stub";
 
 /** Phase 5 done-when (SPEC §21) and acceptance test §22.11. */
 describe("triggers and automations", () => {
@@ -16,7 +17,7 @@ describe("triggers and automations", () => {
   let automations: AutomationsService;
   let templates: TemplatesService;
   let tasks: TasksService;
-  let enqueued: string[];
+  let queued: QueueSink;
 
   beforeAll(async () => {
     harness = await createHarness();
@@ -25,10 +26,8 @@ describe("triggers and automations", () => {
     templates = harness.app.get(TemplatesService);
     tasks = harness.app.get(TasksService);
 
+    queued = stubQueue(harness);
     const queue = harness.app.get(SessionQueue);
-    queue.enqueueRun = async (taskId: string) => {
-      enqueued.push(taskId);
-    };
     // Schedules are asserted through the service, not by waiting on a clock.
     queue.scheduleAutomation = async () => {};
     queue.cancelAutomation = async () => {};
@@ -40,7 +39,7 @@ describe("triggers and automations", () => {
 
   beforeEach(async () => {
     await harness.reset();
-    enqueued = [];
+    queued.clear();
   });
 
   async function makeTrigger(projectId: string, agentId: string) {
@@ -69,7 +68,7 @@ describe("triggers and automations", () => {
     const fires = await triggers.fires(projectId, trigger.id);
     expect(fires).toHaveLength(1);
     expect(fires[0]!.accepted).toBe(false);
-    expect(enqueued).toEqual([]);
+    expect(queued.runs).toEqual([]);
   });
 
   it("rejects a replayed delivery even with a valid signature", async () => {
@@ -111,7 +110,7 @@ describe("triggers and automations", () => {
     // The payload is sanitised before it reaches a prompt.
     expect(task.description).not.toContain("sk-should-not-reach-the-agent");
     expect(task.description).toContain("[redacted]");
-    expect(enqueued).toEqual([task.id]);
+    expect(queued.runs).toEqual([task.id]);
 
     const fires = await triggers.fires(projectId, trigger.id);
     expect(fires[0]!.accepted).toBe(true);
@@ -135,7 +134,7 @@ describe("triggers and automations", () => {
       signature,
       timestamp: String(timestamp),
     });
-    expect(enqueued).toEqual([first.taskId]);
+    expect(queued.runs).toEqual([first.taskId]);
 
     await expect(
       triggers.handleDelivery({
@@ -147,7 +146,7 @@ describe("triggers and automations", () => {
       }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
 
-    expect(enqueued).toEqual([first.taskId]);
+    expect(queued.runs).toEqual([first.taskId]);
     expect(await tasks.list(projectId)).toHaveLength(1);
   });
 
@@ -194,7 +193,7 @@ describe("triggers and automations", () => {
 
     const { taskIds } = await automations.fire(automation.id);
     expect(taskIds).toHaveLength(1);
-    expect(enqueued).toEqual(taskIds);
+    expect(queued.runs).toEqual(taskIds);
 
     const task = await tasks.get(projectId, taskIds[0]!);
     expect(task.name).toBe("Write this week's LinkedIn post");
@@ -220,7 +219,7 @@ describe("triggers and automations", () => {
 
     const { taskIds } = await automations.fire(automation.id);
     expect(taskIds).toHaveLength(9);
-    expect(enqueued).toEqual([taskIds[0]]);
+    expect(queued.runs).toEqual([taskIds[0]]);
   });
 
   it("does not fire while disabled", async () => {
@@ -240,7 +239,7 @@ describe("triggers and automations", () => {
 
     const { taskIds } = await automations.fire(automation.id);
     expect(taskIds).toEqual([]);
-    expect(enqueued).toEqual([]);
+    expect(queued.runs).toEqual([]);
   });
 
   it("installs the two example triggers once, skipping roles the project lacks", async () => {

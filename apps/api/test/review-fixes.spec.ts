@@ -192,12 +192,25 @@ describe("review findings", () => {
       goals.claimIteration(goal.id),
       goals.claimIteration(goal.id),
     ]);
-    expect([first, second].filter(Boolean)).toHaveLength(1);
+    const holders = [first, second].filter((token): token is string => token !== null);
+    expect(holders).toHaveLength(1);
 
     // Releasing hands the slot to the next queued iteration rather than
     // holding it until the lease expires.
-    await goals.releaseIteration(goal.id);
-    expect(await goals.claimIteration(goal.id)).toBe(true);
+    await goals.releaseIteration(goal.id, holders[0]!);
+    const next = await goals.claimIteration(goal.id);
+    expect(next).not.toBeNull();
+
+    // A worker whose lease already expired must not be able to clear the lease
+    // of whoever took over from it: that would let a third dispatch start
+    // against the same remaining budget.
+    await goals.releaseIteration(goal.id, holders[0]!);
+    expect(await goals.claimIteration(goal.id)).toBeNull();
+
+    // And the holder can extend its own lease, which is what stops the lease
+    // expiring under a specialist that is legitimately still running.
+    expect(await goals.renewIteration(goal.id, next!)).toBe(true);
+    expect(await goals.renewIteration(goal.id, "not-the-holder")).toBe(false);
   });
 
   /**

@@ -1,11 +1,14 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { GoalContinuity } from "../goals/goal-continuity";
 import { InboxService } from "../inbox/inbox.service";
+import { ERROR_REPORTER, type ErrorReporter } from "../observability/error-reporter";
 import { PushService } from "../push/push.service";
 import { type SessionRow, SessionsService } from "../sessions/sessions.service";
 import { SettingsService } from "../settings/settings.service";
 import { ChainRecovery } from "../tasks/chain-recovery";
 import { LocalVmRunner } from "./local-runner";
 import { OrphanSweep } from "./orphan-sweep";
+import { VaultCleanup } from "./vault-cleanup";
 import {
   type Runner,
   type RunnerHandle,
@@ -43,7 +46,10 @@ export class MaintenanceService {
     private readonly inbox: InboxService,
     private readonly settings: SettingsService,
     private readonly chains: ChainRecovery,
+    private readonly goals: GoalContinuity,
     private readonly orphans: OrphanSweep,
+    private readonly vaults: VaultCleanup,
+    @Inject(ERROR_REPORTER) private readonly errors: ErrorReporter,
     private readonly push: PushService,
     @Inject(RUNNER_CLOUD) private readonly cloudRunner: Runner,
     private readonly localRunner: LocalVmRunner,
@@ -55,61 +61,30 @@ export class MaintenanceService {
     swept: number;
     vaultsCleared: number;
     released: number;
+    goalsRecovered: number;
   }> {
-    const reaped = await this.reapParkedSessions().catch((error) => {
-      this.logger.error(`reaping parked sessions failed: ${String(error)}`);
-      return 0;
-    });
-    const swept = await this.orphans.sweep().catch((error) => {
-      this.logger.error(`orphan sweep failed: ${String(error)}`);
-      return 0;
-    });
-    const vaultsCleared = await this.retryPendingVaultCleanups().catch((error) => {
-      this.logger.error(`vault cleanup retry failed: ${String(error)}`);
-      return 0;
-    });
-    const released = await this.chains.releaseStalledChains().catch((error) => {
-      this.logger.error(`stalled chain release failed: ${String(error)}`);
-      return 0;
-    });
-    return { reaped, swept, vaultsCleared, released };
+    // Every one of these is reported, not just logged. This is the job nobody
+    // watches: an orphan sweep that 400s on every pass reports zero orphans
+    // forever, and that is exactly how it went unnoticed once already.
+    const reaped = await this.guard("reap-parked", () => this.reapParkedSessions());
+    const swept = await this.guard("orphan-sweep", () => this.orphans.sweep());
+    const vaultsCleared = await this.guard("vault-cleanup", () => this.vaults.drain());
+    const released = await this.guard("chain-release", () => this.chains.releaseStalledChains());
+    // Runs last: reaping above can be what leaves a goal with nothing queued.
+    const goalsRecovered = await this.guard("goal-recovery", () =>
+      this.goals.recoverStalledGoals(),
+    );
+    return { reaped, swept, vaultsCleared, released, goalsRecovered };
   }
 
-  /**
-   * Retries credential cleanup for sessions whose destroy could not finish it.
-   *
-   * A vault outlives the container it belonged to, so "the session is over"
-   * does not mean the credentials are gone. One transient 5xx during destroy
-   * would otherwise strand them permanently.
-   */
-  async retryPendingVaultCleanups(): Promise<number> {
-    if (!this.cloudRunner.deleteVaults) {
+  /** Runs one maintenance job; a failure in it must not skip the others. */
+  private async guard(job: string, run: () => Promise<number>): Promise<number> {
+    try {
+      return await run();
+    } catch (error) {
+      this.errors.capture(error, { scope: `maintenance.${job}` });
       return 0;
     }
-    let cleared = 0;
-    for (const session of await this.sessions.sessionsWithPendingVaults()) {
-      if (session.runner !== "cloud") {
-        continue;
-      }
-      try {
-        await this.cloudRunner.deleteVaults(session.runtimeVaultIds);
-        await this.sessions.clearVaults(session.id);
-        // A session stranded mid-provision is finished, whatever its row says:
-        // its credentials are gone and nothing is going to attach a runtime to
-        // it now.
-        if (session.status === "starting") {
-          await this.sessions.finish(session.id, {
-            status: "failed",
-            error: "provisioning did not complete; its credentials were cleaned up",
-          });
-        }
-        this.logger.log(`cleaned up ${session.runtimeVaultIds.length} stranded vault(s)`);
-        cleared += 1;
-      } catch (error) {
-        this.logger.warn(`vault cleanup for session ${session.id} failed again: ${String(error)}`);
-      }
-    }
-    return cleared;
   }
 
   /**
@@ -160,21 +135,59 @@ export class MaintenanceService {
     }
     this.logger.warn(`session ${session.id} expired waiting on the inbox`);
 
+    let costUsd: number | null = null;
     try {
-      await this.inbox.closeForSession(session.id, reason);
+      // Reported rather than thrown: this session is already claimed and
+      // terminal, so nothing will reap it a second time. Letting the failure
+      // escape would skip freeing the container *and* stopping the goal.
+      await this.inbox
+        .closeForSession(session.id, reason)
+        .catch((error: unknown) =>
+          this.errors.capture(error, {
+            scope: "maintenance.close-question",
+            tags: { sessionId: session.id },
+          }),
+        );
     } finally {
       // The container is freed even if closing the message failed: the record
       // being wrong is recoverable, a container nobody is watching is not.
       if (session.runtimeHandle) {
         const runner = session.runner === "local" ? this.localRunner : this.cloudRunner;
-        await this.destroy(session.id, runner, {
+        const handle = {
           runtimeSessionId: session.runtimeHandle,
           traceUrl: null,
           // Without these the reaper archives the session and leaves its
           // credentials behind — the leak this whole path exists to prevent.
           vaultIds: session.runtimeVaultIds,
+        };
+        // Read while the container still exists. A parked goal session has
+        // already spent everything it spent before asking its question, and
+        // that money was never reaching the goal's cap from here.
+        costUsd = await runner.readCost(handle).catch((error: unknown) => {
+          this.logger.warn(`could not read spend for ${handle.runtimeSessionId}: ${String(error)}`);
+          return null;
         });
+        await this.destroy(session.id, runner, handle);
       }
+    }
+
+    // A goal whose specialist is reaped has nothing left to queue its next
+    // turn: the resume that would have done it is never going to happen. Left
+    // alone the goal sits `active` forever, with no session, no job, and
+    // nothing said about it.
+    if (session.goalId) {
+      // Guarded on its own. This is the step that stops the goal, and skipping
+      // it leaves a goal `active` with no session and no queued turn — which
+      // recovery would then "fix" by dispatching past the very decision the
+      // operator declined to make.
+      await this.goals
+        .abandonAfterReap(session.goalId, reason, costUsd)
+        .catch((error: unknown) =>
+          this.errors.capture(error, {
+            scope: "maintenance.abandon-goal",
+            tags: { goalId: session.goalId, sessionId: session.id },
+          }),
+        );
     }
 
     await this.push.send({

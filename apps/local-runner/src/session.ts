@@ -22,7 +22,10 @@ export class LocalSession {
   private readonly pending = new Map<string, (result: string) => void>();
 
   private costUsd: number | null = null;
-  private finished = false;
+  /** The run is over: no more events, and the stream has been closed. */
+  private runEnded = false;
+  /** The throwaway directory is gone. Until then this session is not done. */
+  private workspaceRemoved = false;
 
   constructor(
     readonly input: ProvisionBody,
@@ -42,7 +45,7 @@ export class LocalSession {
     for (const event of this.history) {
       listener(event);
     }
-    if (this.finished) {
+    if (this.runEnded) {
       listener({ kind: "terminated" });
       return () => {};
     }
@@ -90,8 +93,21 @@ export class LocalSession {
     return this.costUsd;
   }
 
+  /**
+   * Whether this session can be forgotten.
+   *
+   * Both halves have to be true. A run that ended but whose workspace is still
+   * on disk stays visible to the runtime listing on purpose — that listing is
+   * what the control plane's orphan sweep reads, and it is the only thing that
+   * will ever come back and try the removal again.
+   */
   get isFinished(): boolean {
-    return this.finished;
+    return this.runEnded && this.workspaceRemoved;
+  }
+
+  /** True once the run is over, whatever happened to its directory. */
+  get hasEnded(): boolean {
+    return this.runEnded;
   }
 
   /**
@@ -103,22 +119,36 @@ export class LocalSession {
    * avoid.
    */
   async destroy(): Promise<void> {
-    if (this.finished) {
+    // Ending the run and removing the workspace are separate outcomes, and
+    // conflating them wedged both. Removing first meant a directory that would
+    // not delete never emitted `terminated`, so the control plane's event
+    // stream stayed open forever and the queue job holding it never finished —
+    // a handful of those exhausts the worker. Setting `finished` first was the
+    // opposite mistake: it hid the session from the runtime listing, so the
+    // orphan sweep could never come back for the workspace either.
+    this.endRun();
+
+    if (this.workspaceRemoved) {
       return;
     }
+    // Throws on failure, so the caller records it — but the run is already
+    // over and the session stays in the listing until this succeeds, which is
+    // what makes a later DELETE or an orphan sweep a real retry.
+    await this.workspace.destroy();
+    this.workspaceRemoved = true;
+  }
+
+  /** Ends the run itself. Idempotent, and never blocked by cleanup. */
+  private endRun(): void {
+    if (this.runEnded) {
+      return;
+    }
+    this.runEnded = true;
     for (const [, resolve] of this.pending) {
       resolve("the session was destroyed before this tool call was answered");
     }
     this.pending.clear();
     this.abort.abort();
-
-    // The workspace comes first, and `finished` is only set once it is gone.
-    // Marking the session finished before the removal succeeded hid it from
-    // the runtime listing *and* made the retry a no-op, so a directory that
-    // failed to delete could never be cleaned up by anything.
-    await this.workspace.destroy();
-
-    this.finished = true;
     this.emit({ kind: "terminated" });
     this.listeners.clear();
   }

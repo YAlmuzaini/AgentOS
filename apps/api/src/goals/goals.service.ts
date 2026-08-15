@@ -12,14 +12,14 @@ import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 import { ProjectsService } from "../projects/projects.service";
 import { SessionQueue } from "../queue/session.queue";
+import { GoalLeases, LEASE_MINUTES } from "./goal-leases";
+import { checkRails, type RailBreach } from "./goal-rails";
+
+export type { RailBreach };
 
 export type GoalRow = typeof goals.$inferSelect;
 
-/** Why the loop stopped, or null when it may keep going. */
-export type RailBreach =
-  | { status: "stopped-spend"; reason: string }
-  | { status: "stopped-time"; reason: string }
-  | { status: "stopped-stuck"; reason: string };
+export { LEASE_MINUTES };
 
 @Injectable()
 export class GoalsService {
@@ -27,6 +27,7 @@ export class GoalsService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly projects: ProjectsService,
     private readonly queue: SessionQueue,
+    private readonly leases: GoalLeases,
   ) {}
 
   async list(projectId: string): Promise<GoalDto[]> {
@@ -127,92 +128,61 @@ export class GoalsService {
     return toDto(row!);
   }
 
-  /**
-   * The safety rails (SPEC §11). Checked before every dispatch, so a goal can
-   * never spend or run past them by one more session.
-   */
+  /** The safety rails (SPEC §11), evaluated in `goal-rails.ts`. */
   checkRails(goal: GoalRow): RailBreach | null {
-    const cap = goal.spendCapUsd === null ? null : Number(goal.spendCapUsd);
-    const spent = Number(goal.spendUsd);
-    if (cap !== null && spent >= cap) {
-      return {
-        status: "stopped-spend",
-        reason: `spend cap reached: $${spent.toFixed(2)} of $${cap.toFixed(2)}`,
-      };
-    }
+    return checkRails(goal);
+  }
 
-    if (goal.maxDurationMinutes !== null && goal.startedAt) {
-      const elapsedMinutes = (Date.now() - goal.startedAt.getTime()) / 60_000;
-      if (elapsedMinutes >= goal.maxDurationMinutes) {
-        return {
-          status: "stopped-time",
-          reason: `max duration reached: ${Math.round(elapsedMinutes)} of ${goal.maxDurationMinutes} minutes`,
-        };
-      }
-    }
+  /** Delegated to `GoalLeases`, which the runner shares (see that file). */
+  claimIteration(id: string, leaseMinutes = LEASE_MINUTES): Promise<string | null> {
+    return this.leases.claim(id, leaseMinutes);
+  }
 
-    if (goal.stuckCount >= goal.stuckThreshold) {
-      return {
-        status: "stopped-stuck",
-        reason: `no progress across ${goal.stuckCount} iterations`,
-      };
-    }
+  renewIteration(id: string, token: string): Promise<boolean> {
+    return this.leases.renew(id, token);
+  }
 
-    return null;
+  releaseIteration(id: string, token: string): Promise<void> {
+    return this.leases.release(id, token);
   }
 
   /**
-   * Records one completed iteration, and returns the goal as it now stands.
+   * Consumes one of the goal's iterations, before its container is created.
    *
-   * The counters are incremented in SQL rather than read-then-written: two
-   * dispatches finishing together would otherwise each write `iterations + 1`
-   * from the same starting value, and the rails would undercount exactly when
-   * the loop is running hottest. The stuck decision still needs the previous
-   * agent name, so it is taken from the same statement's view of the row.
+   * Counted on the way *in* rather than the way out. Incrementing after the
+   * session returned meant a worker that died mid-specialist had launched a
+   * container without spending an iteration, so repeated crashes could start
+   * far more of them than the ceiling permits — and each one could spend.
    */
-  /**
-   * Takes the goal's single dispatch slot.
-   *
-   * A goal is a spend cap with a loop attached, and two loops running against
-   * one cap each see the same remaining budget and can each spend all of it.
-   * The lease is what makes "one specialist at a time" true regardless of how
-   * many iteration jobs exist — duplicates simply lose and exit.
-   *
-   * The lease expires so a worker that dies mid-dispatch does not freeze the
-   * goal forever; it is deliberately longer than any single session should run.
-   */
-  async claimIteration(id: string, leaseMinutes = 60): Promise<boolean> {
-    const cutoff = new Date(Date.now() - leaseMinutes * 60_000);
-    const rows = await this.db
-      .update(goals)
-      .set({ dispatchLeaseAt: new Date() })
-      .where(
-        and(
-          eq(goals.id, id),
-          or(isNull(goals.dispatchLeaseAt), lt(goals.dispatchLeaseAt, cutoff)),
-        ),
-      )
-      .returning({ id: goals.id });
-    return rows.length > 0;
-  }
-
-  /** Releases the slot so the next queued iteration can run immediately. */
-  async releaseIteration(id: string): Promise<void> {
-    await this.db.update(goals).set({ dispatchLeaseAt: null }).where(eq(goals.id, id));
-  }
-
-  async recordIteration(
-    id: string,
-    input: { agentName: string; madeProgress: boolean },
-  ): Promise<GoalRow> {
-    const [row] = await this.db
+  async reserveIteration(id: string, agentName: string): Promise<void> {
+    await this.db
       .update(goals)
       .set({
         iterations: sql`${goals.iterations} + 1`,
-        stuckCount: input.madeProgress
-          ? 0
-          : sql`CASE WHEN ${goals.lastAgentName} = ${input.agentName} THEN ${goals.stuckCount} + 1 ELSE 0 END`,
-        lastAgentName: input.agentName,
+        lastAgentName: agentName,
+        updatedAt: new Date(),
+      })
+      .where(eq(goals.id, id));
+  }
+
+  /**
+   * Records whether the finished turn moved the goal, and returns it as it now
+   * stands.
+   *
+   * Incremented in SQL rather than read-then-written: two dispatches finishing
+   * together would otherwise each write from the same starting value, and the
+   * rails would undercount exactly when the loop is running hottest.
+   */
+  async recordProgress(id: string, madeProgress: boolean): Promise<GoalRow> {
+    const [row] = await this.db
+      .update(goals)
+      .set({
+        // Progress, and nothing else, resets this. It used to also reset
+        // whenever the specialist differed from the last one, which meant two
+        // agents alternating could circle forever without the rail ever
+        // counting past one — and an orchestrator picking a different agent is
+        // exactly what a stuck goal looks like.
+        stuckCount: madeProgress ? 0 : sql`${goals.stuckCount} + 1`,
         updatedAt: new Date(),
       })
       .where(eq(goals.id, id))
@@ -220,14 +190,31 @@ export class GoalsService {
     return row!;
   }
 
+  /**
+   * Ticks the checklist items the evaluator judged satisfied.
+   *
+   * A newly ticked item is the strongest progress signal there is, so it bumps
+   * the progress counter the stuck rail reads. Re-asserting an item that was
+   * already done is not progress, which is why the count is of the transition
+   * rather than of the evaluator's list.
+   */
   async markSatisfied(id: string, satisfiedIds: string[]): Promise<GoalRow> {
     const goal = await this.requireById(id);
-    const updated = goal.definitionOfDone.map((item) =>
-      satisfiedIds.includes(item.id) ? { ...item, done: true } : item,
-    );
+    let newlyDone = 0;
+    const updated = goal.definitionOfDone.map((item) => {
+      if (item.done || !satisfiedIds.includes(item.id)) {
+        return item;
+      }
+      newlyDone += 1;
+      return { ...item, done: true };
+    });
     const [row] = await this.db
       .update(goals)
-      .set({ definitionOfDone: updated, updatedAt: new Date() })
+      .set({
+        definitionOfDone: updated,
+        ...(newlyDone > 0 ? { progressMarks: sql`${goals.progressMarks} + ${newlyDone}` } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(goals.id, id))
       .returning();
     return row!;

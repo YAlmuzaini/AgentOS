@@ -80,7 +80,16 @@ export interface ManagedAgentsApi {
     archive(id: string): Promise<unknown>;
     list(query?: Record<string, unknown>): AsyncIterable<MaSession>;
     events: {
-      stream(sessionId: string): Promise<AsyncIterable<MaEvent>> | AsyncIterable<MaEvent>;
+      /**
+       * `options.signal` is what makes a run cancellable. Abandoning the
+       * returned iterator does not interrupt a pending read; aborting the
+       * request does. Verified against the installed SDK's `RequestOptions`.
+       */
+      stream(
+        sessionId: string,
+        params?: undefined,
+        options?: { signal?: AbortSignal },
+      ): Promise<AsyncIterable<MaEvent>> | AsyncIterable<MaEvent>;
       send(sessionId: string, body: { events: Record<string, unknown>[] }): Promise<unknown>;
       list(sessionId: string): AsyncIterable<MaEvent>;
     };

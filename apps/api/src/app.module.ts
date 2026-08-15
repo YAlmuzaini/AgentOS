@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ActivityModule } from "./activity/activity.module";
 import { AgentsModule } from "./agents/agents.module";
 import { AutomationsModule } from "./automations/automations.module";
+import { ObservabilityModule } from "./observability/observability.module";
 import { DbModule } from "./db/db.module";
 import { FilesModule } from "./files/files.module";
 import { GoalLogModule } from "./goals/goal-log.service";
@@ -24,6 +25,7 @@ import { WorkerModule } from "./worker/worker.module";
 
 @Module({
   imports: [
+    ObservabilityModule,
     DbModule,
     QueueModule,
     ProjectsModule,

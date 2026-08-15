@@ -5,6 +5,28 @@ import { REDIS } from "./tokens";
 
 export const SESSION_QUEUE_NAME = "agentos.sessions";
 
+/**
+ * BullMQ 6.1.1's own rules for a custom job id, applied before it is handed
+ * over — transcribed from `Job.validateOptions` in the installed version.
+ *
+ * This is exported so tests can validate through the same function rather than
+ * a hand-copied approximation. A chain release is enqueued *after* its card
+ * has already committed as done, so a job id the queue refuses does not fail
+ * the request — it silently wedges the chain forever. That is what happened
+ * with a `:` in the key, and the regression test missed it because the stub
+ * that replaced this call did its own, weaker checking.
+ */
+export function assertValidJobId(jobId: string): void {
+  if (`${Number.parseInt(jobId, 10)}` === jobId) {
+    throw new Error(`job id "${jobId}" is an integer, which BullMQ rejects`);
+  }
+  // Not simply "contains a colon": BullMQ tolerates exactly two, for backward
+  // compatibility with old repeatable-job ids.
+  if (jobId.includes(":") && jobId.split(":").length !== 3) {
+    throw new Error(`job id "${jobId}" contains ':', which BullMQ rejects`);
+  }
+}
+
 /** Start a fresh session for a task. */
 export interface RunTaskJob {
   kind: "run-task";
@@ -66,11 +88,8 @@ export class SessionQueue implements OnModuleDestroy {
    * makes a duplicate enqueue a no-op rather than a second container.
    */
   async enqueueRun(taskId: string, dedupeKey?: string): Promise<void> {
-    // BullMQ rejects a custom job id containing `:` — and this call happens
-    // *after* the card is already committed as done, so a throw here would
-    // wedge the chain with no way to release the next step.
-    if (dedupeKey?.includes(":")) {
-      throw new Error(`dedupe key "${dedupeKey}" contains ':', which BullMQ rejects`);
+    if (dedupeKey) {
+      assertValidJobId(dedupeKey);
     }
     await this.queue.add(
       "run-task",
@@ -125,8 +144,23 @@ export class SessionQueue implements OnModuleDestroy {
     );
   }
 
-  async enqueueGoalIteration(goalId: string): Promise<void> {
-    await this.queue.add("goal-iteration", { kind: "goal-iteration", goalId });
+  /**
+   * One turn of a goal's loop.
+   *
+   * `dedupeKey` is used by recovery, where the same stalled goal can be seen by
+   * two overlapping maintenance passes. The normal chained enqueue passes none:
+   * consecutive turns are genuinely different jobs, and a key would make the
+   * second one a no-op against the first's leftover id.
+   */
+  async enqueueGoalIteration(goalId: string, dedupeKey?: string): Promise<void> {
+    if (dedupeKey) {
+      assertValidJobId(dedupeKey);
+    }
+    await this.queue.add(
+      "goal-iteration",
+      { kind: "goal-iteration", goalId },
+      dedupeKey ? { jobId: dedupeKey } : undefined,
+    );
   }
 
   async enqueueResume(sessionId: string, inboxMessageId: string): Promise<void> {

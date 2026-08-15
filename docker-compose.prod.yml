@@ -58,6 +58,10 @@ services:
       # Optional second backend. Blank keeps every session on the cloud runner.
       - LOCAL_RUNNER_URL=${LOCAL_RUNNER_URL:-}
       - LOCAL_RUNNER_TOKEN=${LOCAL_RUNNER_TOKEN:-}
+      # Error reporting. Blank keeps failures in the log and off the network.
+      - GLITCHTIP_DSN=${GLITCHTIP_DSN:-}
+      - DEPLOY_ENV=${DEPLOY_ENV:-production}
+      - RELEASE=${RELEASE:-}
     depends_on:
       postgres:
         condition: service_healthy

@@ -12,6 +12,8 @@ import { SessionProvisioner } from "./session-provisioner";
 import { SessionTeardown } from "./session-teardown";
 import { type Runner, type RunnerHandle, RUNNER_CLOUD } from "./runner.types";
 import { SessionConsumer } from "./session-consumer";
+import { SessionResumer } from "./session-resumer";
+import { toolContext } from "./tool-context";
 import type { ToolContext } from "./tool-handler";
 
 
@@ -41,6 +43,7 @@ export class SessionOrchestrator {
     private readonly teardown: SessionTeardown,
     private readonly goalLog: GoalLogService,
     private readonly queue: SessionQueue,
+    private readonly resumer: SessionResumer,
   ) {}
 
   async runTask(taskId: string): Promise<void> {
@@ -79,7 +82,7 @@ export class SessionOrchestrator {
         runner,
         handle,
         sessionId: session.id,
-        ctx: this.toolContext(session.id, task.projectId, agent, task.id, null),
+        ctx: toolContext(session.id, task.projectId, agent, task.id, null),
         seen: new Set<string>(),
       });
 
@@ -104,6 +107,10 @@ export class SessionOrchestrator {
     brief: string;
     budgetUsd: number | null;
     runnerPreference?: "cloud" | "local" | "auto" | null;
+    /** The goal's time rail, as wall clock. Null means no limit. */
+    deadlineAt?: Date | null;
+    /** Revoked when the goal's dispatch slot is taken by another iteration. */
+    signal?: AbortSignal | null;
   }): Promise<{ sessionId: string; summary: string; costUsd: number | null; parked: boolean }> {
     const agent = await this.agents.requireByName(input.projectId, input.agentName);
     const requested = await this.router.pick({ agent, goalPreference: input.runnerPreference });
@@ -136,8 +143,10 @@ export class SessionOrchestrator {
         runner,
         handle,
         sessionId: session.id,
-        ctx: this.toolContext(session.id, input.projectId, agent, null, input.goalId),
+        ctx: toolContext(session.id, input.projectId, agent, null, input.goalId),
         seen: new Set<string>(),
+        deadlineAt: input.deadlineAt ?? null,
+        signal: input.signal ?? null,
       });
 
       const costUsd = result.parked ? null : await this.teardown.finish(runner, handle, session.id, result.failure);
@@ -147,79 +156,22 @@ export class SessionOrchestrator {
       // waiting on a human who has not been asked yet.
       return { sessionId: session.id, summary: result.summary, costUsd, parked: result.parked };
     } catch (error) {
-      await this.teardown.failAndRelease(runner, handle, session.id, error);
+      // The cost comes back from the teardown, which reads it before the
+      // container goes away. A failed specialist that had already spent money
+      // must still be charged to the goal, or the cap never converges.
+      const costUsd = await this.teardown.failAndRelease(runner, handle, session.id, error);
       return {
         sessionId: session.id,
         summary: `session failed: ${String(error)}`,
-        costUsd: null,
+        costUsd,
         parked: false,
       };
     }
   }
 
-  /** Called after the operator answers an inbox question. */
+  /** Called after the operator answers an inbox question (see SessionResumer). */
   async resumeSession(sessionId: string, inboxMessageId: string): Promise<void> {
-    const session = await this.sessions.require(sessionId);
-    // The answer claimed this session out of `waiting-inbox` before the job was
-    // queued, so `running` is the expected state here. A terminal one means the
-    // reaper or a failure got there first.
-    if (isTerminalSessionStatus(session.status) || !session.runtimeHandle) {
-      this.logger.warn(`session ${sessionId} is ${session.status}; nothing to resume`);
-      return;
-    }
-
-    const message = await this.inbox.require(inboxMessageId);
-    if (!message.runtimeToolUseId) {
-      this.logger.warn(`inbox message ${inboxMessageId} has no parked tool call`);
-      return;
-    }
-
-    const agent = await this.agents.requireById(session.agentId);
-    // Resume on the backend that started the run: the handle only means
-    // something there.
-    const runner = session.runner === "local" ? this.localRunner : this.cloudRunner;
-    const handle: RunnerHandle = {
-      runtimeSessionId: session.runtimeHandle,
-      traceUrl: session.traceUrl,
-      // Carried across the park so the eventual destroy still deletes the
-      // vaults this session's credentials live in.
-      vaultIds: session.runtimeVaultIds,
-    };
-
-    try {
-      await runner.injectToolResult(handle, message.runtimeToolUseId, this.inbox.answerText(message));
-
-      // Events already logged must not be re-processed after the reconnect.
-      const seen = new Set(
-        session.toolCallLog.map((entry) => entry.eventId).filter((id): id is string => Boolean(id)),
-      );
-      const result = await this.consumer.consume({
-        runner,
-        handle,
-        sessionId: session.id,
-        ctx: this.toolContext(session.id, session.projectId, agent, session.taskId, session.goalId),
-        seen,
-      });
-
-      if (!result.parked) {
-        const costUsd = await this.teardown.finish(runner, handle, session.id, result.failure);
-        // The goal loop stopped when this session parked. Now that its answer
-        // has landed and the turn is over, the loop is owed both the spend and
-        // its next iteration — otherwise a goal quietly stalls forever the
-        // first time a specialist asks a question.
-        if (session.goalId) {
-          if (costUsd !== null) {
-            await this.goalLog.recordSpend(session.goalId, costUsd);
-          }
-          if (result.summary.trim()) {
-            await this.goalLog.appendProgress(session.goalId, agent.name, result.summary);
-          }
-          await this.queue.enqueueGoalIteration(session.goalId);
-        }
-      }
-    } catch (error) {
-      await this.teardown.failAndRelease(runner, handle, session.id, error);
-    }
+    await this.resumer.resume(sessionId, inboxMessageId);
   }
 
   /**
@@ -262,22 +214,4 @@ export class SessionOrchestrator {
     }
   }
 
-  private toolContext(
-    sessionId: string,
-    projectId: string,
-    agent: AgentRow,
-    taskId: string | null,
-    goalId: string | null,
-  ): ToolContext {
-    return {
-      sessionId,
-      projectId,
-      agentId: agent.id,
-      agentSlug: agent.name,
-      taskId,
-      goalId,
-      inboxAccess: agent.inboxAccess,
-      filesystemGrants: agent.filesystemGrants,
-    };
-  }
 }

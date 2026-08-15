@@ -153,7 +153,9 @@ export class AgentToolHandler {
       return deny("note is empty");
     }
     if (ctx.goalId) {
-      await this.goalLog.appendProgress(ctx.goalId, ctx.agentSlug, note);
+      // The one call that counts as progress for the stuck rail: an agent
+      // saying, in its own tool call, that it did something.
+      await this.goalLog.appendProgress(ctx.goalId, ctx.agentSlug, note, { marksProgress: true });
       return { kind: "result", text: "progress recorded on the goal log" };
     }
     if (!ctx.taskId) {

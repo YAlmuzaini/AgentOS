@@ -3,6 +3,8 @@ import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { APP_CONFIG, type AppConfig } from "./config/config";
+import { ERROR_REPORTER, type ErrorReporter } from "./observability/error-reporter";
+import { ReportingExceptionFilter } from "./observability/exception.filter";
 
 async function bootstrap(): Promise<void> {
   // rawBody is what the webhook signature is computed over; a re-serialised
@@ -13,10 +15,22 @@ async function bootstrap(): Promise<void> {
   app.enableCors({ origin: config.WEB_ORIGIN, credentials: true });
   // Validation is per-route via the shared Zod contracts (ZodBody), so there is
   // no global class-validator pipe.
+  app.useGlobalFilters(new ReportingExceptionFilter(app.get<ErrorReporter>(ERROR_REPORTER)));
   app.enableShutdownHooks();
 
   await app.listen(config.API_PORT);
   new Logger("bootstrap").log(`AgentOS API listening on :${config.API_PORT}`);
+
+  // A rejection nobody awaited is the classic silent death of a worker loop:
+  // the process keeps serving HTTP while the thing that was supposed to run
+  // an agent is gone. Report it rather than let Node print and move on.
+  const reporter = app.get<ErrorReporter>(ERROR_REPORTER);
+  process.on("unhandledRejection", (reason) => {
+    reporter.capture(reason, { scope: "process.unhandledRejection" });
+  });
+  process.on("uncaughtException", (error) => {
+    reporter.capture(error, { scope: "process.uncaughtException" });
+  });
 }
 
 bootstrap().catch((error) => {

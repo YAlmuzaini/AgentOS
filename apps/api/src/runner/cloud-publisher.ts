@@ -194,16 +194,25 @@ export class CloudPublisher {
     });
 
     try {
+      // Ownership is recorded the moment the vault exists, before anything is
+      // written into it. Recording it only on the way out meant a build that
+      // failed *and* whose compensating delete also failed left a vault holding
+      // real credentials that no row, no handle and no sweep had ever heard of
+      // — the one state from which nothing can ever retry.
+      //
+      // Inside the guard, because recording is itself a database call that can
+      // fail: outside it, a failure there left the vault behind with no row and
+      // no compensating delete either.
+      await input.onVaultsCreated?.([vault.id]);
       await this.fillVault(api, vault.id, input, mcpCredentials);
     } catch (error) {
-      // The id was never returned, so nothing upstream can clean this up: not
-      // the handle, not the session row, not the sweep. A half-built vault
-      // still holds whatever credentials did get written.
       await api.vaults.delete(vault.id).catch((cleanupError: unknown) => {
-        // Both failures matter, and the second is the one that leaves a
-        // credential behind, so it must not vanish into an empty catch.
+        // The session row now carries this id, so maintenance will retry the
+        // delete. Still logged: a credential outliving its session is exactly
+        // the thing worth seeing twice.
         this.logger.error(
-          `vault ${vault.id} was left behind after a failed build: ${String(cleanupError)}`,
+          `vault ${vault.id} was left behind after a failed build; the session row will retry it: ` +
+            String(cleanupError),
         );
       });
       throw error;

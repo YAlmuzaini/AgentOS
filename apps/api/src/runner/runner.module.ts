@@ -7,6 +7,7 @@ import { SecretsModule } from "../secrets/secrets.module";
 import { SessionsModule } from "../sessions/sessions.module";
 import { SettingsModule } from "../settings/settings.module";
 import { TasksModule } from "../tasks/tasks.module";
+import { GoalContinuity } from "../goals/goal-continuity";
 import { CloudPublisher } from "./cloud-publisher";
 import { CloudManagedAgentsRunner } from "./cloud-runner";
 import { LocalVmRunner } from "./local-runner";
@@ -17,8 +18,10 @@ import { SessionConsumer } from "./session-consumer";
 import { EnvironmentPolicyResolver } from "./environment-policy";
 import { MaintenanceService } from "./maintenance.service";
 import { OrphanSweep } from "./orphan-sweep";
+import { VaultCleanup } from "./vault-cleanup";
 import { SessionOrchestrator } from "./session-orchestrator";
 import { SessionProvisioner } from "./session-provisioner";
+import { SessionResumer } from "./session-resumer";
 import { SessionTeardown } from "./session-teardown";
 import { AgentToolHandler } from "./tool-handler";
 
@@ -51,9 +54,12 @@ import { AgentToolHandler } from "./tool-handler";
     EnvironmentPolicyResolver,
     SessionProvisioner,
     SessionTeardown,
+    SessionResumer,
     SessionOrchestrator,
     MaintenanceService,
+    GoalContinuity,
     OrphanSweep,
+    VaultCleanup,
   ],
   exports: [SessionOrchestrator, MaintenanceService],
 })

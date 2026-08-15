@@ -1,4 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { ERROR_REPORTER, type ErrorReporter } from "../observability/error-reporter";
 import { SessionsService } from "../sessions/sessions.service";
 import type { Runner, RunnerHandle } from "./runner.types";
 
@@ -13,7 +14,10 @@ import type { Runner, RunnerHandle } from "./runner.types";
 export class SessionTeardown {
   private readonly logger = new Logger(SessionTeardown.name);
 
-  constructor(private readonly sessions: SessionsService) {}
+  constructor(
+    private readonly sessions: SessionsService,
+    @Inject(ERROR_REPORTER) private readonly errors: ErrorReporter,
+  ) {}
 
   /**
    * Records the failure and frees the container, in that order but never
@@ -29,14 +33,43 @@ export class SessionTeardown {
     handle: RunnerHandle | null,
     sessionId: string,
     error: unknown,
-  ): Promise<void> {
+  ): Promise<number | null> {
     this.logger.error(`session ${sessionId} failed: ${String(error)}`);
+    // A session that failed after provisioning has usually already spent money,
+    // and once the container is gone there is nothing left to ask. Booking $0
+    // for it let a goal re-dispatch against the full remaining budget after
+    // every failure — a repeatable failure could spend the cap many times over
+    // while the cap read as untouched.
+    const costUsd = await this.readCostQuietly(runner, handle);
     try {
-      await this.sessions.finish(sessionId, { status: "failed", error: String(error) });
+      await this.sessions.finish(sessionId, { status: "failed", error: String(error), costUsd });
     } catch (recordError) {
       this.logger.error(`session ${sessionId}: could not record the failure: ${String(recordError)}`);
     } finally {
       await this.destroyQuietly(runner, handle, sessionId);
+    }
+    return costUsd;
+  }
+
+  /**
+   * Spend, or null when it cannot be read.
+   *
+   * This runs on the failure path, where something has already gone wrong. A
+   * cost readout that also fails must not replace the original error or skip
+   * the destroy that follows it.
+   */
+  private async readCostQuietly(
+    runner: Runner,
+    handle: RunnerHandle | null,
+  ): Promise<number | null> {
+    if (!handle) {
+      return null;
+    }
+    try {
+      return await runner.readCost(handle);
+    } catch (error) {
+      this.logger.warn(`could not read spend for ${handle.runtimeSessionId}: ${String(error)}`);
+      return null;
     }
   }
 
@@ -62,10 +95,12 @@ export class SessionTeardown {
       // provably gone, which is what makes the retry queue self-maintaining.
       await this.sessions.clearVaults(sessionId);
     } catch (error) {
-      this.logger.error(
-        `session ${sessionId}: the container could not be destroyed ` +
-          `(${handle.runtimeSessionId}): ${String(error)}`,
-      );
+      // A container that outlived its session bills until a human notices, and
+      // the whole point of this product is that no human is looking.
+      this.errors.capture(error, {
+        scope: "session.destroy",
+        tags: { sessionId, runtimeSessionId: handle.runtimeSessionId, runner: runner.name },
+      });
       // The row must not claim a clean end the runtime never gave us.
       await this.sessions
         .recordDestroyFailure(sessionId, String(error))

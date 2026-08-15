@@ -43,6 +43,17 @@ const envSchema = z.object({
   LOCAL_RUNNER_URL: z.string().default(""),
   LOCAL_RUNNER_TOKEN: z.string().default(""),
 
+  /**
+   * Error reporting (RECIPE A8). Any Sentry-compatible DSN; GlitchTip is the
+   * self-hosted one this is written for. Unset means errors stay in the log,
+   * which is the default and leaks nothing off the machine.
+   */
+  GLITCHTIP_DSN: z.string().default(""),
+  /** Tags reports so a staging stack does not look like production. */
+  DEPLOY_ENV: z.string().default("development"),
+  /** Optional build identifier, so a regression points at a deploy. */
+  RELEASE: z.string().default(""),
+
   /** Tests drive the orchestrator directly; the queue worker stays off. */
   AGENTOS_DISABLE_WORKER: z
     .union([z.literal("1"), z.literal("0"), z.literal("true"), z.literal("false")])

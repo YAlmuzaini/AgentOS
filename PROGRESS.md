@@ -2,16 +2,20 @@
 
 Update every session. Read on boot alongside `RECIPE.md`, `PRODUCT.md`, `SPEC.md`, `DESIGN.md`.
 
-**Last updated:** 2026-08-14
+**Last updated:** 2026-08-15
 
 ---
 
 ## Where we are
 
-**All eight phases of `SPEC.md` §21 are built, and agents now actually run.** 77 automated tests
+**All eight phases of `SPEC.md` §21 are built, and agents now actually run.** 109 automated tests
 pass, and the cloud runner, the network wall, the inbox pause/resume cycle, vault cleanup, the
-local runner and its credential proxy have each been exercised against real containers. Total spend
-proving it: about $0.50.
+local runner and its credential proxy have each been exercised against real containers. Six
+independent review rounds have each found real defects in the previous round's fixes — round six's
+headline finding was that round five's session deadline could not actually stop a silent session,
+and round seven was the first to clear the thing it was pointed at. Both backends were run end to
+end on real containers, and the whole vault lifecycle was watched from outside AgentOS. Error
+reporting (`RECIPE.md` A8) is wired and off by default.
 
 | Phase | State |
 |---|---|
@@ -28,7 +32,7 @@ proving it: about $0.50.
 
 ## Verified this session
 
-Automated (`pnpm --filter @agentos/api test`, 77 tests, 11 suites):
+Automated (`pnpm --filter @agentos/api test`, 109 tests, 17 suites):
 
 | SPEC §22 acceptance test | Suite |
 |---|---|
@@ -287,6 +291,223 @@ balance. A per-session request ceiling (`LOCAL_RUNNER_MAX_SESSION_REQUESTS`, def
 what a compromised agent can spend through the proxy, since the SDK's own budget covers only the
 calls it makes.
 
+## Round five: the goal loop, reviewed for the first time
+
+Round four rewrote the loop itself, so round five was pointed at it. **Nine findings — five High,
+four Medium — and a fifth refusal.** It also verified the previous round's ten claims: two
+CONFIRMED, eight PARTIAL. It raised nothing new about the local-runner credential, which is the
+known-open item it was told not to re-litigate.
+
+The theme is that the loop is a chain of queue jobs, and every link was a place a goal could stop
+existing without anyone being told.
+
+**A goal stopped counting money the moment a session failed.** `failAndRelease` never read spend
+before destroying, so a specialist that died after provisioning was booked at `$0`. The next
+iteration then read the *full* remaining budget again — a repeatable failure could spend the cap
+many times over while the cap itself read as untouched. Teardown now reads the cost while the
+container still exists and hands it back, on the failure path as well as the success one.
+
+**The stuck rail could not fire.** "Progress" meant the progress log got longer, and *everything*
+lands in that log — the specialist's own prose, the orchestrator's dispatch line, the failure
+summary of a session that achieved nothing. Any of them reset the counter. Progress is now a
+counted signal (`progress_marks`, migration `0011`) bumped by exactly two things: an agent
+recording work through its activity tool, and a checklist item flipping to done. Model prose does
+not count. A parked turn is now counted as an iteration too — a specialist that only ever asks
+questions is precisely what the rail is for.
+
+**A reaped question stalled its goal forever.** When a parked specialist timed out, the reaper freed
+the container and closed the message — and nothing queued the goal's next turn, because the resume
+that would have done it was never going to happen. The goal sat `active` with no session, no job,
+and no error anywhere the operator looks, and its pre-park spend was never counted. Reaping a goal
+session now reads its cost, books it, and stops the goal with a reason that says what happened.
+
+**Nothing recovered a goal whose successor enqueue was lost.** Goal jobs get one attempt; a Redis
+blip at the wrong statement ended the goal permanently. `GoalContinuity.recoverStalledGoals` is the
+sweep for that — it re-queues an active, approved goal that has no live session and no held lease
+and has sat untouched past a grace period. Safe to repeat, because a duplicate loses the dispatch
+lease and stands down.
+
+**An answered question could become unanswerable.** The message committed as `answered` before the
+resume job was queued. When the queue refused it, the session went back to the park but the message
+did not — and the guard at the top of `reply` rejects anything already answered. The container had
+no way back. Both halves are now restored together.
+
+**Two vault paths could strand credentials for good.** A vault whose build failed *and* whose
+compensating delete also failed had never been reported to anyone, so no row, handle or sweep knew
+it existed. Ownership is now recorded the moment the vault is created, before anything is written
+into it, and `deleteVaults` treats a 404 as success so the retry cannot wedge on a vault that is
+already gone. Separately, `sessionsWithPendingVaults` took the newest 200 sessions and *then*
+filtered, so a stranded vault became invisible as soon as 200 newer sessions existed — permanently.
+It is a SQL query now, oldest first, so the page drains the backlog rather than the fresh end of it.
+
+The rest: the dispatch lease carries an ownership token and is renewed while a specialist runs, so
+it cannot expire under live work and a stale holder cannot clear the lease of whoever took over;
+goal completion is decided by the persisted checklist rather than the evaluator's verdict, because
+the evaluator reads a log that agents write; the goal's time rail now travels *into* the session as
+a deadline (`DeadlineStream`), so a specialist started one minute inside the limit is cut off at it
+instead of running for hours; the local runner's timeout path keeps a session whose workspace could
+not be removed instead of dropping it from the map on an unhandled rejection; and the local runner
+refuses a repo granted without a credential, which the cloud path already did.
+
+**The `:`-in-a-job-id lesson got a structural fix, not another patch.** BullMQ's real rules are now
+one exported function (`assertValidJobId`) that the queue and the test stubs both call, and there is
+one shared queue stub instead of four hand-rolled ones — two of which still dropped the dedupe key
+on the floor. Transcribed from BullMQ 6.1.1's own `validateOptions`, which also rejects an all-digit
+id, and tolerates a colon only when there are exactly two.
+
+## What the live runs proved, and what they could not
+
+`RECIPE` A1.7 again: the suite went 77 → 92 green, and that is the weakest signal here.
+
+**Verified live, on this build, against a real container:** a task ran end to end on the local
+runner — 8 events consumed through the new `DeadlineStream` wrapper, `agentos_update_task` answered
+by the control plane, card `done`, session `destroyed` with no error, `$0.64` read back. That
+wrapper now sits in front of *every* runtime event stream, so proving it against a real one rather
+than a fake generator was the point.
+
+**And the live run found a defect no test could.** The first local run reported
+`container was not destroyed: ENOTEMPTY … rmdir '/tmp/agentos-local/session-LP39gD/.omc/…'`. The
+agent's own tooling was still writing under the workspace as it was torn down, and `fs.rm` does
+**not** retry by default. Six abandoned workspaces were sitting on disk from earlier sessions, so
+this had been happening for a while and nothing had noticed. Fixed with `maxRetries`, and verified
+by rerunning: destroy clean, zero workspaces left.
+
+**The cloud runner, after the founder replaced the key mid-session.** The old `ANTHROPIC_API_KEY`
+was dead — `GET /v1/models` returned `401 API key is invalid` straight from Anthropic, and every
+cloud session failed at provision with that 401. Worth keeping as a data point: the failure path
+behaved correctly under a real outage, recording the provider's error on the session row rather
+than swallowing it. With the new key:
+
+- **A task ran end to end on the cloud runner.** 24 events consumed through `DeadlineStream`,
+  `agentos_update_task` answered by the control plane, card `done`, session `destroyed` with no
+  error, `$0.03`.
+- **The whole vault lifecycle was watched from outside AgentOS.** An env binding was granted to the
+  agent's environment so a session would actually mint a vault, and the provider's own vault list
+  was polled alongside the session: **0 before, 1 while running, 0 after destroy**, with the session
+  row's `runtime_vault_ids` cleared to `[]` and no destroy failure recorded. That is the round-five
+  change — recording vault ownership at creation rather than after the vault is filled — proven
+  against the real provider rather than a fake. The probe binding, its secret ref and the agent's
+  temporary environment were removed afterwards; the project is back to its seeded state.
+
+**Round six, verified live on its own build.** Both backends again, after the cancellation rewrite
+touched every event stream: cloud — 24 events, card `done`, `destroyed`, no error, `$0.03`; local —
+8 events, `destroyed`, no error, `$0.64`, zero workspaces left on disk and an empty session map, so
+the cleanup path released its map entry correctly.
+
+**Also confirmed live, incidentally:** round four's claim 7. An agent with no environment resolves
+to `limited-none`, the local worker refuses it because it cannot enforce egress, and
+`provisionWithFallback` moved the session to cloud rather than failing the run.
+
+## Round six: the deadline did not work
+
+Round six reviewed round five's own fixes — **12 findings, five High** — and the first one is the
+reason this project keeps paying for reviews.
+
+**The deadline added in round five could not stop a silent session.** It worked by wrapping the
+event stream and abandoning the iterator at the cut-off. But calling `return()` on an async
+generator that is blocked inside `next()` queues the return *behind* that pending read; it does not
+interrupt it. So the one case a deadline exists for — a session that has gone completely quiet — was
+the one case that hung the consumer instead of ending it, leaving the container alive and a queue
+job holding it. The round-five test passed because its fake stream resolved after ten seconds: the
+timer was ending the run, not the deadline.
+
+Cancellation now has to reach the socket. `streamEvents(handle, seen, signal?)` is part of the
+`Runner` contract, both backends hand the signal to their own request, and `RunCancellation` owns
+the deadline, the external revoke, and the timer. The new test's stream **never resolves** — reverting
+the fix makes it hang until the test times out, which is exactly the production symptom.
+
+**The stuck rail was forgeable, and one bug made it worse.** Any non-empty `agentos_add_activity`
+call minted a progress mark, so a prompt-injected agent could reset the rail every turn with
+"still working". Separately, `stuckCount` reset whenever the next specialist differed from the last
+— and a different specialist is what a stuck goal *looks like*, so two agents alternating could
+circle forever without the counter passing one. The reset is gone, and there is now a hard ceiling
+(`MAX_ITERATIONS`, 100) that counts dispatches and nothing else: the one rail no agent can talk out
+of firing. The progress sample also moved before the evaluator ticks the checklist, so a completed
+item finally counts as the progress it obviously is.
+
+**Losing the dispatch lease did not stop the specialist.** Renewal noticed and logged, and the old
+run carried on spending beside its replacement — the exact double-spend the lease exists to prevent.
+`DispatchLease` now revokes through the same abort signal, so lease loss ends the session.
+
+**Three ways a goal still lost money or stalled.** A *resumed* session that failed discarded its
+cost and left the loop with nothing queued; the reaper skipped both the spend booking and the goal
+stop if closing the inbox message threw; and a resumed turn ignored the goal's time rail entirely,
+so a goal could park just inside its limit and then run unbounded.
+
+The rest: the inbox rollback now restores the message and the session in one transaction, because
+either half alone leaves a container that nothing can reach; recovery excludes live goals in SQL
+*before* the page limit and carries a dedupe key, so a backlog of parked goals cannot starve a
+stalled one and two passes cannot double-dispatch; vault cleanup pages by cursor, so a few
+permanently-failing rows cannot hide every newer credential behind them; vault ownership is recorded
+inside the guarded block; and the local runner now separates "the run ended" from "the workspace is
+gone" — the stream closes immediately either way, and a directory that will not delete keeps the
+session listed so the sweep retries it instead of forgetting it.
+
+## Error reporting, and why it is not optional here
+
+`RECIPE.md` A8 asked for GlitchTip and it was the one real code gap left. The premise of this
+product is that nobody is watching, which makes a failure that only reaches stdout a failure that
+did not happen — and it has bitten twice: a broken orphan sweep logged a 400 on every pass and would
+have reported zero orphans forever, and six abandoned workspaces sat on a disk for days because a
+destroy failure only ever reached a log line.
+
+Behind an interface with a log driver as the default (`RECIPE.md` A2), so nothing leaves the machine
+until `GLITCHTIP_DSN` is set. Wired to the things nobody watches: every maintenance job, a container
+that could not be destroyed, a queue job that failed (jobs get one attempt — that failure is final),
+an inbox rollback that could not be completed, any API 5xx, and unhandled rejections. 4xx is
+deliberately not reported: a Zod rejection is the API working.
+
+**Scrubbing is the part that matters.** This app's errors are unusually dangerous to ship raw — the
+tool-call log carries task text and agent prose, and a provisioning failure quotes the one request
+that carried resolved secrets. Credentials are redacted by pattern *and* by exact value for every
+known secret env var; narrative fields are dropped outright rather than pattern-matched, because
+there is no regex for "this sentence names a customer"; and Sentry's default integrations are off,
+since they attach request bodies and local variables. Proven on the wire, not asserted:
+`error-reporting.spec.ts` stands up an HTTP server, captures the actual envelope, and asserts the
+Anthropic key and the operator token are absent from the bytes while the useful tags survive.
+
+## Round seven: severity finally falling
+
+Round seven reviewed round six — **7 findings, three High** — and, for the first time, cleared the
+thing it was pointed at. The cancellation rewrite was checked transport by transport and found
+sound: the signal reaches the SDK's request on cloud and undici's socket on local, `AbortError` and
+`APIUserAbortError` are the right names for these implementations, an unrelated abort-shaped error
+is only swallowed after our own cancellation fired, `reader.cancel()` runs on every exit path
+including a park, and null / already-past deadlines behave.
+
+The three blockers it did find were all real.
+
+**Recovery could wedge a goal permanently.** The recovery job id was `goal-recovery-<goalId>`, and
+BullMQ treats an existing job with that id as a duplicate *even after it has completed* — completed
+jobs are retained (`removeOnComplete: 500`). On a single-operator install that first job can sit in
+Redis for months, so every later recovery of the same goal returned it and created no runnable work,
+while maintenance logged the goal as recovered. The key now carries the stalled state's `updatedAt`:
+two sweeps of the same stall still collapse to one job, a genuinely new stall gets its own.
+
+**A resumed session held no lease.** It was excluded from recovery only while its `startedAt` was
+inside the lease window, so a session parked over an hour and then answered looked idle — and
+maintenance could dispatch a second specialist against the same budget, with no way to revoke the
+first. Resume now takes the same dispatch slot and passes its revocation signal into the session. If
+the slot is already held it still resumes (the container is real and the operator answered it) but
+does not queue the next turn, because that belongs to whoever holds the slot.
+
+**A granted secret could survive scrubbing.** The scrubber knew credential *shapes* — Anthropic
+keys, URL credentials, 64-hex — and a bare GitHub token, a JWT or an MCP server's opaque bearer
+matches none of them. They reach error text by an ordinary route: a runner quotes the response that
+failed and the reporter ships it. Values are now registered in a process-local redactor as the
+manifest resolves them, so redaction is exact-match rather than guesswork. This only mattered with
+`GLITCHTIP_DSN` set, which is off by default.
+
+The rest: a `maxDurationMinutes` beyond ~24.85 days fired its deadline *immediately*, because
+`setTimeout` clamps anything above 2^31-1 ms to 1 ms — the deadline is now armed in chunks; the
+iteration ceiling counted dispatches that *returned* rather than dispatches that *started*, so a
+worker dying mid-specialist launched a container without spending a slot, and the iteration is now
+reserved before provisioning; and the successor iteration was enqueued while the current job still
+held the lease, where a free worker could pick it up, lose the claim and exit — it is enqueued after
+the release now.
+
+**Verified live on this build:** cloud task, 24 events, card `done`, `destroyed`, no error, `$0.03`.
+
 ## Security review of the trust boundaries
 
 Five review subagents were dispatched across two attempts and none returned findings, so this pass
@@ -406,15 +627,37 @@ Consequences visible in the code:
    `claude setup-token`, not an API key on a large balance — or leave the backend off, which is the
    default. It also cannot enforce egress, so it refuses `limited`-network sessions and the
    orchestrator falls back to the cloud runner. All of this is in `DEPLOY.md` §6.
-4. **Two review rounds, two refusals, and a third in flight.** Each round found real defects in the
-   previous round's fixes — including one, the invalid BullMQ job id, that would have wedged every
-   template chain in production. Treat "the tests pass" as the weakest of the available signals
-   here; the concurrency and cleanup paths have been rewritten twice and reviewed once each.
+4. **Seven review rounds. Severity is finally falling, and round seven's fixes are unreviewed.**
+   Every round through six found real defects in the last round's fixes — the invalid BullMQ job id
+   would have wedged every template chain; round five's `$0` spend booking would have let a failing
+   goal spend its cap repeatedly; round six found that round five's own deadline hung instead of
+   cutting off a silent session. Round seven was the first to *clear* what it was aimed at (the
+   cancellation rewrite, checked transport by transport), and dropped from five High to three. No
+   round since four has found a Critical or an isolation break, and the walls — `fs-acl`, manifest
+   scoping, webhook replay, the approval gate, the tool handler — have each been checked clean more
+   than once. Round seven's own three fixes have not been reviewed by anyone.
 5. **`.env.example` line 9 was twice found holding a real token.** The founder confirmed that was
    their own doing, not a stray process. Blank now; worth a glance before the first commit.
+6. **Six smoke tasks are on the Acme board** from this session's live runs ("Round five smoke",
+   "Round five local smoke", "Round five local stream", "Round five cleanup proof", "Cloud path
+   proof", "Vault lifecycle proof"). Two are stuck in `doing` behind the failures from the old, dead
+   API key; they are left deliberately as evidence that the failure path records a provider outage
+   on the session row instead of swallowing it. Delete them whenever you like.
 
 ## Next session
 
-The credential is in and the first runs are done. The honest next step is the ops layer from
-`RECIPE.md` A8 — GlitchTip first, because the runner fails in ways nobody will be watching for, and
-this session proved the point: a broken orphan sweep logged an error into a terminal nobody reads.
+The ops gap is closed and both runners are verified on this build, so what is left is short.
+
+**The founder's hour.** A real visual pass (`RECIPE.md` A1.6) and one click on "enable
+notifications" to close the push path. Neither is something a coding agent can honestly sign off.
+
+**Set `GLITCHTIP_DSN`** when the stack goes up, or the reporting above stays in the log where the
+two incidents that motivated it went unnoticed.
+
+**On whether to run an eighth.** The trend, not the count, is the thing to read. Rounds one to six
+each found real defects in the previous round's fixes; round seven cleared the mechanism it was
+pointed at and fell from five High to three, and its three blockers were narrow boundary conditions
+(a retained BullMQ id, a lease a resumed turn did not take, a credential shape nobody had listed)
+rather than design faults. An eighth round would probably still find something — it always has — but
+the honest read is that this is now the tail, not the body. If you run one, scope it to round
+seven's three fixes and stop when it comes back Medium and Low.

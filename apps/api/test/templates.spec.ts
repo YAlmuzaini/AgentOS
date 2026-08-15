@@ -1,9 +1,9 @@
 import { COMPOUND_ENGINEER_TEMPLATE } from "@agentos/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { SessionQueue } from "../src/queue/session.queue";
 import { TasksService } from "../src/tasks/tasks.service";
 import { TemplatesService } from "../src/templates/templates.service";
 import { createHarness, type Harness } from "./harness";
+import { stubQueue, type QueueSink } from "./queue-stub";
 
 /**
  * Phase 3 done-when (SPEC §21) and acceptance test §22.6.
@@ -15,18 +15,17 @@ describe("template chains", () => {
   let harness: Harness;
   let templates: TemplatesService;
   let tasks: TasksService;
-  let enqueued: string[];
+  let queued: QueueSink;
 
   beforeAll(async () => {
     harness = await createHarness();
     templates = harness.app.get(TemplatesService);
     tasks = harness.app.get(TasksService);
 
-    const queue = harness.app.get(SessionQueue);
-    // Record releases instead of running them.
-    queue.enqueueRun = async (taskId: string) => {
-      enqueued.push(taskId);
-    };
+    // Records releases instead of running them, and validates the dedupe key
+    // exactly as the real queue does — a stub that ignored it is how an
+    // invalid BullMQ job id once reached production with the suite green.
+    queued = stubQueue(harness);
   });
 
   afterAll(async () => {
@@ -35,7 +34,7 @@ describe("template chains", () => {
 
   beforeEach(async () => {
     await harness.reset();
-    enqueued = [];
+    queued.clear();
   });
 
   it("creates all nine cards in order with variables interpolated", async () => {
@@ -60,7 +59,7 @@ describe("template chains", () => {
     expect(created[8]!.assigneeType).toBe("human");
 
     // Only step 0 was released.
-    expect(enqueued).toEqual([created[0]!.id]);
+    expect(queued.runs).toEqual([created[0]!.id]);
   });
 
   it("does not release step 1 until the operator closes the gated step 0", async () => {
@@ -70,19 +69,19 @@ describe("template chains", () => {
       variables: { branchName: "feat/x", feature: "x" },
       titlePrefix: "",
     });
-    enqueued = [];
+    queued.clear();
 
     // The agent can move the gated card to review but not past it.
     await tasks.setStatusFromAgent(created[0]!.id, "review");
-    expect(enqueued).toEqual([]);
+    expect(queued.runs).toEqual([]);
     await expect(tasks.setStatusFromAgent(created[0]!.id, "done")).rejects.toThrow(
       /approval-gated/,
     );
-    expect(enqueued).toEqual([]);
+    expect(queued.runs).toEqual([]);
 
     // The operator closes it, and only then does step 1 run.
     await tasks.patch(projectId, created[0]!.id, { status: "done" }, "human");
-    expect(enqueued).toEqual([created[1]!.id]);
+    expect(queued.runs).toEqual([created[1]!.id]);
   });
 
   it("releases each following step exactly once, and stops at the human step", async () => {
@@ -93,16 +92,16 @@ describe("template chains", () => {
       titlePrefix: "",
     });
     await tasks.patch(projectId, created[0]!.id, { status: "done" }, "human");
-    enqueued = [];
+    queued.clear();
 
     // Steps 1..7 are agent steps; each completion releases the next.
     for (let index = 1; index <= 7; index += 1) {
       await tasks.setStatusFromAgent(created[index]!.id, "done");
     }
 
-    expect(enqueued).toEqual(created.slice(2, 9).map((task) => task.id).slice(0, 6));
+    expect(queued.runs).toEqual(created.slice(2, 9).map((task) => task.id).slice(0, 6));
     // Step 8 is the operator's own card: it is never auto-released.
-    expect(enqueued).not.toContain(created[8]!.id);
+    expect(queued.runs).not.toContain(created[8]!.id);
   });
 
   it("releases the next step once, even if a card is closed twice", async () => {
@@ -112,13 +111,13 @@ describe("template chains", () => {
       variables: { branchName: "feat/x", feature: "x" },
       titlePrefix: "",
     });
-    enqueued = [];
+    queued.clear();
 
     // A double click, or a retried request, must not run step 1 twice.
     await tasks.patch(projectId, created[0]!.id, { status: "done" }, "human");
     await tasks.patch(projectId, created[0]!.id, { status: "done" }, "human");
 
-    expect(enqueued).toEqual([created[1]!.id]);
+    expect(queued.runs).toEqual([created[1]!.id]);
   });
 
   it("refuses to instantiate when a declared variable is missing", async () => {

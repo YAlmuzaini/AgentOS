@@ -152,6 +152,11 @@ live sandbox, where `/v1/models` returned 403, an unauthenticated call returned
 real wall against a prompt-injected agent; it is not a wall against a hostile
 process sharing the user account, which is why the paragraph above exists.
 
+**It refuses a repo it has no credential for.** Same rule the cloud runner already
+applied. Cloning anonymously instead failed obscurely mid-run on a private repo,
+and on a public one succeeded while the session prompt still advertised write
+access the agent did not have. Attach a secret to the repo, or drop the grant.
+
 **It cannot enforce a network wall.** The cloud runner gets an egress firewall
 from Anthropic; a VM has whatever you configured, which the worker cannot see.
 So a session that asks for `limited` networking is **refused** unless you set
@@ -206,13 +211,54 @@ Then set an agent's `runner` to `local` in `agentos.yml`, or a goal's runner
 preference. `auto` prefers local when it is healthy and falls back to cloud when
 it is not — including when it refuses a limited-network session.
 
-## 7. Operational extras (deploy when they pay off)
+## 7. Error reporting (wired in — set one variable)
 
-`RECIPE.md` A8 suggests these; none are wired in yet:
+The premise of this product is that you are not watching. That makes a failure
+which only reaches stdout a failure that did not happen, and it has bitten twice
+already: a broken orphan sweep logged a 400 on every pass and would have reported
+zero orphans forever, and six abandoned agent workspaces sat on a disk for days
+because a destroy failure only ever reached a log line. Both were found by
+accident.
+
+Set `GLITCHTIP_DSN` to any Sentry-compatible DSN and these report where you will
+see them:
+
+| Reported | Scope tag |
+|---|---|
+| A container that could not be destroyed | `session.destroy` |
+| Each maintenance job that throws | `maintenance.*` |
+| A queue job that failed (jobs get one attempt — this is the last word on it) | `worker.job` |
+| Maintenance that could never be scheduled | `worker.maintenance-schedule` |
+| Any API 5xx | `api.request` |
+| An unhandled rejection or uncaught exception | `process.*` |
+
+4xx responses are deliberately **not** reported: a Zod rejection or a 404 is the
+API working, and reporting those turns the feed into a request log nobody reads.
+
+**Leave it blank and nothing leaves the machine.** The default driver is
+structured logging, so an operator who never configures GlitchTip still gets
+every one of these in one greppable shape.
+
+**What is scrubbed before sending.** This app's errors are unusually dangerous to
+ship raw — a session's tool-call log carries task text and agent prose, and a
+provisioning failure quotes the one request that carried resolved secrets. So
+reports are redacted twice over: credentials by pattern (Anthropic keys and
+setup tokens, `Authorization`/`x-api-key` values, credentials inside git and
+database URLs, bare 64-hex secrets) plus the exact values of every known secret
+env var; and narrative fields (`description`, `prompt`, `systemPrompt`, `body`,
+`note`, `summary`, `progressLog`, `toolCallLog`, …) are dropped outright rather
+than pattern-matched, because there is no regex for "this sentence names a
+customer". Sentry's default integrations are disabled for the same reason — they
+attach request bodies and local variables.
+
+`DEPLOY_ENV` tags reports so staging does not look like production, and `RELEASE`
+is an optional build id so a regression points at a deploy.
+
+## 8. Other operational extras (deploy when they pay off)
+
+`RECIPE.md` A8 suggests these; neither is wired in:
 
 - **Umami** — cookieless analytics. Single-operator, so low value.
-- **GlitchTip** — error tracking. Worth it: the runner fails in ways you will not
-  be watching for. Scrub payloads in `beforeSend` — session logs carry task text.
 - **NocoDB** — read-only DB inspector, on Tailscale only, with a dedicated
   read-only Postgres user. Never public: writes would bypass the approval gate.
 
