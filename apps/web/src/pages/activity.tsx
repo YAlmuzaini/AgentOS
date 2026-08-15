@@ -1,12 +1,32 @@
 import { useQuery } from "@tanstack/react-query";
+import { History } from "lucide-react";
 import { api, type ActivityEntryDto } from "../api";
+import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { Page, PageHeader } from "../components/ui/page";
+import { Panel } from "../components/ui/panel";
+import { StatusPill } from "../components/ui/pill";
 import { useActiveProject } from "../hooks/use-project";
+import { NoProject } from "./tasks";
 
 const KIND_LABEL: Record<ActivityEntryDto["kind"], string> = {
   "task-activity": "task",
   session: "session",
   inbox: "inbox",
   goal: "goal",
+};
+
+/**
+ * The kind of an entry is a category, not a state — a failed session is still
+ * kind `session`. So these are the data hues, which the token system reserves
+ * for exactly this and forbids from carrying status. Colouring the chip with a
+ * signal hue made a failed session render emerald, which is the one thing the
+ * One Meaning Rule exists to prevent.
+ */
+const KIND_ACCENT: Record<ActivityEntryDto["kind"], string> = {
+  "task-activity": "bg-data-violet",
+  session: "bg-data-sky",
+  inbox: "bg-data-amber",
+  goal: "bg-data-emerald",
 };
 
 export function ActivityPage(): React.JSX.Element {
@@ -21,40 +41,74 @@ export function ActivityPage(): React.JSX.Element {
   });
 
   if (!project) {
-    return <p className="text-sm text-ink-muted">No project yet. Run `pnpm db:seed`.</p>;
+    return <NoProject />;
   }
 
   const entries = [...(activity.data ?? [])].sort((a, b) => b.at.localeCompare(a.at));
   const groups = groupByDay(entries);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <h1 className="text-lg font-semibold">Activity</h1>
+    <Page width="reading">
+      <PageHeader icon={<History />} title="Activity" />
+
+      {activity.isLoading ? (
+        <Panel>
+          <SkeletonRows rows={6} />
+        </Panel>
+      ) : null}
+
       {groups.map(([day, dayEntries]) => (
-        <section key={day}>
-          <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-            {day}
+        <section key={day} className="space-y-2">
+          <h2 className="text-[11px] font-medium tracking-[0.06em] text-ink-faint uppercase">
+            {formatDay(day)}
           </h2>
-          <ul className="space-y-1.5">
-            {dayEntries.map((entry) => (
-              <li key={entry.id} className="rounded-sm border border-edge bg-surface-raised p-2.5 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="rounded-sm bg-edge px-1.5 py-0.5 text-xs text-ink">
-                    {KIND_LABEL[entry.kind]}
-                  </span>
-                  <span className="machine text-xs text-ink-faint">{entry.at.slice(11, 19)}</span>
-                  <span className="font-medium">{entry.title}</span>
-                </div>
-                {entry.detail ? (
-                  <p className="mt-1 whitespace-pre-wrap text-xs text-ink-muted">{entry.detail}</p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+
+          {/*
+            A rail with a node per entry: the timeline the reference uses for
+            "Recent Activity", which reads as one continuous run rather than as
+            a stack of unrelated cards.
+          */}
+          <Panel className="p-4">
+            <ol className="relative space-y-4 before:absolute before:top-1.5 before:bottom-1.5 before:left-[3px] before:w-px before:bg-edge">
+              {dayEntries.map((entry) => (
+                <li key={entry.id} className="relative pl-5">
+                  <span
+                    aria-hidden
+                    className={`absolute top-1.5 left-0 size-1.5 rounded-full ring-2 ring-panel ${KIND_ACCENT[entry.kind]}`}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="machine text-xs text-ink-faint">{entry.at.slice(11, 19)}</span>
+                    <StatusPill tone="neutral">
+                      <span
+                        aria-hidden
+                        className={`size-1.5 rounded-full ${KIND_ACCENT[entry.kind]}`}
+                      />
+                      {KIND_LABEL[entry.kind]}
+                    </StatusPill>
+                    <span className="text-[13px] font-medium text-ink">{entry.title}</span>
+                  </div>
+                  {entry.detail ? (
+                    <p className="mt-1 text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">
+                      {entry.detail}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          </Panel>
         </section>
       ))}
-      {entries.length === 0 ? <p className="text-sm text-ink-muted">Nothing yet.</p> : null}
-    </div>
+
+      {!activity.isLoading && entries.length === 0 ? (
+        <Panel>
+          <EmptyState
+            icon={<History />}
+            title="Nothing yet"
+            hint="Runs, questions, and goal progress land here as they happen."
+          />
+        </Panel>
+      ) : null}
+    </Page>
   );
 }
 
@@ -67,4 +121,13 @@ function groupByDay(entries: ActivityEntryDto[]): Array<[string, ActivityEntryDt
     groups.set(day, bucket);
   }
   return [...groups.entries()];
+}
+
+/** "Today" beats a date the operator has to decode at 2am. */
+function formatDay(day: string): string {
+  const today = new Date().toISOString().slice(0, 10);
+  if (day === today) return "Today";
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  if (day === yesterday) return "Yesterday";
+  return day;
 }

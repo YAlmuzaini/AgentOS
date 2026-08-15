@@ -16,6 +16,7 @@ import type {
   EnvironmentDto,
   FileEntryDto,
   GoalDto,
+  InstantiateTemplateInput,
   InboxMessageDto,
   McpConnectionDto,
   PatchTaskInput,
@@ -23,6 +24,7 @@ import type {
   RepoDto,
   SecretRefDto,
   SessionDto,
+  SessionSummaryDto,
   SettingsDto,
   SkillDto,
   TaskActivityDto,
@@ -110,6 +112,8 @@ export interface ActivityEntryDto {
 export const api = {
   projects: () => request<ProjectDto[]>("/projects"),
   agents: (projectId: string) => request<AgentDto[]>(`/projects/${projectId}/agents`),
+  agent: (projectId: string, id: string) =>
+    request<AgentDto>(`/projects/${projectId}/agents/${id}`),
 
   tasks: (projectId: string) => request<TaskDto[]>(`/projects/${projectId}/tasks`),
   createTask: (projectId: string, body: Partial<CreateTaskInput>) =>
@@ -127,7 +131,8 @@ export const api = {
   taskActivity: (projectId: string, id: string) =>
     request<TaskActivityDto[]>(`/projects/${projectId}/tasks/${id}/activity`),
 
-  sessions: () => request<SessionDto[]>("/sessions"),
+  // The list carries no tool-call log — fetch a single session to replay one.
+  sessions: () => request<SessionSummaryDto[]>("/sessions"),
   session: (id: string) => request<SessionDto>(`/sessions/${id}`),
 
   inbox: (status?: string) =>
@@ -203,11 +208,12 @@ export const api = {
     request<{ path: string; content: string; mime: string }>(
       `/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`,
     ),
+  // Returns the written directory entry, not the content that was just sent.
   writeFileContent: (projectId: string, body: WriteFileInput) =>
-    request<{ path: string; content: string; mime: string }>(
-      `/projects/${projectId}/files/content`,
-      { method: "PUT", body: JSON.stringify(body) },
-    ),
+    request<FileEntryDto>(`/projects/${projectId}/files/content`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   deleteFileContent: (projectId: string, path: string) =>
     request<void>(`/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`, {
       method: "DELETE",
@@ -243,6 +249,11 @@ export const api = {
     }),
   triggerFires: (projectId: string, id: string) =>
     request<TriggerFireDto[]>(`/projects/${projectId}/triggers/${id}/fires`),
+  /** Installs the example webhook triggers, for a project starting from nothing. */
+  installExampleTriggers: (projectId: string) =>
+    request<TriggerDto[]>(`/projects/${projectId}/triggers/install-examples`, {
+      method: "POST",
+    }),
 
   automations: (projectId: string) =>
     request<AutomationDto[]>(`/projects/${projectId}/automations`),
@@ -266,6 +277,17 @@ export const api = {
 
   templates: (projectId: string) =>
     request<TaskTemplateDto[]>(`/projects/${projectId}/templates`),
+  /** Re-installs the built-in workflows over whatever is there. */
+  installBuiltInTemplates: (projectId: string) =>
+    request<TaskTemplateDto[]>(`/projects/${projectId}/templates/install-built-ins`, {
+      method: "POST",
+    }),
+  /** Creates every card in the chain at once; returns them in step order. */
+  instantiateTemplate: (projectId: string, id: string, body: InstantiateTemplateInput) =>
+    request<TaskDto[]>(`/projects/${projectId}/templates/${id}/instantiate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   activity: (projectId: string, limit = 100) =>
     request<ActivityEntryDto[]>(`/projects/${projectId}/activity?limit=${limit}`),

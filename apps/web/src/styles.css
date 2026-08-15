@@ -1,36 +1,94 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter-tight";
 
 /*
  * Tokens. DESIGN.md is normative — this file is its implementation, and the
  * two are meant to be read together. Adding a colour here without adding it
  * there is how a design system starts lying.
  *
- * "The Night Shift Control Room": a near-black field, hairline separation, and
- * four signal hues that each own exactly one meaning.
+ * "The Daylit Operations Desk": a warm off-white chrome, white working
+ * surfaces, one hairline, and status that reads as a tinted pill rather than
+ * as coloured text. Depth is a 1px border plus at most a 2px shadow — the
+ * surface never floats, it just sits one step forward.
  */
 @theme {
-  /* Surfaces — three tonal steps, no shadows anywhere in the system. */
-  --color-surface: oklch(0.17 0.01 260);
-  --color-surface-raised: oklch(0.22 0.012 260);
-  --color-surface-sunken: oklch(0.13 0.01 260);
+  /* ---- Surfaces -----------------------------------------------------------
+   * chrome  : the app frame (sidebar, top bar) — warm, one step back
+   * canvas  : the working area a page paints on
+   * panel   : a card or table sitting on the canvas
+   * sunken  : a read-only well inside a panel (values, logs, descriptions)
+   */
+  --color-chrome: oklch(0.9838 0.0018 106.42);
+  --color-canvas: oklch(1 0 0);
+  --color-panel: oklch(1 0 0);
+  --color-sunken: oklch(0.9761 0.002 106.42);
+  --color-overlay: oklch(0.2178 0.004 106.42 / 0.28);
 
-  /* The only separator in the system. */
-  --color-edge: oklch(0.32 0.015 260);
-  --color-edge-strong: oklch(0.44 0.02 260);
+  /* ---- Separation ---------------------------------------------------------
+   * One hairline for every edge in the system; -strong is hover and focus only.
+   */
+  --color-edge: oklch(0.9219 0.0025 106.42);
+  --color-edge-strong: oklch(0.8574 0.0032 106.42);
 
-  /* Text. */
-  --color-ink: oklch(0.97 0.005 260);
-  --color-ink-muted: oklch(0.72 0.02 260);
-  --color-ink-faint: oklch(0.58 0.02 260);
+  /* ---- Text ---------------------------------------------------------------- */
+  --color-ink: oklch(0.2178 0.004 106.42);
+  --color-ink-muted: oklch(0.5178 0.0043 106.42);
+  --color-ink-faint: oklch(0.6621 0.0043 106.42);
 
-  /* Signal hues. One meaning each — see DESIGN.md, The One Meaning Rule. */
-  --color-live: oklch(0.78 0.16 165); /* running right now */
-  --color-gate: oklch(0.83 0.14 85); /* waiting on you */
-  --color-danger: oklch(0.72 0.17 25); /* broken, or breaks things */
-  --color-link: oklch(0.8 0.1 230); /* leaves the app */
+  /* ---- The one high-contrast surface --------------------------------------
+   * Near-black. Exactly one primary action per screen wears it.
+   */
+  --color-solid: oklch(0.2178 0.004 106.42);
+  --color-solid-hover: oklch(0.2918 0.004 106.42);
+  --color-on-solid: oklch(1 0 0);
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
+  /* ---- Signal ------------------------------------------------------------
+   * Each status is a tinted pill: -soft fill, -line border, -ink text.
+   * One meaning each — see DESIGN.md, The One Meaning Rule.
+   */
+  --color-live: oklch(0.5905 0.1264 158.6); /* running right now */
+  --color-live-soft: oklch(0.9721 0.0353 158.6);
+  --color-live-line: oklch(0.8862 0.0759 158.6);
+
+  --color-gate: oklch(0.5623 0.1416 52.2); /* waiting on you */
+  --color-gate-soft: oklch(0.9789 0.0316 84.6);
+  --color-gate-line: oklch(0.8894 0.0787 84.6);
+
+  --color-danger: oklch(0.5271 0.1738 27.3); /* broken, or breaks things */
+  --color-danger-soft: oklch(0.9711 0.0148 27.3);
+  --color-danger-line: oklch(0.8823 0.0532 27.3);
+
+  --color-link: oklch(0.5083 0.1852 264.4); /* leaves the app, or is idle info */
+  --color-link-soft: oklch(0.9707 0.0203 253.4);
+  --color-link-line: oklch(0.8626 0.0665 253.4);
+
+  /* ---- Data ---------------------------------------------------------------
+   * Chart and meter hues only. Never used to carry status.
+   *
+   * These four are the reference's own published palette, taken verbatim from
+   * its spec sheet (design-refs/agents/05.jpg) rather than matched by eye.
+   */
+  --color-data-violet: #6155f5;
+  --color-data-sky: #47c2ff;
+  --color-data-amber: #f6b51e;
+  --color-data-emerald: #1fc16b;
+
+  /* ---- Shape --------------------------------------------------------------
+   * Controls 8px, panels 10px, pills full. No third radius.
+   */
+  --radius-control: 8px;
+  --radius-panel: 10px;
+
+  /* ---- Depth --------------------------------------------------------------
+   * A panel is a border. Only a thing that lifts off the chrome — the active
+   * nav item, the user card, a top-bar icon button — gets the 1px shadow.
+   */
+  --shadow-lift: 0 1px 2px 0 oklch(0.2178 0.004 106.42 / 0.05);
+  --shadow-pop: 0 4px 12px -2px oklch(0.2178 0.004 106.42 / 0.1), 0 2px 4px -2px oklch(0.2178 0.004 106.42 / 0.06);
+
+  /* The reference names its face on its own spec sheet: Inter Tight. */
+  --font-sans: "Inter Tight Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 html,
@@ -39,16 +97,29 @@ body,
   height: 100%;
 }
 
+html {
+  color-scheme: light;
+}
+
 body {
-  @apply bg-surface text-ink antialiased;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  @apply bg-canvas text-ink antialiased;
+  font-family: var(--font-sans);
+  /* The documented `body` step. Unstyled text lands on the ramp rather than on
+     a base that no component actually uses. */
+  font-size: 13px;
 }
 
 /* Machine values: ids, paths, cron, YAML, tool names. The Machine Voice Rule. */
 code,
 pre,
 .machine {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
+  font-feature-settings: normal;
+}
+
+/* Tabular figures wherever a column of numbers has to line up. */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 /*
@@ -56,16 +127,68 @@ pre,
  * one-handed on a phone.
  */
 :focus-visible {
-  outline: 1px solid var(--color-edge-strong);
+  /* No radius here on purpose: `outline` already follows the element's own
+     border-radius, so the ring inherits the shape it is wrapping. */
+  outline: 2px solid var(--color-solid);
   outline-offset: 1px;
 }
 
-/* Respect the operator's own motion setting; nothing here needs animation. */
+/* Native controls inherit the system accent so checkboxes read as ours. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-solid);
+}
+
+::placeholder {
+  color: var(--color-ink-faint);
+}
+
+/* The one authored motion in the app: a panel arriving on route change. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* A running session is the only thing in the app that pulses. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+/* Respect the operator's own motion setting. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Scrollbars, so a long log does not paint a grey slab into the layout. */
+@supports (scrollbar-width: thin) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-edge-strong) transparent;
   }
 }

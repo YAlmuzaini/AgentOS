@@ -1,5 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Bell, BellOff, Check } from "lucide-react";
 import { api } from "../api";
+import { Button } from "../components/ui/button";
 
 /** Push opt-in for the inbox PWA (SPEC §12). Best-effort: a denied permission
  * or missing VAPID key just leaves the button inert, never blocks the page. */
@@ -23,24 +25,22 @@ export function EnableNotifications(): React.JSX.Element {
 
   if (!publicKey.data?.enabled) {
     return (
-      <button
-        className="rounded-sm bg-surface-raised px-3 py-1.5 text-xs text-ink-faint"
-        disabled
-        title="push is not configured"
-      >
-        push is not configured
-      </button>
+      <Button size="sm" variant="ghost" disabled title="Push is not configured on the server">
+        <BellOff />
+        Push not configured
+      </Button>
     );
   }
 
   return (
-    <button
-      className="rounded-sm bg-edge px-3 py-1.5 text-xs hover:bg-edge-strong disabled:opacity-40"
+    <Button
+      size="sm"
       disabled={subscribe.isPending || subscribe.isSuccess}
       onClick={() => subscribe.mutate()}
     >
-      {subscribe.isSuccess ? "Notifications enabled" : "Enable notifications"}
-    </button>
+      {subscribe.isSuccess ? <Check /> : <Bell />}
+      {subscribe.isSuccess ? "Notifications on" : "Enable notifications"}
+    </Button>
   );
 }
 

@@ -3,6 +3,7 @@ import {
   type Runner,
   type SessionDto,
   type SessionStatus,
+  type SessionSummaryDto,
   isTerminalSessionStatus,
   TERMINAL_SESSION_STATUSES,
   type ToolCallLogEntry,
@@ -17,6 +18,10 @@ export type SessionRow = typeof sessions.$inferSelect;
 export class SessionsService {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
+  /**
+   * The full rows, tool-call logs included. Internal callers and tests use
+   * this; the HTTP list endpoint does not — see `listSummaries`.
+   */
   async list(limit = 100): Promise<SessionDto[]> {
     const rows = await this.db
       .select()
@@ -24,6 +29,44 @@ export class SessionsService {
       .orderBy(desc(sessions.startedAt))
       .limit(limit);
     return rows.map(toDto);
+  }
+
+  /**
+   * What the session list screen and the top bar poll.
+   *
+   * The tool-call log is never selected: it is the bulk of a finished session
+   * row, the list renders none of it, and this runs on a 4-second timer. On a
+   * seeded database the full-row version of this query was 89 KB per poll to
+   * paint a list of ids and statuses.
+   */
+  async listSummaries(limit = 100): Promise<SessionSummaryDto[]> {
+    const rows = await this.db
+      .select({
+        id: sessions.id,
+        projectId: sessions.projectId,
+        agentId: sessions.agentId,
+        taskId: sessions.taskId,
+        goalId: sessions.goalId,
+        runner: sessions.runner,
+        status: sessions.status,
+        runtimeHandle: sessions.runtimeHandle,
+        traceUrl: sessions.traceUrl,
+        commitShas: sessions.commitShas,
+        costUsd: sessions.costUsd,
+        error: sessions.error,
+        startedAt: sessions.startedAt,
+        endedAt: sessions.endedAt,
+      })
+      .from(sessions)
+      .orderBy(desc(sessions.startedAt))
+      .limit(limit);
+
+    return rows.map((row) => ({
+      ...row,
+      costUsd: row.costUsd != null ? Number(row.costUsd) : null,
+      startedAt: row.startedAt.toISOString(),
+      endedAt: row.endedAt?.toISOString() ?? null,
+    }));
   }
 
   async get(id: string): Promise<SessionDto> {

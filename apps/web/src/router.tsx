@@ -1,6 +1,7 @@
-import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { Layout } from "./app/layout";
 import { ActivityPage } from "./pages/activity";
+import { DashboardPage } from "./pages/dashboard";
 import { AgentsPage } from "./pages/agents";
 import { AutomationsPage } from "./pages/automations";
 import { EnvironmentPage } from "./pages/environment";
@@ -14,6 +15,7 @@ import { SessionsPage } from "./pages/sessions";
 import { SettingsPage } from "./pages/settings";
 import { SkillsPage } from "./pages/skills";
 import { TasksPage } from "./pages/tasks";
+import { TemplatesPage } from "./pages/templates";
 import { TriggersPage } from "./pages/triggers";
 
 const rootRoute = createRootRoute({ component: Layout });
@@ -21,18 +23,27 @@ const rootRoute = createRootRoute({ component: Layout });
 // Routes are declared one by one rather than through a helper: TanStack infers
 // the literal path of each route, and that inference is what makes <Link to>
 // type-checked across the app.
+// The app opens on the overview: what ran, what broke, what is parked on you.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  beforeLoad: () => {
-    throw redirect({ to: "/tasks" });
-  },
+  component: DashboardPage,
 });
 
 const tasksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tasks",
   component: TasksPage,
+  // `?new` is how the top bar's create button opens the dialog from any screen,
+  // so there is one create control in the app rather than one per surface.
+  // Returning the key only when it is on keeps `?new=false` out of the URL:
+  // an omitted flag is the closed state, and the bare /tasks stays clean.
+  // The router parses search values as JSON, so a hand-typed `?new=1` arrives
+  // as the number 1 and `?new=true` as a boolean. Accept the lot.
+  validateSearch: (search: Record<string, unknown>): { new?: true } =>
+    search.new === true || search.new === "true" || search.new === "1" || search.new === 1
+      ? { new: true }
+      : {},
 });
 
 const agentsRoute = createRoute({
@@ -63,6 +74,12 @@ const activityRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/activity",
   component: ActivityPage,
+});
+
+const templatesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/templates",
+  component: TemplatesPage,
 });
 
 const skillsRoute = createRoute({
@@ -127,6 +144,7 @@ const routeTree = rootRoute.addChildren([
   inboxRoute,
   goalsRoute,
   activityRoute,
+  templatesRoute,
   skillsRoute,
   filesRoute,
   mcpsRoute,

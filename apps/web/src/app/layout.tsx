@@ -1,31 +1,21 @@
+import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, Outlet } from "@tanstack/react-router";
+import { Outlet } from "@tanstack/react-router";
+import { KeyRound, PlugZap, ShieldAlert, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { ApiError, clearToken, getToken, setToken } from "../api";
+import { Button } from "../components/ui/button";
+import { InlineError } from "../components/ui/feedback";
+import { Input } from "../components/ui/form";
+import { Panel } from "../components/ui/panel";
 import { useActiveProject } from "../hooks/use-project";
-
-/** SPEC §18 sidebar. Sections without a Phase-1 screen render a placeholder. */
-const SECTIONS = [
-  { to: "/tasks", label: "Tasks" },
-  { to: "/goals", label: "Goals" },
-  { to: "/inbox", label: "Inbox" },
-  { to: "/sessions", label: "Sessions" },
-  { to: "/activity", label: "Activity" },
-  { to: "/agents", label: "Agents" },
-  { to: "/skills", label: "Skills" },
-  { to: "/files", label: "Files" },
-  { to: "/mcps", label: "MCPs" },
-  { to: "/repos", label: "Repos" },
-  { to: "/environment", label: "Environment" },
-  { to: "/secrets", label: "Secrets" },
-  { to: "/triggers", label: "Triggers" },
-  { to: "/automations", label: "Automations" },
-  { to: "/settings", label: "Settings" },
-] as const;
+import { Sidebar } from "./shell/sidebar";
+import { Topbar } from "./shell/topbar";
 
 export function Layout(): React.JSX.Element {
   const [token, setLocalToken] = useState(getToken() ?? "");
   const [saved, setSaved] = useState(Boolean(getToken()));
+  const [navOpen, setNavOpen] = useState(false);
   const queryClient = useQueryClient();
   // Every screen hangs off the project list, so this one query is also the
   // app's connection check. It is the same cache entry the pages read.
@@ -39,54 +29,68 @@ export function Layout(): React.JSX.Element {
   }
 
   if (!saved) {
-    return <TokenGate token={token} onChange={setLocalToken} onSave={() => {
-      setToken(token);
-      setSaved(true);
-      queryClient.clear();
-    }} />;
+    return (
+      <TokenGate
+        token={token}
+        onChange={setLocalToken}
+        onSave={() => {
+          setToken(token);
+          setSaved(true);
+          queryClient.clear();
+        }}
+      />
+    );
   }
 
   if (error) {
-    return <Unreachable error={error} onRetry={() => queryClient.invalidateQueries()} onForget={forgetToken} />;
+    return (
+      <Unreachable
+        error={error}
+        onRetry={() => queryClient.invalidateQueries()}
+        onForget={forgetToken}
+      />
+    );
   }
 
   return (
-    <div className="flex h-full flex-col sm:flex-row">
-      {/* Below sm the sidebar would squeeze content into a sliver — the PWA's
-          mobile surface is /inbox alone, so the nav simply steps aside. */}
-      <nav className="hidden w-52 shrink-0 border-r border-edge bg-surface-raised p-4 sm:block">
-        <div className="mb-6 text-sm font-semibold tracking-wide text-ink-muted">AgentOS</div>
-        <ul className="space-y-1">
-          {SECTIONS.map((section) => (
-            <li key={section.to}>
-              <Link
-                to={section.to}
-                className="block rounded-sm px-2 py-1.5 text-sm text-ink hover:bg-edge"
-                activeProps={{ className: "block rounded-sm px-2 py-1.5 text-sm bg-edge text-ink" }}
-              >
-                {section.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-        <button
-          type="button"
-          onClick={forgetToken}
-          className="mt-6 rounded-sm px-2 py-1.5 text-sm text-ink-faint hover:text-ink"
-        >
-          Change token
-        </button>
-      </nav>
-      <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-6">
-        <Outlet />
-      </main>
+    <div className="flex h-full bg-chrome">
+      {/* The permanent rail. Below lg it becomes the drawer below. */}
+      <aside className="hidden w-60 shrink-0 lg:block">
+        <Sidebar onForgetToken={forgetToken} />
+      </aside>
+
+      <Dialog.Root open={navOpen} onOpenChange={setNavOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay lg:hidden" />
+          <Dialog.Content className="fixed inset-y-0 left-0 z-50 w-64 shadow-pop outline-none lg:hidden">
+            <Dialog.Title className="sr-only">Navigation</Dialog.Title>
+            <Sidebar
+              onNavigate={() => setNavOpen(false)}
+              onCollapse={() => setNavOpen(false)}
+              onForgetToken={forgetToken}
+            />
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/*
+        The working surface. It is a rounded white sheet inset from the chrome
+        on desktop, which is what makes the rail read as a frame around it
+        rather than as a column beside it.
+      */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-canvas lg:my-2 lg:mr-2 lg:rounded-panel lg:border lg:border-edge">
+        <Topbar onOpenNav={() => setNavOpen(true)} onForgetToken={forgetToken} />
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
 
 /**
- * The screen an operator sees when the control plane says no. Previously every
- * page rendered its own empty state here, so a rejected token read as "no data
+ * The screen an operator sees when the control plane says no. Every page used
+ * to render its own empty state here, so a rejected token read as "no data
  * yet" — the operator debugs the seed instead of the credential.
  */
 function Unreachable(props: {
@@ -99,41 +103,42 @@ function Unreachable(props: {
   const offline = status === 0;
 
   return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className="w-full max-w-md space-y-3 rounded-md border border-edge bg-surface-raised p-5">
-        <h1 className="text-lg font-semibold text-danger">
+    <Centred>
+      <Panel className="rise w-full max-w-md p-6">
+        <span className="mb-4 flex size-9 items-center justify-center rounded-control border border-danger-line bg-danger-soft text-danger">
+          {rejected ? (
+            <ShieldAlert className="size-4" />
+          ) : offline ? (
+            <PlugZap className="size-4" />
+          ) : (
+            <TriangleAlert className="size-4" />
+          )}
+        </span>
+        <h1 className="text-[15px] font-semibold text-ink">
           {rejected
             ? "That token was rejected"
             : offline
               ? "The control plane is not answering"
               : "The control plane returned an error"}
         </h1>
-        <p className="text-sm text-ink-muted">
+        <p className="mt-1.5 text-[13px] text-ink-muted">
           {rejected
             ? "It does not match AGENTOS_OPERATOR_TOKEN on the server. Nothing is wrong with your data."
             : offline
               ? "Start it with `pnpm --filter @agentos/api dev`, then retry."
               : "The request reached the server and it failed."}
         </p>
-        <p className="machine text-xs text-ink-faint break-words">{props.error.message}</p>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={props.onRetry}
-            className="rounded-sm bg-edge px-3 py-1.5 text-sm hover:bg-edge-strong"
-          >
+        <InlineError className="machine mt-4 break-words">{props.error.message}</InlineError>
+        <div className="mt-5 flex gap-2">
+          <Button variant="solid" onClick={props.onRetry}>
             Retry
-          </button>
-          <button
-            type="button"
-            onClick={props.onForget}
-            className="rounded-sm bg-surface-raised px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
-          >
+          </Button>
+          <Button variant="ghost" onClick={props.onForget}>
             Enter a different token
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </Panel>
+    </Centred>
   );
 }
 
@@ -143,32 +148,41 @@ function TokenGate(props: {
   onSave: () => void;
 }): React.JSX.Element {
   return (
-    <div className="flex h-full items-center justify-center p-6">
-      <form
-        className="w-full max-w-sm space-y-3 rounded-md border border-edge bg-surface-raised p-5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          props.onSave();
-        }}
-      >
-        <h1 className="text-lg font-semibold">Operator token</h1>
-        <p className="text-sm text-ink-muted">
-          Paste the value of <code>AGENTOS_OPERATOR_TOKEN</code>. It is kept in this browser only.
-        </p>
-        <input
-          type="password"
-          value={props.token}
-          onChange={(event) => props.onChange(event.target.value)}
-          className="w-full rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm machine"
-          autoComplete="off"
-        />
-        <button
-          type="submit"
-          className="w-full rounded-sm bg-edge px-3 py-1.5 text-sm hover:bg-edge-strong"
+    <Centred>
+      <Panel className="rise w-full max-w-sm p-6">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            props.onSave();
+          }}
         >
-          Continue
-        </button>
-      </form>
-    </div>
+          <span className="mb-4 flex size-9 items-center justify-center rounded-control border border-edge bg-sunken text-ink-muted">
+            <KeyRound className="size-4" />
+          </span>
+          <h1 className="text-[15px] font-semibold text-ink">Operator token</h1>
+          <p className="mt-1.5 text-[13px] text-ink-muted">
+            Paste the value of <code className="text-ink">AGENTOS_OPERATOR_TOKEN</code>. It is kept
+            in this browser only.
+          </p>
+          <Input
+            type="password"
+            value={props.token}
+            onChange={(event) => props.onChange(event.target.value)}
+            className="machine mt-4"
+            autoComplete="off"
+            aria-label="Operator token"
+          />
+          <Button type="submit" variant="solid" size="lg" className="mt-3 w-full">
+            Continue
+          </Button>
+        </form>
+      </Panel>
+    </Centred>
+  );
+}
+
+function Centred(props: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="flex h-full items-center justify-center bg-chrome p-6">{props.children}</div>
   );
 }

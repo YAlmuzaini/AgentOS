@@ -1,4 +1,4 @@
-import type { SessionDto, ToolCallLogEntry } from "@agentos/shared";
+import type { SessionDto, SessionSummaryDto, ToolCallLogEntry } from "@agentos/shared";
 import { Controller, Get, Param, ParseUUIDPipe, Sse, UseGuards } from "@nestjs/common";
 import { concatMap, distinctUntilChanged, from, interval, map, type Observable, startWith } from "rxjs";
 import { OperatorGuard } from "../auth/operator.guard";
@@ -9,9 +9,10 @@ import { SessionsService } from "./sessions.service";
 export class SessionsController {
   constructor(private readonly sessions: SessionsService) {}
 
+  /** Summaries only — the tool-call log is fetched per session, not per list. */
   @Get()
-  list(): Promise<SessionDto[]> {
-    return this.sessions.list();
+  list(): Promise<SessionSummaryDto[]> {
+    return this.sessions.listSummaries();
   }
 
   /** Includes the persisted tool-call log, so finished runs replay. */

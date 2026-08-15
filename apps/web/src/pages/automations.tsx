@@ -1,13 +1,26 @@
 import type { AgentDto, AutomationDto, TaskTemplateDto } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CalendarClock, Pause, Play, Plus } from "lucide-react";
+import { useState } from "react";
 import { api } from "../api";
+import { Button } from "../components/ui/button";
+import { useConfirm } from "../components/ui/confirm";
+import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { Page, PageHeader } from "../components/ui/page";
+import { Panel } from "../components/ui/panel";
+import { StatusPill } from "../components/ui/pill";
+import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useActiveProject } from "../hooks/use-project";
+import { relativeTime } from "../lib/time";
 import { CreateAutomationForm } from "./create-automation-form";
+import { NoProject } from "./tasks";
 
 export function AutomationsPage(): React.JSX.Element {
   const { project } = useActiveProject();
   const queryClient = useQueryClient();
   const projectId = project?.id;
+  const [creating, setCreating] = useState(false);
+  const confirm = useConfirm();
 
   const automations = useQuery({
     queryKey: ["automations", projectId],
@@ -32,7 +45,10 @@ export function AutomationsPage(): React.JSX.Element {
   const create = useMutation({
     mutationFn: (body: Parameters<typeof api.createAutomation>[1]) =>
       api.createAutomation(projectId!, body),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setCreating(false);
+      void invalidate();
+    },
   });
   const enable = useMutation({
     mutationFn: (id: string) => api.enableAutomation(projectId!, id),
@@ -48,51 +64,99 @@ export function AutomationsPage(): React.JSX.Element {
   });
 
   if (!project) {
-    return <p className="text-sm text-ink-muted">No project yet. Run `pnpm db:seed`.</p>;
+    return <NoProject />;
   }
 
+  const list = automations.data ?? [];
+  const enabled = list.filter((automation) => automation.enabled).length;
+
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Automations</h1>
+    <Page>
+      <PageHeader
+        icon={<CalendarClock />}
+        title="Automations"
+        actions={
+          <>
+            {enabled > 0 ? <StatusPill tone="live" dot>{enabled} scheduled</StatusPill> : null}
+            <Button variant="solid" onClick={() => setCreating(true)}>
+              <Plus />
+              New automation
+            </Button>
+          </>
+        }
+      />
 
       <CreateAutomationForm
+        open={creating}
+        onClose={() => setCreating(false)}
+        pending={create.isPending}
         agents={agents.data ?? []}
         templates={templates.data ?? []}
         onCreate={(body) => create.mutate(body)}
       />
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-            <tr>
-              <th className="py-2">Name</th>
-              <th>Cron</th>
-              <th>Timezone</th>
-              <th>Target</th>
-              <th>Enabled</th>
-              <th>Last fired</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {(automations.data ?? []).map((automation) => (
-              <AutomationRow
-                key={automation.id}
-                automation={automation}
-                agents={agents.data ?? []}
-                templates={templates.data ?? []}
-                onEnable={() => enable.mutate(automation.id)}
-                onDisable={() => disable.mutate(automation.id)}
-                onRun={() => run.mutate(automation.id)}
-              />
-            ))}
-          </tbody>
-        </table>
-        {automations.data?.length === 0 ? (
-          <p className="py-2 text-sm text-ink-muted">No automations yet. Schedule one above.</p>
-        ) : null}
-      </div>
-    </div>
+      {automations.isLoading ? (
+        <Panel>
+          <SkeletonRows />
+        </Panel>
+      ) : list.length === 0 ? (
+        <Panel>
+          <EmptyState
+            icon={<CalendarClock />}
+            title="No automations yet"
+            hint="Schedule a task to run on a cron."
+            action={
+              <Button variant="solid" onClick={() => setCreating(true)}>
+                <Plus />
+                New automation
+              </Button>
+            }
+          />
+        </Panel>
+      ) : (
+        <TableCard>
+          <Table>
+            <THead>
+              <tr>
+                <TH>Name</TH>
+                <TH>Cron</TH>
+                <TH>Timezone</TH>
+                <TH>Target</TH>
+                <TH>State</TH>
+                <TH>Last fired</TH>
+                <TH className="w-0" />
+              </tr>
+            </THead>
+            <tbody>
+              {list.map((automation) => (
+                <AutomationRow
+                  key={automation.id}
+                  automation={automation}
+                  agents={agents.data ?? []}
+                  templates={templates.data ?? []}
+                  onEnable={() => enable.mutate(automation.id)}
+                  onDisable={() => disable.mutate(automation.id)}
+                  onRunConfirmed={() =>
+                    confirm({
+                      kind: "spend",
+                      title: `Run “${automation.name}” now?`,
+                      body: (
+                        <>
+                          This fires the automation immediately, outside its schedule. It creates
+                          its task and starts an agent session, consuming API credits.
+                        </>
+                      ),
+                      confirmLabel: "Run now",
+                      onConfirm: () => run.mutate(automation.id),
+                    })
+                  }
+                />
+              ))}
+            </tbody>
+          </Table>
+        </TableCard>
+      )}
+    </Page>
   );
 }
 
@@ -102,7 +166,7 @@ function AutomationRow(props: {
   templates: TaskTemplateDto[];
   onEnable: () => void;
   onDisable: () => void;
-  onRun: () => void;
+  onRunConfirmed: () => void;
 }): React.JSX.Element {
   const { automation } = props;
   const target = automation.taskTemplateId
@@ -111,35 +175,40 @@ function AutomationRow(props: {
     : (props.agents.find((a) => a.id === automation.agentId)?.name ?? automation.agentId);
 
   return (
-    <tr className="border-t border-edge">
-      <td className="py-2">{automation.name}</td>
-      <td className="machine text-xs text-ink-muted">{automation.cron}</td>
-      <td className="text-ink-muted">{automation.timezone}</td>
-      <td className="text-ink-muted">{target}</td>
-      <td>
+    <TR>
+      <TD className="font-medium">{automation.name}</TD>
+      <TD className="machine text-xs text-ink-muted">{automation.cron}</TD>
+      <TD className="text-ink-muted">{automation.timezone}</TD>
+      <TD className="text-ink-muted">{target}</TD>
+      <TD>
         {automation.enabled ? (
-          <span className="text-xs text-live">enabled</span>
+          <StatusPill tone="live">enabled</StatusPill>
         ) : (
-          <span className="text-xs text-ink-faint">disabled</span>
+          <StatusPill tone="neutral">disabled</StatusPill>
         )}
-      </td>
-      <td className="machine text-xs text-ink-muted">
-        {automation.lastFiredAt ? automation.lastFiredAt.slice(0, 19) : "never"}
-      </td>
-      <td className="space-x-1.5">
-        <button
-          className="rounded-sm bg-edge px-2 py-1 text-xs hover:bg-edge-strong"
-          onClick={automation.enabled ? props.onDisable : props.onEnable}
-        >
-          {automation.enabled ? "Disable" : "Enable"}
-        </button>
-        <button
-          className="rounded-sm bg-edge px-2 py-1 text-xs hover:bg-edge-strong"
-          onClick={props.onRun}
-        >
-          Run now
-        </button>
-      </td>
-    </tr>
+      </TD>
+      <TD className="text-ink-muted">
+        {automation.lastFiredAt ? (
+          <span title={automation.lastFiredAt}>{relativeTime(automation.lastFiredAt)}</span>
+        ) : (
+          <span className="text-ink-faint">never</span>
+        )}
+      </TD>
+      <TD>
+        <div className="flex justify-end gap-1.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={automation.enabled ? props.onDisable : props.onEnable}
+          >
+            {automation.enabled ? <Pause /> : <Play />}
+            {automation.enabled ? "Disable" : "Enable"}
+          </Button>
+          <Button size="sm" onClick={props.onRunConfirmed}>
+            Run now
+          </Button>
+        </div>
+      </TD>
+    </TR>
   );
 }

@@ -1,9 +1,20 @@
+import { Construction } from "lucide-react";
+import { EmptyState } from "../components/ui/feedback";
+import { Page, PageHeader } from "../components/ui/page";
+import { Panel } from "../components/ui/panel";
+
 /** Sidebar sections whose screen lands in a later phase (SPEC §21). */
 export function Placeholder(props: { title: string; phase: string }): React.JSX.Element {
   return (
-    <div className="space-y-2">
-      <h1 className="text-lg font-semibold">{props.title}</h1>
-      <p className="text-sm text-ink-muted">Lands in {props.phase}.</p>
-    </div>
+    <Page>
+      <PageHeader title={props.title} />
+      <Panel>
+        <EmptyState
+          icon={<Construction />}
+          title={`${props.title} lands in ${props.phase}`}
+          hint="The route exists so the navigation is complete; the screen is not built yet."
+        />
+      </Panel>
+    </Page>
   );
 }
