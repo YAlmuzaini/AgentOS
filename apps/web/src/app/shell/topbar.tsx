@@ -1,6 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Bell, BookOpen, LogOut, Menu as MenuIcon, MoreVertical, Plus } from "lucide-react";
+import {
+  Bell,
+  BookOpen,
+  LogOut,
+  Menu as MenuIcon,
+  MoreVertical,
+  Plus,
+  Search,
+} from "lucide-react";
 import { api } from "../../api";
 import { Button } from "../../components/ui/button";
 import {
@@ -25,9 +33,11 @@ import { StatusPill } from "../../components/ui/pill";
 export function Topbar({
   onOpenNav,
   onForgetToken,
+  onOpenSearch,
 }: {
   onOpenNav: () => void;
   onForgetToken: () => void;
+  onOpenSearch: () => void;
 }): React.JSX.Element {
   const sessions = useQuery({
     queryKey: ["sessions"],
@@ -64,6 +74,11 @@ export function Topbar({
           <Plus />
           New task
         </Link>
+      </Button>
+
+      {/* The rail is hidden below lg, so this is the only way into search there. */}
+      <Button variant="ghost" size="icon" onClick={onOpenSearch} aria-label="Search" className="lg:hidden">
+        <Search />
       </Button>
 
       <div className="flex-1" />

@@ -5,6 +5,7 @@ import { KeyRound, PlugZap, ShieldAlert, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { ApiError, clearToken, getToken, setToken } from "../api";
 import { Button } from "../components/ui/button";
+import { CommandPalette, useCommandPalette } from "../components/ui/command-palette";
 import { InlineError } from "../components/ui/feedback";
 import { Input } from "../components/ui/form";
 import { Panel } from "../components/ui/panel";
@@ -16,6 +17,7 @@ export function Layout(): React.JSX.Element {
   const [token, setLocalToken] = useState(getToken() ?? "");
   const [saved, setSaved] = useState(Boolean(getToken()));
   const [navOpen, setNavOpen] = useState(false);
+  const palette = useCommandPalette();
   const queryClient = useQueryClient();
   // Every screen hangs off the project list, so this one query is also the
   // app's connection check. It is the same cache entry the pages read.
@@ -56,7 +58,7 @@ export function Layout(): React.JSX.Element {
     <div className="flex h-full bg-chrome">
       {/* The permanent rail. Below lg it becomes the drawer below. */}
       <aside className="hidden w-60 shrink-0 lg:block">
-        <Sidebar onForgetToken={forgetToken} />
+        <Sidebar onForgetToken={forgetToken} onOpenSearch={() => palette.setOpen(true)} />
       </aside>
 
       <Dialog.Root open={navOpen} onOpenChange={setNavOpen}>
@@ -68,6 +70,10 @@ export function Layout(): React.JSX.Element {
               onNavigate={() => setNavOpen(false)}
               onCollapse={() => setNavOpen(false)}
               onForgetToken={forgetToken}
+              onOpenSearch={() => {
+                setNavOpen(false);
+                palette.setOpen(true);
+              }}
             />
           </Dialog.Content>
         </Dialog.Portal>
@@ -79,11 +85,17 @@ export function Layout(): React.JSX.Element {
         rather than as a column beside it.
       */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-canvas lg:my-2 lg:mr-2 lg:rounded-panel lg:border lg:border-edge">
-        <Topbar onOpenNav={() => setNavOpen(true)} onForgetToken={forgetToken} />
+        <Topbar
+          onOpenNav={() => setNavOpen(true)}
+          onForgetToken={forgetToken}
+          onOpenSearch={() => palette.setOpen(true)}
+        />
         <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           <Outlet />
         </main>
       </div>
+
+      <CommandPalette open={palette.open} onOpenChange={palette.setOpen} />
     </div>
   );
 }

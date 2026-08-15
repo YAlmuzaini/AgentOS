@@ -8,10 +8,16 @@ import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { Dot, StatusPill } from "../components/ui/pill";
 
-/** One tone per session state. `running` is the only thing that pulses. */
+/**
+ * Every session status gets a tone. `starting` and `committing` are in flight
+ * as much as `running` is — they used to fall through to neutral, so a session
+ * mid-commit looked as settled as one destroyed an hour ago.
+ */
 function toneFor(status: SessionDto["status"] | undefined) {
   switch (status) {
+    case "starting":
     case "running":
+    case "committing":
       return "live" as const;
     case "waiting-inbox":
       return "gate" as const;
@@ -20,6 +26,11 @@ function toneFor(status: SessionDto["status"] | undefined) {
     default:
       return "neutral" as const;
   }
+}
+
+/** True while the session is still doing something worth watching. */
+function isInFlight(status: SessionDto["status"] | undefined): boolean {
+  return status === "starting" || status === "running" || status === "committing";
 }
 
 export function SessionsPage(): React.JSX.Element {
@@ -41,6 +52,7 @@ export function SessionsPage(): React.JSX.Element {
   const entries = live.entries ?? detail.data?.toolCallLog ?? [];
   const list = sessions.data ?? [];
   const running = list.filter((session) => session.status === "running").length;
+  const totalSpend = list.reduce((sum, session) => sum + (Number(session.costUsd) || 0), 0);
 
   return (
     <Page fill>
@@ -50,6 +62,11 @@ export function SessionsPage(): React.JSX.Element {
         icon={<Terminal />}
         title="Sessions"
         meta={list.length > 0 ? `${list.length} total` : undefined}
+        actions={
+          totalSpend > 0 ? (
+            <StatusPill tone="neutral">${totalSpend.toFixed(2)} spent</StatusPill>
+          ) : null
+        }
       />
 
       <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr]">
@@ -75,12 +92,20 @@ export function SessionsPage(): React.JSX.Element {
                   >
                     <Dot
                       tone={toneFor(session.status)}
-                      pulse={session.status === "running"}
+                      pulse={isInFlight(session.status)}
                     />
                     <span className="machine flex-1 truncate text-xs text-ink">
                       {session.id.slice(0, 8)}
                     </span>
-                    <span className="text-xs text-ink-muted">{session.status}</span>
+                    {/* What the run cost, where the operator is choosing which
+                        run to open. It was recorded on every session and shown
+                        nowhere. */}
+                    {session.costUsd != null ? (
+                      <span className="tnum shrink-0 text-xs text-ink-faint">
+                        ${session.costUsd.toFixed(2)}
+                      </span>
+                    ) : null}
+                    <span className="shrink-0 text-xs text-ink-muted">{session.status}</span>
                   </button>
                 </li>
               ))}
@@ -105,11 +130,28 @@ export function SessionsPage(): React.JSX.Element {
                   <ExternalLink className="size-3" />
                 </a>
               ) : null}
+              {/* Cost, runner and commits for the open session: all recorded,
+                  none of it previously rendered anywhere. */}
+              {detail.data?.costUsd != null ? (
+                <StatusPill tone="neutral">${detail.data.costUsd.toFixed(2)}</StatusPill>
+              ) : null}
+              {detail.data?.runner ? (
+                <StatusPill tone="neutral">{detail.data.runner}</StatusPill>
+              ) : null}
+              {(detail.data?.commitShas ?? []).length > 0 ? (
+                <StatusPill
+                  tone="idle"
+                  title={(detail.data?.commitShas ?? []).join("\n")}
+                >
+                  {detail.data!.commitShas.length} commit
+                  {detail.data!.commitShas.length === 1 ? "" : "s"}
+                </StatusPill>
+              ) : null}
               {status ? (
                 <StatusPill
                   tone={toneFor(status)}
-                  dot={status === "running"}
-                  pulse={status === "running"}
+                  dot={isInFlight(status)}
+                  pulse={isInFlight(status)}
                 >
                   {live.connected ? "live · " : ""}
                   {status}
@@ -172,7 +214,7 @@ function useLiveSession(
 ): { status: SessionDto["status"] | null; entries: ToolCallLogEntry[] | null; connected: boolean } {
   const [frame, setFrame] = useState<LiveFrame | null>(null);
   const [connected, setConnected] = useState(false);
-  const shouldStream = status === "running" || status === "waiting-inbox";
+  const shouldStream = isInFlight(status) || status === "waiting-inbox";
 
   useEffect(() => {
     setFrame(null);

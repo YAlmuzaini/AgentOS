@@ -18,11 +18,13 @@ export function Sidebar({
   onNavigate,
   onCollapse,
   onForgetToken,
+  onOpenSearch,
 }: {
   /** Closes the mobile drawer after a jump; unset on the permanent rail. */
   onNavigate?: () => void;
   onCollapse?: () => void;
   onForgetToken: () => void;
+  onOpenSearch: () => void;
 }): React.JSX.Element {
   const confirm = useConfirm();
   return (
@@ -46,21 +48,16 @@ export function Sidebar({
         ) : null}
       </div>
 
-      {/*
-        Search is a real control shaped like the reference's, but AgentOS has no
-        command palette yet, so it links to the one screen that is genuinely a
-        search over everything that happened rather than pretending to open one.
-      */}
-      <Link
-        to="/activity"
-        onClick={onNavigate}
+      <button
+        type="button"
+        onClick={onOpenSearch}
         className="flex items-center gap-2 rounded-control border border-edge bg-panel px-2.5 py-1.5 text-[13px] text-ink-faint shadow-lift transition-colors hover:border-edge-strong hover:text-ink-muted"
       >
         <Search className="size-3.5 shrink-0" />
-        <span className="flex-1 text-left">Search activity</span>
+        <span className="flex-1 text-left">Search…</span>
         <Kbd>⌘</Kbd>
         <Kbd>K</Kbd>
-      </Link>
+      </button>
 
       <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-0.5">
         {NAV.map((group, index) => (

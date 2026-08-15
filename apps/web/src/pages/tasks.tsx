@@ -12,6 +12,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ui/confirm";
+import { useToast } from "../components/ui/toast";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { CheckboxField, Field, FormActions, Input, Select, Textarea } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
@@ -67,6 +68,7 @@ export function TasksPage(): React.JSX.Element {
   const creating = search.new === true;
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const confirm = useConfirm();
+  const toast = useToast();
   const setCreating = (open: boolean): void => {
     void navigate({ to: "/tasks", search: open ? { new: true } : {}, replace: true });
   };
@@ -88,12 +90,21 @@ export function TasksPage(): React.JSX.Element {
   const patch = useMutation({
     mutationFn: (input: { id: string; status: TaskStatus }) =>
       api.patchTask(projectId!, input.id, { status: input.status }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks", projectId] }),
+    onSuccess: (_data, input) => {
+      if (input.status === "done") {
+        toast.success("Task closed", "You approved it — no agent could have.");
+      }
+      void queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
+    },
   });
 
   const run = useMutation({
     mutationFn: (id: string) => api.runTask(projectId!, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks", projectId] }),
+    onSuccess: () => {
+      toast.success("Task queued", "An agent session is starting. Watch it under Sessions.");
+      void queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    },
   });
 
   /**
