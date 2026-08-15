@@ -11,6 +11,7 @@ import { Check, Play, Plus, SquareKanban } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { useConfirm } from "../components/ui/confirm";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { CheckboxField, Field, FormActions, Input, Select, Textarea } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
@@ -65,6 +66,7 @@ export function TasksPage(): React.JSX.Element {
   const navigate = useNavigate();
   const creating = search.new === true;
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const confirm = useConfirm();
   const setCreating = (open: boolean): void => {
     void navigate({ to: "/tasks", search: open ? { new: true } : {}, replace: true });
   };
@@ -93,6 +95,47 @@ export function TasksPage(): React.JSX.Element {
     mutationFn: (id: string) => api.runTask(projectId!, id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks", projectId] }),
   });
+
+  /**
+   * Running a task dispatches a real agent against real credits, and the
+   * button sits on every card in the To do column — easy to hit by accident
+   * while scanning the board.
+   */
+  const confirmRun = (task: TaskDto): void =>
+    confirm({
+      kind: "spend",
+      title: `Run “${task.name}” now?`,
+      body: (
+        <>
+          This starts an agent session immediately and consumes API credits. The task moves to
+          Doing and cannot be un-run.
+        </>
+      ),
+      confirmLabel: "Run now",
+      onConfirm: () => run.mutate(task.id),
+    });
+
+  /**
+   * Closing a gate is the one action the product promises an agent can never
+   * take, so it is worth a beat of the operator's attention.
+   */
+  const confirmApprove = (task: TaskDto): void => {
+    if (!task.approvalGate) {
+      patch.mutate({ id: task.id, status: "done" });
+      return;
+    }
+    confirm({
+      kind: "gate",
+      title: `Approve “${task.name}”?`,
+      body: (
+        <>
+          This closes an approval gate and marks the task done. No agent can do this — only you.
+        </>
+      ),
+      confirmLabel: "Approve → done",
+      onConfirm: () => patch.mutate({ id: task.id, status: "done" }),
+    });
+  };
 
   if (isLoading) {
     return (
@@ -156,8 +199,8 @@ export function TasksPage(): React.JSX.Element {
                         task={task}
                         busy={run.isPending || patch.isPending}
                         onOpen={() => setOpenTaskId(task.id)}
-                        onRun={() => run.mutate(task.id)}
-                        onAdvance={(next) => patch.mutate({ id: task.id, status: next })}
+                        onRun={() => confirmRun(task)}
+                        onAdvance={() => confirmApprove(task)}
                       />
                     ))}
                   </ul>
@@ -175,8 +218,8 @@ export function TasksPage(): React.JSX.Element {
           agents={agents.data ?? []}
           busy={run.isPending || patch.isPending}
           onClose={() => setOpenTaskId(null)}
-          onRun={() => run.mutate(openTask.id)}
-          onApprove={() => patch.mutate({ id: openTask.id, status: "done" })}
+          onRun={() => confirmRun(openTask)}
+          onApprove={() => confirmApprove(openTask)}
         />
       ) : null}
 

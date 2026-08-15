@@ -4,6 +4,7 @@ import { CalendarClock, Pause, Play, Plus } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { useConfirm } from "../components/ui/confirm";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
@@ -19,6 +20,7 @@ export function AutomationsPage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const projectId = project?.id;
   const [creating, setCreating] = useState(false);
+  const confirm = useConfirm();
 
   const automations = useQuery({
     queryKey: ["automations", projectId],
@@ -134,7 +136,20 @@ export function AutomationsPage(): React.JSX.Element {
                   templates={templates.data ?? []}
                   onEnable={() => enable.mutate(automation.id)}
                   onDisable={() => disable.mutate(automation.id)}
-                  onRun={() => run.mutate(automation.id)}
+                  onRunConfirmed={() =>
+                    confirm({
+                      kind: "spend",
+                      title: `Run “${automation.name}” now?`,
+                      body: (
+                        <>
+                          This fires the automation immediately, outside its schedule. It creates
+                          its task and starts an agent session, consuming API credits.
+                        </>
+                      ),
+                      confirmLabel: "Run now",
+                      onConfirm: () => run.mutate(automation.id),
+                    })
+                  }
                 />
               ))}
             </tbody>
@@ -151,7 +166,7 @@ function AutomationRow(props: {
   templates: TaskTemplateDto[];
   onEnable: () => void;
   onDisable: () => void;
-  onRun: () => void;
+  onRunConfirmed: () => void;
 }): React.JSX.Element {
   const { automation } = props;
   const target = automation.taskTemplateId
@@ -189,7 +204,7 @@ function AutomationRow(props: {
             {automation.enabled ? <Pause /> : <Play />}
             {automation.enabled ? "Disable" : "Enable"}
           </Button>
-          <Button size="sm" onClick={props.onRun}>
+          <Button size="sm" onClick={props.onRunConfirmed}>
             Run now
           </Button>
         </div>

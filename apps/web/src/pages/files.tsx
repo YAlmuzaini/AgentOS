@@ -4,6 +4,7 @@ import { CornerLeftUp, File, Folder, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { useConfirm } from "../components/ui/confirm";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
@@ -25,6 +26,7 @@ export function FilesPage(): React.JSX.Element {
   const [path, setPath] = useState("/");
   const [selected, setSelected] = useState<string | null>(null);
   const [content, setContent] = useState("");
+  const confirm = useConfirm();
 
   const entries = useQuery({
     queryKey: ["files", projectId, path],
@@ -148,7 +150,21 @@ export function FilesPage(): React.JSX.Element {
                   <Button
                     size="sm"
                     variant="danger"
-                    onClick={() => remove.mutate()}
+                    onClick={() =>
+                      confirm({
+                        kind: "destroy",
+                        title: "Delete this file?",
+                        body: (
+                          <>
+                            <span className="machine text-ink">{selected}</span> will be removed
+                            from object storage. Agents that read it will stop finding it. This
+                            cannot be undone.
+                          </>
+                        ),
+                        confirmLabel: "Delete file",
+                        onConfirm: () => remove.mutate(),
+                      })
+                    }
                     disabled={remove.isPending}
                   >
                     <Trash2 />

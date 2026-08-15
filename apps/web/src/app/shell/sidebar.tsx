@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronsUpDown, KeyRound, LogOut, PanelLeftClose, Search, Settings } from "lucide-react";
 import { BASE } from "../../api";
+import { useConfirm } from "../../components/ui/confirm";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Kbd } from "../../components/ui/menu";
 import { cn } from "../../lib/cn";
 import { NAV } from "../nav";
@@ -23,6 +24,7 @@ export function Sidebar({
   onCollapse?: () => void;
   onForgetToken: () => void;
 }): React.JSX.Element {
+  const confirm = useConfirm();
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 bg-chrome p-3">
       <div className="flex items-center justify-between gap-2 px-1 pt-1">
@@ -122,7 +124,23 @@ export function Sidebar({
             </button>
           </MenuTrigger>
           <MenuContent align="start">
-            <MenuItem onSelect={onForgetToken} tone="danger">
+            <MenuItem
+              onSelect={() =>
+                confirm({
+                  kind: "warn",
+                  title: "Forget this token?",
+                  body: (
+                    <>
+                      The operator token is cleared from this browser and every screen locks. You
+                      will need to paste it again to get back in.
+                    </>
+                  ),
+                  confirmLabel: "Forget token",
+                  onConfirm: onForgetToken,
+                })
+              }
+              tone="danger"
+            >
               <LogOut />
               Forget this token
             </MenuItem>

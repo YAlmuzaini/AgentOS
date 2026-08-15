@@ -4,6 +4,7 @@ import { KeyRound, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { useConfirm } from "../components/ui/confirm";
 import { CreatePanel } from "../components/ui/create-panel";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Field, Input, Select } from "../components/ui/form";
@@ -19,6 +20,7 @@ export function SecretsPage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const projectId = project?.id;
   const [creating, setCreating] = useState(false);
+  const confirm = useConfirm();
 
   const secrets = useQuery({
     queryKey: ["secrets", projectId],
@@ -176,7 +178,20 @@ export function SecretsPage(): React.JSX.Element {
                       size="icon-sm"
                       aria-label={`Delete ${secret.name}`}
                       className="text-ink-faint hover:bg-danger-soft hover:text-danger"
-                      onClick={() => remove.mutate(secret.id)}
+                      onClick={() =>
+                        confirm({
+                          kind: "destroy",
+                          title: `Delete “${secret.name}”?`,
+                          body: (
+                            <>
+                              Any agent, repo, or MCP connection using this credential will stop
+                              authenticating. This cannot be undone.
+                            </>
+                          ),
+                          confirmLabel: "Delete secret",
+                          onConfirm: () => remove.mutate(secret.id),
+                        })
+                      }
                     >
                       <Trash2 />
                     </Button>

@@ -6,6 +6,7 @@ import { ArrowRight, Download, FolderGit2, Play, ShieldCheck, User } from "lucid
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { useConfirm } from "../components/ui/confirm";
 import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Field, FormActions, Input } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
@@ -28,6 +29,7 @@ export function TemplatesPage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const projectId = project?.id;
   const [previewing, setPreviewing] = useState<TaskTemplateDto | null>(null);
+  const confirm = useConfirm();
 
   const templates = useQuery({
     queryKey: ["templates", projectId],
@@ -39,6 +41,21 @@ export function TemplatesPage(): React.JSX.Element {
     mutationFn: () => api.installBuiltInTemplates(projectId!),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["templates", projectId] }),
   });
+
+  /** The endpoint re-installs over whatever is there, so it can overwrite edits. */
+  const confirmInstall = (): void =>
+    confirm({
+      kind: "warn",
+      title: "Re-install the built-in templates?",
+      body: (
+        <>
+          This writes the built-in workflows over the existing ones. Any changes you have made to a
+          template of the same name will be replaced.
+        </>
+      ),
+      confirmLabel: "Install built-ins",
+      onConfirm: () => installBuiltIns.mutate(),
+    });
 
   if (!project) {
     return <NoProject />;
@@ -53,7 +70,7 @@ export function TemplatesPage(): React.JSX.Element {
         title="Templates"
         meta={list.length > 0 ? `${list.length} available` : undefined}
         actions={
-          <Button onClick={() => installBuiltIns.mutate()} disabled={installBuiltIns.isPending}>
+          <Button onClick={() => confirmInstall()} disabled={installBuiltIns.isPending}>
             <Download />
             {installBuiltIns.isPending ? "Installing…" : "Install built-ins"}
           </Button>
@@ -75,7 +92,7 @@ export function TemplatesPage(): React.JSX.Element {
             title="No templates yet"
             hint="Install the built-in workflows, or define your own in agentos.yml."
             action={
-              <Button variant="solid" onClick={() => installBuiltIns.mutate()}>
+              <Button variant="solid" onClick={() => confirmInstall()}>
                 <Download />
                 Install built-ins
               </Button>
@@ -184,6 +201,7 @@ function InstantiateDialog(props: {
 }): React.JSX.Element {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const [values, setValues] = useState<Record<string, string>>({});
   const [titlePrefix, setTitlePrefix] = useState("");
 
@@ -281,7 +299,21 @@ function InstantiateDialog(props: {
               <Button
                 variant="solid"
                 disabled={missing.length > 0 || instantiate.isPending}
-                onClick={() => instantiate.mutate()}
+                onClick={() =>
+                  confirm({
+                    kind: "spend",
+                    title: `Create ${props.template.steps.length} tasks from this template?`,
+                    body: (
+                      <>
+                        Every step is created at once and the first one starts immediately,
+                        consuming API credits. Later steps stay blocked until the step before them
+                        is done.
+                      </>
+                    ),
+                    confirmLabel: `Create ${props.template.steps.length} tasks`,
+                    onConfirm: () => instantiate.mutate(),
+                  })
+                }
               >
                 {instantiate.isPending
                   ? "Creating…"

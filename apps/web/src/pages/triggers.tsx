@@ -4,6 +4,7 @@ import { Copy, Download, KeyRound, Plus, RefreshCw, Webhook } from "lucide-react
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { useConfirm } from "../components/ui/confirm";
 import { CreatePanel } from "../components/ui/create-panel";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Field, Input, Select, Textarea } from "../components/ui/form";
@@ -21,6 +22,7 @@ export function TriggersPage(): React.JSX.Element {
   const [selected, setSelected] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<TriggerSecretDto | null>(null);
   const [creating, setCreating] = useState(false);
+  const confirm = useConfirm();
 
   const triggers = useQuery({
     queryKey: ["triggers", projectId],
@@ -217,7 +219,19 @@ export function TriggersPage(): React.JSX.Element {
                         variant="ghost"
                         onClick={(event) => {
                           event.stopPropagation();
-                          rotate.mutate(trigger.id);
+                          confirm({
+                            kind: "warn",
+                            title: `Rotate the signing key for “${trigger.name}”?`,
+                            body: (
+                              <>
+                                The current key stops working immediately. Every caller still
+                                signing with it will be rejected until you give them the new one,
+                                which is shown once and never again.
+                              </>
+                            ),
+                            confirmLabel: "Rotate key",
+                            onConfirm: () => rotate.mutate(trigger.id),
+                          });
                         }}
                       >
                         <RefreshCw />
