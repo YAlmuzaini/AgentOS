@@ -33,6 +33,12 @@ const tasksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tasks",
   component: TasksPage,
+  // `?new` is how the top bar's create button opens the dialog from any screen,
+  // so there is one create control in the app rather than one per surface.
+  // Returning the key only when it is on keeps `?new=false` out of the URL:
+  // an omitted flag is the closed state, and the bare /tasks stays clean.
+  validateSearch: (search: Record<string, unknown>): { new?: true } =>
+    search.new === true || search.new === "true" || search.new === "1" ? { new: true } : {},
 });
 
 const agentsRoute = createRoute({

@@ -1,13 +1,24 @@
 import type { CreateRepoInput, RepoDto } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { GitBranch, Plus } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
+import { Button } from "../components/ui/button";
+import { CreatePanel } from "../components/ui/create-panel";
+import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { Field, Input, Select } from "../components/ui/form";
+import { Page, PageHeader } from "../components/ui/page";
+import { Panel } from "../components/ui/panel";
+import { StatusPill } from "../components/ui/pill";
+import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useActiveProject } from "../hooks/use-project";
+import { NoProject } from "./tasks";
 
 export function ReposPage(): React.JSX.Element {
   const { project } = useActiveProject();
   const queryClient = useQueryClient();
   const projectId = project?.id;
+  const [creating, setCreating] = useState(false);
 
   const repos = useQuery({
     queryKey: ["repos", projectId],
@@ -23,125 +34,171 @@ export function ReposPage(): React.JSX.Element {
 
   const create = useMutation({
     mutationFn: (body: CreateRepoInput) => api.createRepo(projectId!, body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repos", projectId] }),
+    onSuccess: () => {
+      setCreating(false);
+      void queryClient.invalidateQueries({ queryKey: ["repos", projectId] });
+    },
   });
 
-  if (!project) {
-    return <p className="text-sm text-ink-muted">No project yet. Run `pnpm db:seed`.</p>;
-  }
-
-  return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Repos</h1>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-            <tr>
-              <th className="py-2">Name</th>
-              <th>Remote</th>
-              <th>Mount path</th>
-              <th>Branch</th>
-              <th>Credential</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(repos.data ?? []).map((repo: RepoDto) => (
-              <tr key={repo.id} className="border-t border-edge">
-                <td className="py-2">{repo.name}</td>
-                <td className="max-w-xs truncate machine text-xs text-ink-muted">
-                  {repo.remoteUrl}
-                </td>
-                <td className="machine text-xs text-ink-muted">{repo.mountPath}</td>
-                <td className="text-ink-muted">{repo.defaultBranch}</td>
-                <td className="text-xs text-ink-faint">
-                  {repo.credentialSecretId
-                    ? secrets.data?.find((s) => s.id === repo.credentialSecretId)?.name ??
-                      repo.credentialSecretId
-                    : "none"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {repos.data?.length === 0 ? (
-          <p className="py-2 text-sm text-ink-muted">No repos yet. Add one for agents to work in.</p>
-        ) : null}
-      </div>
-
-      <CreateRepoForm secrets={secrets.data ?? []} onCreate={(body) => create.mutate(body)} />
-    </div>
-  );
-}
-
-function CreateRepoForm(props: {
-  secrets: Array<{ id: string; name: string }>;
-  onCreate: (body: CreateRepoInput) => void;
-}): React.JSX.Element {
   const [name, setName] = useState("");
   const [remoteUrl, setRemoteUrl] = useState("");
   const [mountPath, setMountPath] = useState("/repo");
   const [defaultBranch, setDefaultBranch] = useState("main");
   const [credentialSecretId, setCredentialSecretId] = useState("");
 
+  if (!project) {
+    return <NoProject />;
+  }
+
+  const list = repos.data ?? [];
+
   return (
-    <form
-      className="grid gap-2 rounded-md border border-edge bg-surface-raised p-3 md:grid-cols-[1fr_1fr_1fr_auto_1fr_auto]"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!name || !remoteUrl || !mountPath) return;
-        props.onCreate({
-          name,
-          remoteUrl,
-          mountPath,
-          defaultBranch: defaultBranch || "main",
-          credentialSecretId: credentialSecretId || null,
-        });
-        setName("");
-        setRemoteUrl("");
-        setMountPath("/repo");
-        setDefaultBranch("main");
-        setCredentialSecretId("");
-      }}
-    >
-      <input
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-        placeholder="Name"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
+    <Page>
+      <PageHeader
+        icon={<GitBranch />}
+        title="Repos"
+        meta={list.length > 0 ? `${list.length} mounted` : undefined}
+        actions={
+          <Button variant="solid" onClick={() => setCreating(true)}>
+            <Plus />
+            New repo
+          </Button>
+        }
       />
-      <input
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm machine"
-        placeholder="https://github.com/…"
-        value={remoteUrl}
-        onChange={(event) => setRemoteUrl(event.target.value)}
-      />
-      <input
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm machine"
-        placeholder="/mount/path"
-        value={mountPath}
-        onChange={(event) => setMountPath(event.target.value)}
-      />
-      <input
-        className="w-24 rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-        placeholder="main"
-        value={defaultBranch}
-        onChange={(event) => setDefaultBranch(event.target.value)}
-      />
-      <select
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-        value={credentialSecretId}
-        onChange={(event) => setCredentialSecretId(event.target.value)}
+
+      <CreatePanel
+        open={creating}
+        onClose={() => setCreating(false)}
+        title="New repo"
+        description="Mounted into the session container; commits are the only thing that survives it."
+        submitLabel="Create"
+        pending={create.isPending}
+        disabled={!name || !remoteUrl || !mountPath}
+        error={create.isError ? "Could not create it." : null}
+        onSubmit={() => {
+          create.mutate({
+            name,
+            remoteUrl,
+            mountPath,
+            defaultBranch: defaultBranch || "main",
+            credentialSecretId: credentialSecretId || null,
+          });
+          setName("");
+          setRemoteUrl("");
+          setMountPath("/repo");
+          setDefaultBranch("main");
+          setCredentialSecretId("");
+        }}
       >
-        <option value="">no credential…</option>
-        {props.secrets.map((secret) => (
-          <option key={secret.id} value={secret.id}>
-            {secret.name}
-          </option>
-        ))}
-      </select>
-      <button className="rounded-sm bg-edge px-3 py-1.5 text-sm hover:bg-edge-strong" type="submit">
-        Create
-      </button>
-    </form>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Name">
+            {(id) => (
+              <Input id={id} value={name} onChange={(event) => setName(event.target.value)} />
+            )}
+          </Field>
+          <Field label="Remote URL">
+            {(id) => (
+              <Input
+                id={id}
+                className="machine"
+                placeholder="https://github.com/…"
+                value={remoteUrl}
+                onChange={(event) => setRemoteUrl(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field label="Mount path">
+            {(id) => (
+              <Input
+                id={id}
+                className="machine"
+                value={mountPath}
+                onChange={(event) => setMountPath(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field label="Default branch">
+            {(id) => (
+              <Input
+                id={id}
+                className="machine"
+                value={defaultBranch}
+                onChange={(event) => setDefaultBranch(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field label="Credential" className="sm:col-span-2">
+            {(id) => (
+              <Select
+                id={id}
+                value={credentialSecretId}
+                onChange={(event) => setCredentialSecretId(event.target.value)}
+              >
+                <option value="">no credential…</option>
+                {(secrets.data ?? []).map((secret) => (
+                  <option key={secret.id} value={secret.id}>
+                    {secret.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        </div>
+      </CreatePanel>
+
+      {repos.isLoading ? (
+        <Panel>
+          <SkeletonRows />
+        </Panel>
+      ) : list.length === 0 ? (
+        <Panel>
+          <EmptyState
+            icon={<GitBranch />}
+            title="No repos yet"
+            hint="Add one for agents to work in."
+            action={
+              <Button variant="solid" onClick={() => setCreating(true)}>
+                <Plus />
+                New repo
+              </Button>
+            }
+          />
+        </Panel>
+      ) : (
+        <TableCard>
+          <Table>
+            <THead>
+              <tr>
+                <TH>Name</TH>
+                <TH>Remote</TH>
+                <TH>Mount path</TH>
+                <TH>Branch</TH>
+                <TH>Credential</TH>
+              </tr>
+            </THead>
+            <tbody>
+              {list.map((repo: RepoDto) => (
+                <TR key={repo.id}>
+                  <TD className="font-medium">{repo.name}</TD>
+                  <TD className="machine max-w-xs truncate text-xs text-ink-muted">
+                    {repo.remoteUrl}
+                  </TD>
+                  <TD className="machine text-xs text-ink-muted">{repo.mountPath}</TD>
+                  <TD>
+                    <StatusPill>{repo.defaultBranch}</StatusPill>
+                  </TD>
+                  <TD className="text-xs text-ink-faint">
+                    {repo.credentialSecretId
+                      ? (secrets.data?.find((s) => s.id === repo.credentialSecretId)?.name ??
+                        repo.credentialSecretId)
+                      : "none"}
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        </TableCard>
+      )}
+    </Page>
   );
 }

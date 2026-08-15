@@ -1,8 +1,18 @@
 import type { AgentDto, TriggerFireDto, TriggerSecretDto } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Copy, KeyRound, Plus, RefreshCw, Webhook } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
+import { Button } from "../components/ui/button";
+import { CreatePanel } from "../components/ui/create-panel";
+import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { Field, Input, Select, Textarea } from "../components/ui/form";
+import { Page, PageHeader } from "../components/ui/page";
+import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
+import { Dot, StatusPill } from "../components/ui/pill";
+import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useActiveProject } from "../hooks/use-project";
+import { NoProject } from "./tasks";
 
 export function TriggersPage(): React.JSX.Element {
   const { project } = useActiveProject();
@@ -10,6 +20,7 @@ export function TriggersPage(): React.JSX.Element {
   const projectId = project?.id;
   const [selected, setSelected] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<TriggerSecretDto | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const triggers = useQuery({
     queryKey: ["triggers", projectId],
@@ -27,6 +38,7 @@ export function TriggersPage(): React.JSX.Element {
     mutationFn: (body: Parameters<typeof api.createTrigger>[1]) =>
       api.createTrigger(projectId!, body),
     onSuccess: (trigger) => {
+      setCreating(false);
       void queryClient.invalidateQueries({ queryKey: ["triggers", projectId] });
       setRevealed(trigger);
     },
@@ -47,99 +59,187 @@ export function TriggersPage(): React.JSX.Element {
     refetchInterval: 5000,
   });
 
+  const [name, setName] = useState("");
+  const [agentId, setAgentId] = useState("");
+  const [jobPrompt, setJobPrompt] = useState("");
+
   if (!project) {
-    return <p className="text-sm text-ink-muted">No project yet. Run `pnpm db:seed`.</p>;
+    return <NoProject />;
   }
 
+  const list = triggers.data ?? [];
+
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Triggers</h1>
+    <Page>
+      <PageHeader
+        icon={<Webhook />}
+        title="Triggers"
+        meta={list.length > 0 ? `${list.length} endpoint${list.length === 1 ? "" : "s"}` : undefined}
+        actions={
+          <Button variant="solid" onClick={() => setCreating(true)}>
+            <Plus />
+            New trigger
+          </Button>
+        }
+      />
 
       {revealed ? (
         <SigningKeyPanel trigger={revealed} onDismiss={() => setRevealed(null)} />
       ) : null}
 
-      <CreateTriggerForm
-        agents={agents.data ?? []}
-        onCreate={(body) => create.mutate(body)}
-      />
+      <CreatePanel
+        open={creating}
+        onClose={() => setCreating(false)}
+        title="New trigger"
+        description="Creates a signed webhook endpoint. The signing key is shown once."
+        submitLabel="Create"
+        pending={create.isPending}
+        disabled={!name || !agentId}
+        onSubmit={() => {
+          create.mutate({ name, agentId, jobPrompt, enabled: true });
+          setName("");
+          setJobPrompt("");
+        }}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Name">
+            {(id) => (
+              <Input
+                id={id}
+                placeholder="kebab-case"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field label="Assign to">
+            {(id) => (
+              <Select id={id} value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+                <option value="">assign agent…</option>
+                {(agents.data ?? []).map((agent: AgentDto) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        </div>
+        <Field label="Job prompt" hint="What the agent should do with an inbound event.">
+          {(id) => (
+            <Textarea
+              id={id}
+              rows={3}
+              value={jobPrompt}
+              onChange={(event) => setJobPrompt(event.target.value)}
+            />
+          )}
+        </Field>
+      </CreatePanel>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-            <tr>
-              <th className="py-2">Name</th>
-              <th>Agent</th>
-              <th>URL</th>
-              <th>Enabled</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {(triggers.data ?? []).map((trigger) => (
-              <tr
-                key={trigger.id}
-                className={`cursor-pointer border-t border-edge ${
-                  selected === trigger.id ? "bg-edge" : ""
-                }`}
-                onClick={() => setSelected(trigger.id)}
-              >
-                <td className="py-2">{trigger.name}</td>
-                <td className="text-ink-muted">
-                  {agents.data?.find((a) => a.id === trigger.agentId)?.name ?? trigger.agentId}
-                </td>
-                <td className="machine text-xs text-ink-muted">{trigger.url}</td>
-                <td>
-                  {trigger.enabled ? (
-                    <span className="text-xs text-live">enabled</span>
-                  ) : (
-                    <span className="text-xs text-ink-faint">disabled</span>
-                  )}
-                </td>
-                <td>
-                  <button
-                    className="rounded-sm bg-edge px-2 py-1 text-xs hover:bg-edge-strong"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      rotate.mutate(trigger.id);
-                    }}
-                  >
-                    Rotate secret
-                  </button>
-                </td>
+      {triggers.isLoading ? (
+        <Panel>
+          <SkeletonRows />
+        </Panel>
+      ) : list.length === 0 ? (
+        <Panel>
+          <EmptyState
+            icon={<Webhook />}
+            title="No triggers"
+            hint="Create one to receive webhooks."
+            action={
+              <Button variant="solid" onClick={() => setCreating(true)}>
+                <Plus />
+                New trigger
+              </Button>
+            }
+          />
+        </Panel>
+      ) : (
+        <TableCard>
+          <Table>
+            <THead>
+              <tr>
+                <TH>Name</TH>
+                <TH>Agent</TH>
+                <TH>URL</TH>
+                <TH>State</TH>
+                <TH className="w-0" />
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {triggers.data?.length === 0 ? (
-          <p className="py-2 text-sm text-ink-muted">
-            No triggers. Create one to receive webhooks.
-          </p>
-        ) : null}
-      </div>
+            </THead>
+            <tbody>
+              {list.map((trigger) => (
+                <TR
+                  key={trigger.id}
+                  className={`cursor-pointer ${selected === trigger.id ? "bg-sunken" : ""}`}
+                  onClick={() => setSelected(trigger.id)}
+                >
+                  <TD className="font-medium">{trigger.name}</TD>
+                  <TD className="text-ink-muted">
+                    {agents.data?.find((a) => a.id === trigger.agentId)?.name ?? trigger.agentId}
+                  </TD>
+                  <TD className="machine max-w-xs truncate text-xs text-ink-muted">
+                    {trigger.url}
+                  </TD>
+                  <TD>
+                    {trigger.enabled ? (
+                      <StatusPill tone="live">enabled</StatusPill>
+                    ) : (
+                      <StatusPill tone="neutral">disabled</StatusPill>
+                    )}
+                  </TD>
+                  <TD>
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          rotate.mutate(trigger.id);
+                        }}
+                      >
+                        <RefreshCw />
+                        Rotate secret
+                      </Button>
+                    </div>
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        </TableCard>
+      )}
 
       {selected ? (
-        <section>
-          <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-            Recent fires
-          </h2>
-          <ul className="space-y-1 font-mono text-xs">
-            {(fires.data ?? []).map((fire) => (
-              <FireRow key={fire.id} fire={fire} />
-            ))}
-          </ul>
-          {fires.data?.length === 0 ? <p className="text-sm text-ink-muted">No fires yet.</p> : null}
-        </section>
+        <Panel>
+          <PanelHeader className="border-b border-edge">
+            <PanelTitle accent="sky">Recent fires</PanelTitle>
+          </PanelHeader>
+          <div className="p-4">
+            {(fires.data ?? []).length === 0 ? (
+              <EmptyState title="No fires yet" />
+            ) : (
+              <Well className="p-0">
+                <ul className="machine divide-y divide-edge text-xs">
+                  {(fires.data ?? []).map((fire) => (
+                    <FireRow key={fire.id} fire={fire} />
+                  ))}
+                </ul>
+              </Well>
+            )}
+          </div>
+        </Panel>
       ) : null}
-    </div>
+    </Page>
   );
 }
 
 function FireRow(props: { fire: TriggerFireDto }): React.JSX.Element {
   const { fire } = props;
   return (
-    <li className="rounded-sm bg-surface-sunken px-2 py-1">
-      <span className="text-ink-faint">{fire.createdAt.slice(0, 19)}</span>{" "}
+    <li className="flex items-center gap-2.5 px-3.5 py-1.5">
+      <Dot tone={fire.accepted ? "live" : "danger"} />
+      <span className="shrink-0 text-ink-faint">{fire.createdAt.slice(0, 19)}</span>
       {fire.accepted ? (
         <span className="text-live">accepted</span>
       ) : (
@@ -149,77 +249,45 @@ function FireRow(props: { fire: TriggerFireDto }): React.JSX.Element {
   );
 }
 
+/**
+ * The one screen in the app that shows a secret. It says plainly that this is
+ * the only time it will be shown, and hands over a copy button rather than
+ * asking the operator to select 64 characters of base64 by hand.
+ */
 function SigningKeyPanel(props: {
   trigger: TriggerSecretDto;
   onDismiss: () => void;
 }): React.JSX.Element {
-  return (
-    <div className="space-y-2 rounded-md border border-edge bg-surface-raised p-3">
-      <p className="text-sm font-medium text-gate">
-        Signing key for {props.trigger.name} — shown once, never again
-      </p>
-      <code className="block break-all rounded-sm bg-surface-sunken p-2 text-xs">
-        {props.trigger.signingKey}
-      </code>
-      <button
-        className="rounded-sm bg-edge px-3 py-1.5 text-xs hover:bg-edge-strong"
-        onClick={props.onDismiss}
-      >
-        I've saved it, dismiss
-      </button>
-    </div>
-  );
-}
-
-function CreateTriggerForm(props: {
-  agents: AgentDto[];
-  onCreate: (body: { name: string; agentId: string; jobPrompt: string; enabled: boolean }) => void;
-}): React.JSX.Element {
-  const [name, setName] = useState("");
-  const [agentId, setAgentId] = useState("");
-  const [jobPrompt, setJobPrompt] = useState("");
+  const [copied, setCopied] = useState(false);
 
   return (
-    <form
-      className="space-y-2 rounded-md border border-edge bg-surface-raised p-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!name || !agentId) return;
-        props.onCreate({ name, agentId, jobPrompt, enabled: true });
-        setName("");
-        setJobPrompt("");
-      }}
-    >
-      <div className="grid gap-2 md:grid-cols-2">
-        <input
-          className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-          placeholder="name (kebab-case)"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <select
-          className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-          value={agentId}
-          onChange={(event) => setAgentId(event.target.value)}
-        >
-          <option value="">assign agent…</option>
-          {props.agents.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
+    <Panel className="rise border-gate-line">
+      <PanelHeader className="border-b border-gate-line bg-gate-soft">
+        <PanelTitle icon={<KeyRound />}>
+          <span className="text-gate">
+            Signing key for {props.trigger.name} — shown once, never again
+          </span>
+        </PanelTitle>
+      </PanelHeader>
+      <div className="space-y-3 p-4">
+        <Well>
+          <code className="block break-all text-xs text-ink">{props.trigger.signingKey}</code>
+        </Well>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => {
+              void navigator.clipboard.writeText(props.trigger.signingKey);
+              setCopied(true);
+            }}
+          >
+            <Copy />
+            {copied ? "Copied" : "Copy key"}
+          </Button>
+          <Button variant="ghost" onClick={props.onDismiss}>
+            I've saved it, dismiss
+          </Button>
+        </div>
       </div>
-      <textarea
-        className="w-full rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-        placeholder="Job prompt — what the agent should do with an inbound event"
-        rows={3}
-        value={jobPrompt}
-        onChange={(event) => setJobPrompt(event.target.value)}
-      />
-      <button className="rounded-sm bg-edge px-3 py-1.5 text-sm hover:bg-edge-strong" type="submit">
-        Create
-      </button>
-    </form>
+    </Panel>
   );
 }

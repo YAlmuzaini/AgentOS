@@ -6,14 +6,33 @@ import {
   type EnvironmentDto,
 } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
+import { Button } from "../components/ui/button";
+import { CreatePanel } from "../components/ui/create-panel";
+import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { Field, Input, Select } from "../components/ui/form";
+import { Page, PageHeader } from "../components/ui/page";
+import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
+import { StatusPill } from "../components/ui/pill";
+import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useActiveProject } from "../hooks/use-project";
+import { NoProject } from "./tasks";
+
+/** `none` is the safe default; `open` is the one worth a warning colour. */
+function networkTone(mode: string): "live" | "gate" | "danger" | "neutral" {
+  if (mode === "none") return "live";
+  if (mode === "limited") return "neutral";
+  return "danger";
+}
 
 export function EnvironmentPage(): React.JSX.Element {
   const { project } = useActiveProject();
   const queryClient = useQueryClient();
   const projectId = project?.id;
+  const [creatingEnv, setCreatingEnv] = useState(false);
+  const [creatingBinding, setCreatingBinding] = useState(false);
 
   const environments = useQuery({
     queryKey: ["environments", projectId],
@@ -35,237 +54,306 @@ export function EnvironmentPage(): React.JSX.Element {
 
   const createEnvironment = useMutation({
     mutationFn: (body: CreateEnvironmentInput) => api.createEnvironment(projectId!, body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["environments", projectId] }),
+    onSuccess: () => {
+      setCreatingEnv(false);
+      void queryClient.invalidateQueries({ queryKey: ["environments", projectId] });
+    },
   });
 
   const createBinding = useMutation({
     mutationFn: (body: CreateEnvBindingInput) => api.createEnvBinding(projectId!, body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["env-bindings", projectId] }),
+    onSuccess: () => {
+      setCreatingBinding(false);
+      void queryClient.invalidateQueries({ queryKey: ["env-bindings", projectId] });
+    },
   });
 
-  if (!project) {
-    return <p className="text-sm text-ink-muted">No project yet. Run `pnpm db:seed`.</p>;
-  }
-
-  return (
-    <div className="space-y-8">
-      <h1 className="text-lg font-semibold">Environment</h1>
-
-      <section className="space-y-4">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-          Network policy
-        </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-              <tr>
-                <th className="py-2">Name</th>
-                <th>Networking</th>
-                <th>Allowed hosts</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(environments.data ?? []).map((environment: EnvironmentDto) => (
-                <tr key={environment.id} className="border-t border-edge">
-                  <td className="py-2">{environment.name}</td>
-                  <td className="text-ink-muted">{environment.networking}</td>
-                  <td className="text-xs text-ink-muted">
-                    {environment.allowedHosts.join(", ") || "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {environments.data?.length === 0 ? (
-            <p className="py-2 text-sm text-ink-muted">
-              No environments yet. Create one to set a network policy.
-            </p>
-          ) : null}
-        </div>
-        <CreateEnvironmentForm onCreate={(body) => createEnvironment.mutate(body)} />
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-          Environment variables
-        </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-              <tr>
-                <th className="py-2">Key</th>
-                <th>Environment</th>
-                <th>Secret</th>
-                <th>Allowed hosts</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(bindings.data ?? []).map((binding: EnvBindingDto) => (
-                <tr key={binding.id} className="border-t border-edge">
-                  <td className="py-2 machine text-xs">{binding.key}</td>
-                  <td className="text-ink-muted">
-                    {binding.environmentId === null ? (
-                      // Written before bindings were environment-scoped. It
-                      // reaches no session until it is assigned one.
-                      <span className="text-gate">unassigned — never injected</span>
-                    ) : (
-                      (environments.data?.find((e) => e.id === binding.environmentId)?.name ??
-                        binding.environmentId)
-                    )}
-                  </td>
-                  <td className="text-ink-muted">
-                    {secrets.data?.find((s) => s.id === binding.secretId)?.name ?? binding.secretId}
-                  </td>
-                  <td className="text-xs text-ink-muted">
-                    {binding.allowedHosts.join(", ") || "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {bindings.data?.length === 0 ? (
-            <p className="py-2 text-sm text-ink-muted">
-              No environment variables yet. Bind a secret to expose it.
-            </p>
-          ) : null}
-        </div>
-        <CreateEnvBindingForm
-          environments={environments.data ?? []}
-          secrets={secrets.data ?? []}
-          onCreate={(body) => createBinding.mutate(body)}
-        />
-      </section>
-    </div>
-  );
-}
-
-function CreateEnvironmentForm(props: {
-  onCreate: (body: CreateEnvironmentInput) => void;
-}): React.JSX.Element {
-  const [name, setName] = useState("");
+  const [envName, setEnvName] = useState("");
   const [networking, setNetworking] = useState<CreateEnvironmentInput["networking"]>("limited");
-  const [allowedHosts, setAllowedHosts] = useState("");
+  const [envHosts, setEnvHosts] = useState("");
 
-  return (
-    <form
-      className="grid gap-2 rounded-md border border-edge bg-surface-raised p-3 md:grid-cols-[1fr_auto_1fr_auto]"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!name) return;
-        props.onCreate({
-          name,
-          networking,
-          allowedHosts: allowedHosts
-            .split(",")
-            .map((host) => host.trim())
-            .filter(Boolean),
-        });
-        setName("");
-        setAllowedHosts("");
-      }}
-    >
-      <input
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-        placeholder="Environment name"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-      />
-      <select
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-        value={networking}
-        onChange={(event) =>
-          setNetworking(event.target.value as CreateEnvironmentInput["networking"])
-        }
-      >
-        {NETWORKING_MODES.map((mode) => (
-          <option key={mode} value={mode}>
-            {mode}
-          </option>
-        ))}
-      </select>
-      <input
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-        placeholder="allowed hosts (comma separated)"
-        value={allowedHosts}
-        onChange={(event) => setAllowedHosts(event.target.value)}
-      />
-      <button className="rounded-sm bg-edge px-3 py-1.5 text-sm hover:bg-edge-strong" type="submit">
-        Create
-      </button>
-    </form>
-  );
-}
-
-function CreateEnvBindingForm(props: {
-  environments: Array<{ id: string; name: string }>;
-  secrets: Array<{ id: string; name: string }>;
-  onCreate: (body: CreateEnvBindingInput) => void;
-}): React.JSX.Element {
   const [environmentId, setEnvironmentId] = useState("");
   const [key, setKey] = useState("");
   const [secretId, setSecretId] = useState("");
-  const [allowedHosts, setAllowedHosts] = useState("");
+  const [bindingHosts, setBindingHosts] = useState("");
+
+  if (!project) {
+    return <NoProject />;
+  }
+
+  const envList = environments.data ?? [];
+  const bindingList = bindings.data ?? [];
+  const unassigned = bindingList.filter((binding) => binding.environmentId === null).length;
 
   return (
-    <form
-      className="grid gap-2 rounded-md border border-edge bg-surface-raised p-3 md:grid-cols-[1fr_1fr_1fr_1fr_auto]"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!key || !secretId || !environmentId) return;
-        props.onCreate({
-          environmentId,
-          key,
-          secretId,
-          allowedHosts: allowedHosts
-            .split(",")
-            .map((host) => host.trim())
-            .filter(Boolean),
-        });
-        setKey("");
-        setAllowedHosts("");
-      }}
-    >
-      {/* The environment is the grant. A variable with no environment reaches
-          no session, so this is deliberately not defaulted. */}
-      <select
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-        value={environmentId}
-        onChange={(event) => setEnvironmentId(event.target.value)}
-      >
-        <option value="">select environment…</option>
-        {props.environments.map((environment) => (
-          <option key={environment.id} value={environment.id}>
-            {environment.name}
-          </option>
-        ))}
-      </select>
-      <input
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm machine"
-        placeholder="KEY_NAME"
-        value={key}
-        onChange={(event) => setKey(event.target.value.toUpperCase())}
+    <Page>
+      <PageHeader
+        icon={<ShieldCheck />}
+        title="Environment"
+        actions={
+          unassigned > 0 ? (
+            <StatusPill tone="gate" dot>
+              {unassigned} unassigned
+            </StatusPill>
+          ) : null
+        }
       />
-      <select
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-        value={secretId}
-        onChange={(event) => setSecretId(event.target.value)}
-      >
-        <option value="">select secret…</option>
-        {props.secrets.map((secret) => (
-          <option key={secret.id} value={secret.id}>
-            {secret.name}
-          </option>
-        ))}
-      </select>
-      <input
-        className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-        placeholder="allowed hosts (comma separated)"
-        value={allowedHosts}
-        onChange={(event) => setAllowedHosts(event.target.value)}
-      />
-      <button className="rounded-sm bg-edge px-3 py-1.5 text-sm hover:bg-edge-strong" type="submit">
-        Create
-      </button>
-    </form>
+
+      <section className="space-y-3">
+        <Panel className="flex items-center justify-between gap-3 border-0 bg-transparent p-0">
+          <PanelTitle accent="emerald">Network policy</PanelTitle>
+          <Button onClick={() => setCreatingEnv(true)}>
+            <Plus />
+            New environment
+          </Button>
+        </Panel>
+
+        <CreatePanel
+          open={creatingEnv}
+          onClose={() => setCreatingEnv(false)}
+          title="New environment"
+          description="A session reaches only the hosts listed here."
+          submitLabel="Create"
+          pending={createEnvironment.isPending}
+          disabled={!envName}
+          onSubmit={() => {
+            createEnvironment.mutate({
+              name: envName,
+              networking,
+              allowedHosts: envHosts
+                .split(",")
+                .map((host) => host.trim())
+                .filter(Boolean),
+            });
+            setEnvName("");
+            setEnvHosts("");
+          }}
+        >
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Name">
+              {(id) => (
+                <Input
+                  id={id}
+                  value={envName}
+                  onChange={(event) => setEnvName(event.target.value)}
+                />
+              )}
+            </Field>
+            <Field label="Networking">
+              {(id) => (
+                <Select
+                  id={id}
+                  value={networking}
+                  onChange={(event) =>
+                    setNetworking(event.target.value as CreateEnvironmentInput["networking"])
+                  }
+                >
+                  {NETWORKING_MODES.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {mode}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Allowed hosts" hint="Comma separated.">
+              {(id) => (
+                <Input
+                  id={id}
+                  className="machine"
+                  value={envHosts}
+                  onChange={(event) => setEnvHosts(event.target.value)}
+                />
+              )}
+            </Field>
+          </div>
+        </CreatePanel>
+
+        {environments.isLoading ? (
+          <Panel>
+            <SkeletonRows rows={2} />
+          </Panel>
+        ) : envList.length === 0 ? (
+          <Panel>
+            <EmptyState
+              icon={<ShieldCheck />}
+              title="No environments yet"
+              hint="Create one to set a network policy."
+            />
+          </Panel>
+        ) : (
+          <TableCard>
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Name</TH>
+                  <TH>Networking</TH>
+                  <TH>Allowed hosts</TH>
+                </tr>
+              </THead>
+              <tbody>
+                {envList.map((environment: EnvironmentDto) => (
+                  <TR key={environment.id}>
+                    <TD className="font-medium">{environment.name}</TD>
+                    <TD>
+                      <StatusPill tone={networkTone(environment.networking)}>
+                        {environment.networking}
+                      </StatusPill>
+                    </TD>
+                    <TD className="machine text-xs text-ink-muted">
+                      {environment.allowedHosts.join(", ") || "—"}
+                    </TD>
+                  </TR>
+                ))}
+              </tbody>
+            </Table>
+          </TableCard>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <Panel className="flex items-center justify-between gap-3 border-0 bg-transparent p-0">
+          <PanelTitle accent="violet">Environment variables</PanelTitle>
+          <Button onClick={() => setCreatingBinding(true)}>
+            <Plus />
+            New variable
+          </Button>
+        </Panel>
+
+        <CreatePanel
+          open={creatingBinding}
+          onClose={() => setCreatingBinding(false)}
+          title="New environment variable"
+          description="The environment is the grant — a variable without one reaches no session."
+          submitLabel="Create"
+          pending={createBinding.isPending}
+          disabled={!key || !secretId || !environmentId}
+          onSubmit={() => {
+            createBinding.mutate({
+              environmentId,
+              key,
+              secretId,
+              allowedHosts: bindingHosts
+                .split(",")
+                .map((host) => host.trim())
+                .filter(Boolean),
+            });
+            setKey("");
+            setBindingHosts("");
+          }}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            {/* Deliberately not defaulted — see the description above. */}
+            <Field label="Environment">
+              {(id) => (
+                <Select
+                  id={id}
+                  value={environmentId}
+                  onChange={(event) => setEnvironmentId(event.target.value)}
+                >
+                  <option value="">select environment…</option>
+                  {envList.map((environment) => (
+                    <option key={environment.id} value={environment.id}>
+                      {environment.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Key">
+              {(id) => (
+                <Input
+                  id={id}
+                  className="machine"
+                  placeholder="KEY_NAME"
+                  value={key}
+                  onChange={(event) => setKey(event.target.value.toUpperCase())}
+                />
+              )}
+            </Field>
+            <Field label="Secret">
+              {(id) => (
+                <Select
+                  id={id}
+                  value={secretId}
+                  onChange={(event) => setSecretId(event.target.value)}
+                >
+                  <option value="">select secret…</option>
+                  {(secrets.data ?? []).map((secret) => (
+                    <option key={secret.id} value={secret.id}>
+                      {secret.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Allowed hosts" hint="Comma separated.">
+              {(id) => (
+                <Input
+                  id={id}
+                  className="machine"
+                  value={bindingHosts}
+                  onChange={(event) => setBindingHosts(event.target.value)}
+                />
+              )}
+            </Field>
+          </div>
+        </CreatePanel>
+
+        {bindings.isLoading ? (
+          <Panel>
+            <SkeletonRows rows={2} />
+          </Panel>
+        ) : bindingList.length === 0 ? (
+          <Panel>
+            <EmptyState
+              title="No environment variables yet"
+              hint="Bind a secret to expose it to a session."
+            />
+          </Panel>
+        ) : (
+          <TableCard>
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Key</TH>
+                  <TH>Environment</TH>
+                  <TH>Secret</TH>
+                  <TH>Allowed hosts</TH>
+                </tr>
+              </THead>
+              <tbody>
+                {bindingList.map((binding: EnvBindingDto) => (
+                  <TR key={binding.id}>
+                    <TD className="machine text-xs font-medium">{binding.key}</TD>
+                    <TD>
+                      {binding.environmentId === null ? (
+                        // Written before bindings were environment-scoped. It
+                        // reaches no session until it is assigned one.
+                        <StatusPill tone="gate" dot>
+                          unassigned — never injected
+                        </StatusPill>
+                      ) : (
+                        <span className="text-ink-muted">
+                          {envList.find((e) => e.id === binding.environmentId)?.name ??
+                            binding.environmentId}
+                        </span>
+                      )}
+                    </TD>
+                    <TD className="text-ink-muted">
+                      {secrets.data?.find((s) => s.id === binding.secretId)?.name ??
+                        binding.secretId}
+                    </TD>
+                    <TD className="machine text-xs text-ink-muted">
+                      {binding.allowedHosts.join(", ") || "—"}
+                    </TD>
+                  </TR>
+                ))}
+              </tbody>
+            </Table>
+          </TableCard>
+        )}
+      </section>
+    </Page>
   );
 }

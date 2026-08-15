@@ -1,80 +1,106 @@
 ---
 name: AgentOS
-description: The control room for agents that work while you are not watching.
+description: The lit operations desk for agents that work while you are not watching.
 colors:
-  surface: "oklch(0.17 0.01 260)"
-  surface-raised: "oklch(0.22 0.012 260)"
-  surface-sunken: "oklch(0.13 0.01 260)"
-  edge: "oklch(0.32 0.015 260)"
-  edge-strong: "oklch(0.44 0.02 260)"
-  ink: "oklch(0.97 0.005 260)"
-  ink-muted: "oklch(0.72 0.02 260)"
-  ink-faint: "oklch(0.58 0.02 260)"
-  live: "oklch(0.78 0.16 165)"
-  gate: "oklch(0.83 0.14 85)"
-  danger: "oklch(0.72 0.17 25)"
-  link: "oklch(0.80 0.10 230)"
+  chrome: "oklch(0.9838 0.0018 106.42)"
+  canvas: "oklch(1 0 0)"
+  panel: "oklch(1 0 0)"
+  sunken: "oklch(0.9761 0.002 106.42)"
+  edge: "oklch(0.9219 0.0025 106.42)"
+  edge-strong: "oklch(0.8574 0.0032 106.42)"
+  ink: "oklch(0.2178 0.004 106.42)"
+  ink-muted: "oklch(0.5178 0.0043 106.42)"
+  ink-faint: "oklch(0.6621 0.0043 106.42)"
+  solid: "oklch(0.2178 0.004 106.42)"
+  on-solid: "oklch(1 0 0)"
+  live: "oklch(0.5905 0.1264 158.6)"
+  gate: "oklch(0.5623 0.1416 52.2)"
+  danger: "oklch(0.5271 0.1738 27.3)"
+  link: "oklch(0.5083 0.1852 264.4)"
+  data-violet: "oklch(0.5854 0.2041 285.5)"
+  data-sky: "oklch(0.7343 0.1281 235.9)"
+  data-amber: "oklch(0.7686 0.1454 70.1)"
+  data-emerald: "oklch(0.6959 0.1491 162.5)"
 typography:
   title:
-    fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: "1.125rem"
+    fontFamily: "Inter Variable, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "0.9375rem"
     fontWeight: 600
     lineHeight: 1.3
     letterSpacing: "-0.01em"
   body:
-    fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: "0.875rem"
+    fontFamily: "Inter Variable, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "0.8125rem"
     fontWeight: 400
     lineHeight: 1.5
   label:
-    fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontFamily: "Inter Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "0.6875rem"
-    fontWeight: 600
+    fontWeight: 500
     lineHeight: 1.2
-    letterSpacing: "0.08em"
+    letterSpacing: "0.06em"
+  metric:
+    fontFamily: "Inter Variable, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "1.75rem"
+    fontWeight: 600
+    lineHeight: 1
+    letterSpacing: "-0.02em"
   machine:
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
     fontSize: "0.75rem"
     fontWeight: 400
     lineHeight: 1.45
 rounded:
-  sm: "4px"
-  md: "8px"
+  control: "8px"
+  panel: "10px"
 spacing:
   xs: "6px"
   sm: "8px"
   md: "12px"
   lg: "16px"
   xl: "24px"
+shadow:
+  lift: "0 1px 2px 0 oklch(0.2178 0.004 106.42 / 0.05)"
+  pop: "0 4px 12px -2px oklch(0.2178 0.004 106.42 / 0.1), 0 2px 4px -2px oklch(0.2178 0.004 106.42 / 0.06)"
 components:
-  button-primary:
-    backgroundColor: "{colors.edge}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.sm}"
-    padding: "6px 12px"
+  button-solid:
+    backgroundColor: "{colors.solid}"
+    textColor: "{colors.on-solid}"
+    rounded: "{rounded.control}"
+    padding: "0 12px"
+    height: "34px"
     typography: "{typography.body}"
-  button-primary-hover:
-    backgroundColor: "{colors.edge-strong}"
+  button-outline:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink}"
+    border: "1px solid {colors.edge}"
+    shadow: "{shadow.lift}"
+    rounded: "{rounded.control}"
   button-danger:
-    backgroundColor: "{colors.surface-raised}"
+    backgroundColor: "{colors.panel}"
     textColor: "{colors.danger}"
-    rounded: "{rounded.sm}"
-    padding: "6px 12px"
-  card:
-    backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.md}"
-    padding: "12px"
+    border: "1px solid {colors.danger}"
+    rounded: "{rounded.control}"
+  panel:
+    backgroundColor: "{colors.panel}"
+    border: "1px solid {colors.edge}"
+    rounded: "{rounded.panel}"
+  well:
+    backgroundColor: "{colors.sunken}"
+    rounded: "{rounded.control}"
+    padding: "12px 14px"
   input:
-    backgroundColor: "{colors.surface-sunken}"
+    backgroundColor: "{colors.panel}"
     textColor: "{colors.ink}"
-    rounded: "{rounded.sm}"
-    padding: "6px 8px"
+    border: "1px solid {colors.edge}"
+    rounded: "{rounded.control}"
+    height: "34px"
     typography: "{typography.body}"
-  badge-gate:
-    backgroundColor: "{colors.surface-raised}"
+  pill-gate:
+    backgroundColor: "{colors.gate}"
     textColor: "{colors.gate}"
-    rounded: "{rounded.sm}"
+    border: "1px solid {colors.gate}"
+    rounded: "6px"
     padding: "2px 6px"
     typography: "{typography.label}"
 ---
@@ -83,190 +109,200 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Night Shift Control Room"**
+**Creative North Star: "The Daylit Operations Desk"**
 
-AgentOS is looked at in two states and no others: a glance on a phone at 23:00 to answer one
-question, and a long sit at a desk reading what the machines did overnight. Both are low-light,
-both are about *state*, and neither is browsing. The interface is a control room — dim, dense,
-instrument-like, with almost no chrome and no decoration competing with the readouts. Nothing here
-is trying to be delightful. It is trying to be **unambiguous at a glance and honest under stress**.
+AgentOS is a control plane for agents that run while nobody is watching. The operator's real
+job is not browsing — it is answering three questions fast: *what ran, what broke, and what is
+parked on me.* This system is built so those three answers are legible in one pass of the eye,
+on a lit surface, at a desk or one-handed on a phone.
 
-The visual system is therefore near-monochrome by default. Colour is not styling; it is signal.
-Four hues exist, each owns exactly one meaning, and any screen where more than one of them appears
-is telling you something is happening. Type is small and tight because density is the point: the
-operator is scanning for the one row that changed. Surfaces are flat and separated by a single
-hairline, because a control room reads as panels, not as floating cards.
+The interface is a warm off-white frame around white working panels. Depth is four tonal steps
+and a single hairline: **chrome** sits back, **canvas** is the page, a **panel** sits on the
+canvas, a **well** is cut into the panel. There is one shadow in the system and it is 1px — the
+only things that lift are the active nav row, the operator card, and the top-bar icon buttons.
+Nothing floats to look important.
 
-The anti-reference is the modern SaaS dashboard: gradient hero cards, pastel status pills on
-white, generous rounding, an illustration in every empty state. That language flatters the product
-and slows the operator down. AgentOS is closer to a terminal that grew a Kanban board.
+Colour is rationed and typed. **Signal hues** carry state and nothing else, one meaning each.
+**Data hues** carry categories and charts and are forbidden from carrying state. That split is
+the load-bearing rule of the whole system: it is what stops a failed session from rendering in
+the same green as a healthy one.
 
-**Key Characteristics:**
-- Dark, flat, hairline-separated panels — no shadows, no gradients, no glass
-- Near-monochrome; the four signal hues are rare and each means one thing
-- Small type, tight rhythm, machine-monospace for anything an operator might copy
-- State is always visible without a click — status, spend, and gate live on the card
-- Irreversible and blocked things look different from everything else
+**This replaced a previous identity.** AgentOS was formerly "The Night Shift Control Room" —
+dark, flat, near-monochrome, with colour riding on text and no filled pills. That world was
+retired deliberately, at the operator's direction, in favour of the reference world in
+`design-refs/`. Anything in the codebase still reaching for `surface`, `surface-raised`, or
+`surface-sunken` is from the old world and is a bug.
+
+**Key characteristics:**
+- Warm off-white chrome, white panels, one hairline, and a 1px lift used sparingly
+- Two radii: 8px controls, 10px panels
+- Status is a tinted pill — soft fill, matching border, saturated text
+- Exactly one near-black `solid` button per screen
+- Signal hues for state, data hues for category; never swapped
+- Small type and tight rhythm: the operator is scanning for the row that changed
 
 ## Colors
 
-A near-black blue-grey field with four signal hues that are rationed on purpose.
+### Surfaces
 
-### Primary
-- **Signal Green** (`live`): a session that is *running right now*, and nothing else. The live badge
-  on the session viewer, an active goal. Never used for "success" or "saved".
-- **Hold Amber** (`gate`): something is waiting on the human and cannot proceed without them —
-  an approval gate, an unapproved definition of done, an open inbox question. The colour of a stop,
-  not a warning.
+Four steps, no more. `chrome` is the frame (sidebar, and the page ground behind the working
+sheet). `canvas` and `panel` are both pure white — a panel is distinguished by its border, not
+its fill. `sunken` is the well: anything read-only lives in it.
 
-### Secondary
-- **Fault Red** (`danger`): a failed session, a rejected webhook delivery, a missing secret, a
-  destructive control. Reserved for things that are broken or that break things.
-- **Trace Blue** (`link`): a link out of AgentOS into a runtime trace or an external system. The
-  only colour that means "this leaves the app".
+### Signal — one meaning each
 
-### Neutral
-- **Field** (`surface`): the page ground. Everything sits on it.
-- **Panel** (`surface-raised`): sidebar, cards, columns, forms. One step up from the field.
-- **Well** (`surface-sunken`): input backgrounds and log surfaces — one step *down*, so a place you
-  type into and a place the machine writes into read as recessed.
-- **Hairline** (`edge`): the only separator in the system. Borders do the work shadows would do.
-- **Hairline Strong** (`edge-strong`): hover and focus state of an interactive edge.
-- **Ink / Ink Muted / Ink Faint**: primary text, secondary text and labels, timestamps and ids.
+- **Live** (emerald): a session that is *running right now*, a goal that is active, a resolvable
+  secret, an enabled trigger. Never "success" in the abstract.
+- **Gate** (amber): something is waiting on the human and cannot proceed without them — an
+  approval gate, an unapproved definition of done, an open inbox question, an unassigned env
+  binding. The colour of a stop, not a warning.
+- **Danger** (red): a failed session, a missing secret, a rejected webhook delivery, a tripped
+  goal rail. Broken, or breaks things.
+- **Link** (blue): leaves the app, or is idle information with no state attached.
 
-### Named Rules
+**The One Meaning Rule.** A tone owns one meaning. If a value is a *category* rather than a
+state — the kind of an activity entry, the operation a connection grants — it does not get a
+signal hue. It gets a neutral pill with a data-hue dot.
 
-**The One Meaning Rule.** Each signal hue owns exactly one meaning across the whole app: green =
-running, amber = waiting on you, red = broken, blue = leaves the app. A hue may never be reused
-decoratively, and a status may never be shown in two hues.
+### Data — never status
 
-**The Rationing Rule.** On a screen at rest, signal hues cover under 5% of the pixels. If a board
-looks colourful, something is wrong — and that is exactly the intent.
+`data-violet`, `data-sky`, `data-amber`, `data-emerald`. These are for meter segments, panel
+accent marks, and category dots. A data hue must never be the thing that tells an operator
+something is wrong.
+
+**The Rationing Rule.** On a resting screen, signal hues stay under about 5% of the surface. A
+screen showing three colours is telling you three things are happening.
 
 ## Typography
 
-**Interface Font:** system sans (`ui-sans-serif, system-ui, -apple-system, Segoe UI`)
-**Machine Font:** system mono (`ui-monospace, SFMono-Regular, Menlo`)
+Inter Variable, self-hosted via `@fontsource-variable/inter`; monospace for machine values. The
+ramp is deliberately short and small — density is the point.
 
-**Character:** Utilitarian and unbranded. The operator's own system font disappears; the monospace
-does the signalling, marking every value that came from a machine rather than a person. There is no
-display face because there is no marketing surface — the largest text in the product is a page title.
+| Step | Size | Use |
+|---|---|---|
+| metric | 28px / 600 | the one number a metric card is about |
+| title | 15px / 600 | page titles, dialog titles |
+| body | 13px / 400 | everything the operator reads and every control label |
+| label | 11px / 500, 0.06em, uppercase | sidebar group captions, day headings |
+| machine | 12px mono | ids, paths, cron, URLs, keys, logs |
 
-### Hierarchy
-- **Title** (600, 18px, 1.3): one per screen, top-left. Names the section and the active project.
-- **Body** (400, 14px, 1.5): everything the operator reads — task names, prompts, progress logs.
-- **Label** (600, 11px, 0.08em, uppercase): column headers, table headers, section eyebrows. The
-  only uppercase in the system.
-- **Machine** (400, 12px, mono): ids, tool-call logs, cron expressions, paths, YAML, signing keys,
-  spend figures. If a person did not type it, it is monospace.
+**The Machine Voice Rule.** Anything an operator might copy — an id, a path, a cron expression,
+a URL, a signing key, a log line — is set in the machine font. Numbers that stack in a column
+get `tnum` so they align.
 
-### Named Rules
+## Layout & Spacing
 
-**The Machine Voice Rule.** Anything an operator might copy, diff, or paste into a terminal is set
-in the machine font: session ids, tool names, file paths, cron strings, secrets. This is a
-correctness feature, not a stylistic one — it makes `l` and `1` distinguishable at 12px.
+The shell is a fixed 240px rail beside a white working sheet that is inset from the chrome on
+desktop (`lg:m-2`, 10px radius, 1px border) — that inset is what makes the rail read as a frame
+rather than as a column. Below `lg` the rail becomes a drawer and the sheet goes edge to edge.
 
-**The One Title Rule.** A screen has exactly one Title. Sub-sections use Label, never a second
-title size. Hierarchy comes from weight and colour, not from a scale of headings.
+Screens use one of three widths: full, `reading` (max 3xl, for Activity and Inbox), and `form`
+(max 2xl, for Settings). Page rhythm is a 20px stack; panels are 16px inside.
 
-## Layout
+Two-pane screens — Goals, Sessions, Files — are a 300–340px list beside a detail pane. That is
+the pattern whenever the operator moves between items without wanting to lose their place.
 
-A fixed 208px sidebar and a single scrolling content column with 24px padding. The sidebar is the
-whole navigation model: thirteen destinations, always visible, no nesting, no collapse. There is
-one operator and they memorise it in a day.
-
-Content is laid out on a 12px rhythm (`spacing.md`) with 24px between major blocks. Density is
-deliberate: forms are single-line inline rows, not stacked field groups, because every form in this
-product is short and the operator fills it repeatedly.
-
-The Kanban board is four equal columns on desktop and one column stacked on mobile. Everything else
-is either a table (fixed columns, hairline row separators) or a two-pane split (a 320px list beside
-a detail pane) — the split is the pattern whenever an operator needs to move between items without
-losing their place.
-
-**The Phone Rule.** The Inbox is the only screen with a real mobile contract: it must be fully
-usable at 380px with no horizontal scroll, because that is where it gets used. Every other screen
-degrades to a single column and is allowed to be cramped.
+**The Phone Rule.** The Inbox is the only screen with a real mobile contract: fully usable at
+390px, every control at least 44px tall, no horizontal scroll. Every other screen degrades to a
+single column and is allowed to be cramped. Wide tables scroll inside their own panel so the
+page body never scrolls sideways.
 
 ## Elevation & Depth
 
-**There are no shadows in AgentOS.** Depth is tonal and comes from exactly three steps: sunken
-well, field, raised panel — separated by a single hairline border. A control room is lit flatly;
-floating elements imply importance that the data has not earned.
+Depth is tonal, not spatial. Four steps and one hairline. `--shadow-lift` (0 1px 2px, 5% ink) is
+the only shadow on a resting screen and is reserved for elements that sit on the chrome: the
+active nav row, the operator card, top-bar icon buttons, outline buttons. `--shadow-pop` exists
+only for things that genuinely float above the page — dialogs, dropdown menus, the mobile drawer.
 
-Hover raises the *border*, not the surface: `edge` becomes `edge-strong`. This keeps motion out of
-a screen that is already updating on a timer.
-
-**The Flat Field Rule.** No `box-shadow`, no gradient, no blur, no glass. If something needs to
-stand apart, it gets a hairline and a tonal step — never a lift.
+Hover raises the *border* (`edge` → `edge-strong`) or tints the fill to `sunken`. It never
+lifts a panel. Panels do not animate on poll: the board and the session viewer refresh on a
+timer, and motion on refresh reads as a change that did not happen.
 
 ## Shapes
 
-Two radii and no more: 4px for controls (buttons, inputs, badges, rows) and 8px for panels (cards,
-columns, dialogs). Everything is a rectangle with the corners just taken off — square enough to read
-as instrumentation, soft enough not to feel like a spreadsheet.
+Two radii and no more: **8px** for controls (buttons, inputs, wells, pills-as-rows) and **10px**
+for panels (cards, tables, dialogs, the working sheet). Status pills use 6px because they are
+smaller than a control. Borders are always 1px and always `edge`.
 
-Borders are always 1px and always `edge`. There is no double border, no inset, no divider that is
-not also a container edge.
+## Motion
+
+Two authored moments, and they are the whole budget:
+
+- **`rise`** — a panel arriving: 4px up, 240ms, exponential ease-out. Route changes and newly
+  opened create panels and dialogs.
+- **`breathe`** — a 2s opacity pulse on the state dot of a session that is *running right now*.
+  It is the only thing in the app that repeats, and it earns it: it is the difference between
+  "this is live" and "this is a stale screenshot".
+
+Everything else is a colour transition. `prefers-reduced-motion` collapses all of it.
 
 ## Components
 
 ### Buttons
-- **Shape:** 4px radius, 6px × 12px padding, body type.
-- **Primary:** `edge` fill, `ink` text. Hover lifts the fill to `edge-strong`.
-- **Ghost:** transparent, `ink-muted` text, hover fills to `edge`. Used for anything reversible.
-- **Danger:** panel fill with `danger` text, never a filled red button. A destructive action should
-  read as serious, not as the most attractive thing on screen.
-- **Focus:** a 1px `edge-strong` ring. Never remove the focus ring; this app is used one-handed on a
-  phone and keyboard-first at a desk.
+- **Solid** — near-black fill. Exactly one per screen, on that screen's primary action.
+- **Outline** — white, hairline, 1px lift. The default for everything reversible.
+- **Ghost** — transparent, muted text. Row-level and tertiary actions.
+- **Danger** — white fill, red border, red text. Never a filled red button; a destructive action
+  should read as serious, not as the most attractive thing on screen.
+- **Disabled** is a lighter surface (`sunken` fill, `ink-faint` text), never the same slab at
+  reduced opacity — a dimmed near-black button still pulls the eye to the one control that
+  cannot be used.
 
-### Cards (Kanban)
-- 8px radius, `surface-raised` on `surface`, 1px `edge`, 12px padding.
-- The card carries state without a click: name in body, gate badge if gated, and at most two
-  actions. Anything more goes to the detail pane.
+### Panels
+1px `edge`, 10px radius, white. A `PanelHeader` carries a `PanelTitle`, which may wear **either**
+a 3px accent mark **or** an icon — never both; they say the same thing twice.
 
-### Inputs
-- `surface-sunken` fill, 1px `edge`, 4px radius, 6px × 8px padding.
-- **Focus:** border to `edge-strong`. No glow.
-- Placeholder is `ink-faint` and describes the value, never repeats the label.
+### Status pills
+6px radius, label type, `-soft` fill with `-line` border and saturated text. An optional leading
+dot, which pulses only for a genuinely running thing. The canonical one is the gate badge:
+amber, reading `approval gate — only you can close this`.
 
 ### Tables
-- No vertical rules. Rows separated by a top `edge` hairline. Header row in Label type, `ink-faint`.
-- Ids and machine values in the machine font, `ink-faint`.
+Live inside their own panel and scroll horizontally within it. Header is a `sunken` band in
+12px muted text; rows are hairline-separated and tint to `sunken` on hover. Ids, paths and URLs
+in the machine font.
 
-### Badges
-- 4px radius, Label type, panel fill, coloured text. Never a filled coloured pill.
-- **Gate badge** is the canonical one: amber text reading `approval gate — only you can close this`.
+### Fields
+White fill with a hairline — not a grey well, because the working surface is already white and a
+grey input would read as disabled. Every field has a real `<label>` tied to it; a placeholder is
+not a label. Focus darkens the border and adds the 2px `solid` ring. Focus is never removed.
 
-### Log / Progress surfaces
-- `surface-sunken`, machine font, one entry per line, timestamp in `ink-faint` then the actor then
-  the message. Never truncated with an ellipsis in the middle — an operator reading a log at 2am
-  needs the whole line.
+### Create surfaces
+Two shapes, chosen by whether the operator needs what is underneath:
+- **Dialog** — Tasks and Goals. Creating these runs something immediately and deserves protected
+  focus.
+- **`CreatePanel`** — the configuration screens. A disclosure panel that opens under the page
+  header, because adding a repo or an MCP connection is done while reading the table right below
+  it, and a modal would cover the rows being copied from.
+
+### Empty states
+Say what would put something here, and offer the control that does it. No apology, no
+illustration. "No sessions yet. Run a task."
 
 ### Signature component — the Gate
-The approval gate is the one place the product's core promise becomes visible: an agent moved a
-card to review and *cannot* close it. It is rendered as an amber badge on the card plus an
-explicit "Approve → done" button that only the operator sees. It is never styled as a warning
-triangle or an error — it is a normal, expected, everyday stop.
+The approval gate is where the product's core promise becomes visible: an agent moved a card to
+review and *cannot* close it. It is an amber pill on the card plus an "Approve → done" button
+only the operator sees. It is never a warning triangle and never an error — it is a normal,
+expected, everyday stop.
 
 ## Do's and Don'ts
 
-### Do:
-- **Do** show state on the card. Status, gate, and spend belong where the operator is already
+### Do
+- **Do** show state on the row. Status, gate, and spend belong where the operator is already
   looking, not behind a click.
-- **Do** use the machine font for anything copyable — ids, paths, cron, YAML, tool names.
+- **Do** use the machine font for anything copyable.
 - **Do** keep signal hues under 5% of a resting screen (**The Rationing Rule**).
-- **Do** separate with a 1px `edge` hairline and a tonal step.
-- **Do** make the Inbox work at 380px (**The Phone Rule**).
-- **Do** show a secret exactly once, in a panel that says it will never be shown again, in the
-  machine font, with a copy affordance.
+- **Do** give a category a neutral pill with a data-hue dot, never a signal hue.
+- **Do** make the Inbox work at 390px (**The Phone Rule**).
+- **Do** show a secret exactly once, in a panel that says so, with a copy button.
 
-### Don't:
-- **Don't** add a shadow, gradient, blur, or glass surface (**The Flat Field Rule**).
-- **Don't** reuse a signal hue decoratively, or show one status in two hues (**The One Meaning Rule**).
-- **Don't** introduce a third radius, a second title size, or a second border colour.
-- **Don't** use filled coloured buttons or pills. Colour rides on text, on a neutral panel.
-- **Don't** animate anything that polls. The board and the session viewer refresh on a timer;
-  motion on refresh reads as a change that did not happen.
-- **Don't** write an empty state that apologises or illustrates. Say what would put something here
-  ("No sessions yet. Run a task."), in `ink-muted` body type.
+### Don't
+- **Don't** put two primary actions on one screen, or repeat a top-bar fact in the page header.
+- **Don't** reuse a signal hue for a second meaning (**The One Meaning Rule**).
+- **Don't** introduce a third radius, a second shadow on a resting screen, or a second border
+  colour.
+- **Don't** dim a solid button to disable it — change its surface.
+- **Don't** animate anything that polls.
+- **Don't** invent a metric. There is no time series in this product, so there are no trend
+  lines; meters show real counts or they are not drawn.
+- **Don't** stand an emoji in for an icon. Icons are Lucide, one stroke weight.

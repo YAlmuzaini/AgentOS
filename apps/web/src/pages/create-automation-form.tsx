@@ -1,7 +1,15 @@
 import type { AgentDto, TaskTemplateDto } from "@agentos/shared";
+import { Plus, X } from "lucide-react";
 import { useState } from "react";
+import { Button } from "../components/ui/button";
+import { CreatePanel } from "../components/ui/create-panel";
+import { Field, Input, Select, Textarea } from "../components/ui/form";
+import { MicroLabel } from "../components/ui/panel";
 
 export function CreateAutomationForm(props: {
+  open: boolean;
+  onClose: () => void;
+  pending: boolean;
   agents: AgentDto[];
   templates: TaskTemplateDto[];
   onCreate: (body: {
@@ -14,7 +22,7 @@ export function CreateAutomationForm(props: {
     taskBody: string;
     templateVariables: Record<string, string>;
   }) => void;
-}): React.JSX.Element {
+}): React.JSX.Element | null {
   const [name, setName] = useState("");
   const [cron, setCron] = useState("");
   const [timezone, setTimezone] = useState("UTC");
@@ -26,11 +34,15 @@ export function CreateAutomationForm(props: {
   const [variableRows, setVariableRows] = useState<Array<{ key: string; value: string }>>([]);
 
   return (
-    <form
-      className="space-y-2 rounded-md border border-edge bg-surface-raised p-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!name || !cron) return;
+    <CreatePanel
+      open={props.open}
+      onClose={props.onClose}
+      title="New automation"
+      description="Fires on a cron and creates the task for you."
+      submitLabel="Create"
+      pending={props.pending}
+      disabled={!name || !cron}
+      onSubmit={() => {
         const templateVariables = Object.fromEntries(
           variableRows.filter((row) => row.key.trim()).map((row) => [row.key, row.value]),
         );
@@ -51,94 +63,128 @@ export function CreateAutomationForm(props: {
         setVariableRows([]);
       }}
     >
-      <div className="grid gap-2 md:grid-cols-3">
-        <input
-          className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-          placeholder="name (kebab-case)"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <input
-          className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm machine"
-          placeholder="cron, e.g. 0 9 * * *"
-          value={cron}
-          onChange={(event) => setCron(event.target.value)}
-        />
-        <input
-          className="rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-          placeholder="timezone"
-          value={timezone}
-          onChange={(event) => setTimezone(event.target.value)}
-        />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label="Name">
+          {(id) => (
+            <Input
+              id={id}
+              placeholder="kebab-case"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field label="Cron">
+          {(id) => (
+            <Input
+              id={id}
+              className="machine"
+              placeholder="0 9 * * *"
+              value={cron}
+              onChange={(event) => setCron(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field label="Timezone">
+          {(id) => (
+            <Input
+              id={id}
+              value={timezone}
+              onChange={(event) => setTimezone(event.target.value)}
+            />
+          )}
+        </Field>
       </div>
 
-      <div className="flex gap-3 text-xs text-ink-muted">
-        <label className="flex items-center gap-1.5">
-          <input
-            type="radio"
-            checked={shape === "inline"}
-            onChange={() => setShape("inline")}
-          />
-          inline task
-        </label>
-        <label className="flex items-center gap-1.5">
-          <input
-            type="radio"
-            checked={shape === "template"}
-            onChange={() => setShape("template")}
-          />
-          from template
-        </label>
+      {/* A segmented control rather than radios: two exclusive shapes, and the
+          fields below swap wholesale between them. */}
+      <div>
+        <MicroLabel className="mb-1.5">Task shape</MicroLabel>
+        <div
+          role="radiogroup"
+          aria-label="Task shape"
+          className="inline-flex rounded-control border border-edge bg-sunken p-0.5"
+        >
+          {(["inline", "template"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={shape === option}
+              onClick={() => setShape(option)}
+              className={`rounded-[6px] px-3 py-1 text-[13px] transition-colors ${
+                shape === option
+                  ? "bg-panel font-medium text-ink shadow-lift"
+                  : "text-ink-muted hover:text-ink"
+              }`}
+            >
+              {option === "inline" ? "Inline task" : "From template"}
+            </button>
+          ))}
+        </div>
       </div>
 
       {shape === "inline" ? (
-        <div className="space-y-2">
-          <select
-            className="w-full rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-            value={agentId}
-            onChange={(event) => setAgentId(event.target.value)}
-          >
-            <option value="">assign agent…</option>
-            {props.agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
-          <input
-            className="w-full rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-            placeholder="Task name"
-            value={taskName}
-            onChange={(event) => setTaskName(event.target.value)}
-          />
-          <textarea
-            className="w-full rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-            placeholder="Task body"
-            rows={3}
-            value={taskBody}
-            onChange={(event) => setTaskBody(event.target.value)}
-          />
+        <div className="space-y-4">
+          <Field label="Assign to">
+            {(id) => (
+              <Select id={id} value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+                <option value="">assign agent…</option>
+                {props.agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label="Task name">
+            {(id) => (
+              <Input
+                id={id}
+                value={taskName}
+                onChange={(event) => setTaskName(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field label="Task body">
+            {(id) => (
+              <Textarea
+                id={id}
+                rows={3}
+                value={taskBody}
+                onChange={(event) => setTaskBody(event.target.value)}
+              />
+            )}
+          </Field>
         </div>
       ) : (
-        <div className="space-y-2">
-          <select
-            className="w-full rounded-sm border border-edge bg-surface-sunken px-2 py-1.5 text-sm"
-            value={taskTemplateId}
-            onChange={(event) => setTaskTemplateId(event.target.value)}
-          >
-            <option value="">choose template…</option>
-            {props.templates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.name}
-              </option>
-            ))}
-          </select>
-          <div className="space-y-1.5">
+        <div className="space-y-4">
+          <Field label="Template">
+            {(id) => (
+              <Select
+                id={id}
+                value={taskTemplateId}
+                onChange={(event) => setTaskTemplateId(event.target.value)}
+              >
+                <option value="">choose template…</option>
+                {props.templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+
+          <div className="space-y-2">
+            <MicroLabel>Template variables</MicroLabel>
             {variableRows.map((row, index) => (
               <div key={index} className="flex gap-2">
-                <input
-                  className="w-1/3 rounded-sm border border-edge bg-surface-sunken px-2 py-1 text-sm"
+                <Input
+                  className="machine w-1/3"
                   placeholder="key"
+                  aria-label={`Variable ${index + 1} key`}
                   value={row.key}
                   onChange={(event) => {
                     const next = [...variableRows];
@@ -146,9 +192,10 @@ export function CreateAutomationForm(props: {
                     setVariableRows(next);
                   }}
                 />
-                <input
-                  className="flex-1 rounded-sm border border-edge bg-surface-sunken px-2 py-1 text-sm"
+                <Input
+                  className="flex-1"
                   placeholder="value"
+                  aria-label={`Variable ${index + 1} value`}
                   value={row.value}
                   onChange={(event) => {
                     const next = [...variableRows];
@@ -156,29 +203,27 @@ export function CreateAutomationForm(props: {
                     setVariableRows(next);
                   }}
                 />
-                <button
-                  className="rounded-sm bg-edge px-2 py-1 text-xs hover:bg-edge-strong"
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Remove variable"
                   onClick={() => setVariableRows(variableRows.filter((_, i) => i !== index))}
                 >
-                  Remove
-                </button>
+                  <X />
+                </Button>
               </div>
             ))}
-            <button
-              className="rounded-sm bg-edge px-2 py-1 text-xs hover:bg-edge-strong"
-              type="button"
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={() => setVariableRows([...variableRows, { key: "", value: "" }])}
             >
-              + add variable
-            </button>
+              <Plus />
+              Add variable
+            </Button>
           </div>
         </div>
       )}
-
-      <button className="rounded-sm bg-edge px-3 py-1.5 text-sm hover:bg-edge-strong" type="submit">
-        Create
-      </button>
-    </form>
+    </CreatePanel>
   );
 }

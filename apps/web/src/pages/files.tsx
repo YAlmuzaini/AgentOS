@@ -1,8 +1,14 @@
 import type { FileEntryDto } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CornerLeftUp, File, Folder, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { Button } from "../components/ui/button";
+import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { Page, PageHeader } from "../components/ui/page";
+import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
 import { useActiveProject } from "../hooks/use-project";
+import { NoProject } from "./tasks";
 
 function parentPath(path: string): string {
   if (path === "/") return "/";
@@ -61,83 +67,114 @@ export function FilesPage(): React.JSX.Element {
   });
 
   if (!project) {
-    return <p className="text-sm text-ink-muted">No project yet. Run `pnpm db:seed`.</p>;
+    return <NoProject />;
   }
 
-  return (
-    <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-      <section className="space-y-3">
-        <h1 className="text-lg font-semibold">Files</h1>
-        <div className="machine text-xs text-ink-muted">{path}</div>
-        <ul className="space-y-1">
-          {path !== "/" ? (
-            <li>
-              <button
-                className="w-full rounded-sm border border-edge bg-surface-raised px-2 py-1.5 text-left text-sm text-ink-muted hover:bg-edge"
-                onClick={() => setPath(parentPath(path))}
-              >
-                ..
-              </button>
-            </li>
-          ) : null}
-          {(entries.data ?? []).map((entry: FileEntryDto) => (
-            <li key={entry.path}>
-              <button
-                className={`w-full rounded-sm border border-edge px-2 py-1.5 text-left text-sm ${
-                  selected === entry.path ? "bg-edge" : "bg-surface-raised"
-                }`}
-                onClick={() => {
-                  if (entry.kind === "folder") {
-                    setPath(entry.path);
-                  } else {
-                    setSelected(entry.path);
-                  }
-                }}
-              >
-                <span>{entry.kind === "folder" ? "📁" : "📄"}</span>{" "}
-                <span>{entry.path.split("/").pop()}</span>
-                {entry.kind === "file" ? (
-                  <span className="ml-2 machine text-xs text-ink-faint">{entry.size}b</span>
-                ) : null}
-              </button>
-            </li>
-          ))}
-          {entries.data?.length === 0 ? (
-            <li className="text-sm text-ink-muted">No files here yet.</li>
-          ) : null}
-        </ul>
-      </section>
+  const list = entries.data ?? [];
 
-      <section>
-        {selected ? (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="machine text-sm">{selected}</h2>
-              <div className="flex gap-2">
-                <button
-                  className="rounded-sm bg-edge px-3 py-1.5 text-sm hover:bg-edge-strong"
-                  onClick={() => save.mutate()}
-                >
-                  Save
-                </button>
-                <button
-                  className="rounded-sm bg-surface-raised px-3 py-1.5 text-sm text-danger"
-                  onClick={() => remove.mutate()}
-                >
-                  Delete
-                </button>
+  return (
+    <Page>
+      <PageHeader icon={<Folder />} title="Files" meta={path} />
+
+      <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
+        <Panel className="h-fit overflow-hidden">
+          {entries.isLoading ? (
+            <SkeletonRows rows={5} />
+          ) : (
+            <ul>
+              {path !== "/" ? (
+                <li className="border-b border-edge">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-ink-muted transition-colors hover:bg-sunken"
+                    onClick={() => setPath(parentPath(path))}
+                  >
+                    <CornerLeftUp className="size-4 shrink-0 text-ink-faint" />
+                    Up one level
+                  </button>
+                </li>
+              ) : null}
+
+              {list.map((entry: FileEntryDto) => (
+                <li key={entry.path} className="border-b border-edge last:border-0">
+                  <button
+                    type="button"
+                    className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-left transition-colors ${
+                      selected === entry.path ? "bg-sunken" : "hover:bg-sunken/70"
+                    }`}
+                    onClick={() => {
+                      if (entry.kind === "folder") {
+                        setPath(entry.path);
+                      } else {
+                        setSelected(entry.path);
+                      }
+                    }}
+                    aria-current={selected === entry.path}
+                  >
+                    {entry.kind === "folder" ? (
+                      <Folder className="size-4 shrink-0 text-data-sky" />
+                    ) : (
+                      <File className="size-4 shrink-0 text-ink-faint" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                      {entry.path.split("/").pop()}
+                    </span>
+                    {entry.kind === "file" ? (
+                      <span className="tnum shrink-0 text-xs text-ink-faint">{entry.size}b</span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+
+              {list.length === 0 ? (
+                <EmptyState icon={<Folder />} title="No files here yet" />
+              ) : null}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel className="min-w-0">
+          {selected ? (
+            <>
+              <PanelHeader className="border-b border-edge">
+                <PanelTitle icon={<File />}>
+                  <span className="machine text-xs">{selected}</span>
+                </PanelTitle>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>
+                    <Save />
+                    {save.isPending ? "Saving…" : "Save"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() => remove.mutate()}
+                    disabled={remove.isPending}
+                  >
+                    <Trash2 />
+                    Delete
+                  </Button>
+                </div>
+              </PanelHeader>
+              <div className="p-4">
+                <textarea
+                  className="machine h-[60vh] w-full resize-none rounded-control bg-sunken p-3.5 text-xs leading-relaxed text-ink focus:outline-none focus-visible:outline-2 focus-visible:outline-solid"
+                  value={content}
+                  onChange={(event) => setContent(event.target.value)}
+                  aria-label={`Contents of ${selected}`}
+                  spellCheck={false}
+                />
               </div>
-            </div>
-            <textarea
-              className="h-[60vh] w-full rounded-sm border border-edge bg-surface-sunken p-3 font-mono text-xs"
-              value={content}
-              onChange={(event) => setContent(event.target.value)}
+            </>
+          ) : (
+            <EmptyState
+              icon={<File />}
+              title="Select a file"
+              hint="Its contents open here, editable in place."
             />
-          </div>
-        ) : (
-          <p className="text-sm text-ink-muted">Select a file to view its contents.</p>
-        )}
-      </section>
-    </div>
+          )}
+        </Panel>
+      </div>
+    </Page>
   );
 }
