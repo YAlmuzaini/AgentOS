@@ -254,8 +254,13 @@ a 3px accent mark **or** an icon — never both; they say the same thing twice.
 
 ### Status pills
 6px radius, label type, `-soft` fill with `-line` border and saturated text. An optional leading
-dot, which pulses only for a genuinely running thing. The canonical one is the gate badge:
-amber, reading `approval gate — only you can close this`.
+dot, which pulses only for a genuinely running thing. The canonical one is the gate badge: amber,
+reading `approval gate`.
+
+**A pill is a label, not a sentence.** It holds one or two words and never wraps. When the state
+has more to say than it can show, the long form goes in `title` — the gate badge carries "an agent
+cannot mark this done. Only you can close it." there. A pill that wraps has become a paragraph
+wearing a border, and at narrow column widths it runs edge to edge and stops reading as a badge.
 
 ### Tables
 Live inside their own panel and scroll horizontally within it. Header is a `sunken` band in

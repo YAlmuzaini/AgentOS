@@ -183,9 +183,12 @@ function TaskCard(props: {
     <li>
       <Panel className="p-3 transition-colors hover:border-edge-strong">
         <p className="text-[13px] font-medium text-ink">{task.name}</p>
+        {/* A pill is a label, not a sentence. The full promise — that an agent
+            physically cannot close this — is the title, so the card keeps a
+            clean single-line badge at any column width. */}
         {task.approvalGate ? (
-          <StatusPill tone="gate" className="mt-2">
-            approval gate — only you can close this
+          <StatusPill tone="gate" className="mt-2" title="Approval gate — an agent cannot mark this done. Only you can close it.">
+            approval gate
           </StatusPill>
         ) : null}
         {action ? <div className="mt-3">{action}</div> : null}

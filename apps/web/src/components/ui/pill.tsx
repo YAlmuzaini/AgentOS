@@ -43,6 +43,7 @@ export function StatusPill({
   tone = "neutral",
   dot,
   pulse,
+  title,
   className,
 }: {
   children: ReactNode;
@@ -51,10 +52,12 @@ export function StatusPill({
   dot?: boolean;
   /** Only a genuinely running thing pulses. */
   pulse?: boolean;
+  /** The long form, for a label that has more to say than it can show. */
+  title?: string;
   className?: string;
 }): React.JSX.Element {
   return (
-    <span className={cn(pill({ tone }), className)}>
+    <span title={title} className={cn(pill({ tone }), className)}>
       {dot ? (
         <span
           aria-hidden
