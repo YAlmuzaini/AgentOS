@@ -1,6 +1,8 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { AgentRow } from "../agents/agents.service";
 import { LocalVmRunner } from "./local-runner";
+import type { RunnerStatusDto } from "@agentos/shared";
+import { SettingsService } from "../settings/settings.service";
 import { type Runner, RUNNER_CLOUD } from "./runner.types";
 
 export interface RoutingRequest {
@@ -24,15 +26,30 @@ export class RunnerRouter {
   constructor(
     @Inject(RUNNER_CLOUD) private readonly cloud: Runner,
     private readonly local: LocalVmRunner,
+    private readonly settings: SettingsService,
   ) {}
 
+  /**
+   * What each backend can take right now, for the settings screen.
+   *
+   * The switch is a preference, not a promise: choosing `local` while no worker
+   * is reachable silently bills every run to the cloud. The screen has to be
+   * able to say so.
+   */
+  async status(): Promise<RunnerStatusDto> {
+    const configured = this.local.configured;
+    return {
+      cloud: { configured: true },
+      local: {
+        configured,
+        healthy: configured ? await this.local.healthy() : false,
+        url: this.local.endpointForDisplay(),
+      },
+    };
+  }
+
   async pick(request: RoutingRequest): Promise<Runner> {
-    const preference =
-      request.goalPreference && request.goalPreference !== "auto"
-        ? request.goalPreference
-        : request.agent.runnerPreference !== "inherit"
-          ? request.agent.runnerPreference
-          : (request.goalPreference ?? "auto");
+    const preference = await this.preferenceFor(request);
 
     if (preference === "cloud") {
       return this.cloud;
@@ -49,5 +66,23 @@ export class RunnerRouter {
     }
 
     return (await this.local.healthy()) ? this.local : this.cloud;
+  }
+
+  /**
+   * Precedence, most specific first: an explicit goal preference, then the
+   * agent's, then the project's own setting.
+   *
+   * That last step is what makes the settings screen mean anything. An agent
+   * that inherits used to fall through to a hardcoded `auto`, so every seeded
+   * agent ignored the operator's choice entirely.
+   */
+  private async preferenceFor(request: RoutingRequest): Promise<"cloud" | "local" | "auto"> {
+    if (request.goalPreference && request.goalPreference !== "auto") {
+      return request.goalPreference;
+    }
+    if (request.agent.runnerPreference !== "inherit") {
+      return request.agent.runnerPreference as "cloud" | "local";
+    }
+    return (await this.settings.read(request.agent.projectId)).defaultRunner;
   }
 }

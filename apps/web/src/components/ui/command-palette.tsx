@@ -21,6 +21,8 @@ interface Hit {
   id: string;
   group: string;
   label: string;
+  /** Selects the entity on arrival, so a search result opens what was searched. */
+  search?: { id: string };
   hint?: string;
   badge?: string;
   to: string;
@@ -89,6 +91,7 @@ export function CommandPalette(props: {
         badge: task.status,
         hint: task.approvalGate ? "approval gate" : undefined,
         to: "/tasks",
+        search: { id: task.id },
       });
     }
     for (const agent of agents.data ?? []) {
@@ -98,6 +101,7 @@ export function CommandPalette(props: {
         label: agent.title,
         hint: agent.name,
         to: "/agents",
+        search: { id: agent.id },
       });
     }
     for (const goal of goals.data ?? []) {
@@ -107,6 +111,7 @@ export function CommandPalette(props: {
         label: goal.title,
         badge: goal.dodApproved ? goal.status : "awaiting approval",
         to: "/goals",
+        search: { id: goal.id },
       });
     }
     for (const template of templates.data ?? []) {
@@ -125,6 +130,7 @@ export function CommandPalette(props: {
         label: session.id.slice(0, 8),
         badge: session.status,
         to: "/sessions",
+        search: { id: session.id },
       });
     }
 
@@ -153,7 +159,9 @@ export function CommandPalette(props: {
 
   const go = (hit: Hit): void => {
     props.onOpenChange(false);
-    void navigate({ to: hit.to });
+    // The id goes with it: arriving at the list and making the operator
+    // find the row again is not what a search result should do.
+    void navigate({ to: hit.to, search: hit.search ?? {} } as never);
   };
 
   return (

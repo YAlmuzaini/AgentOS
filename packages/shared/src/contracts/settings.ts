@@ -1,6 +1,16 @@
 import { z } from "zod";
 
 /**
+ * Which backend runs a session when the agent does not name one.
+ *
+ * `cloud` bills the Anthropic API per token. `local` runs Claude Code on a
+ * machine the operator owns, against a subscription, at a flat rate. `auto`
+ * prefers local when it is reachable and falls back to cloud.
+ */
+export const DEFAULT_RUNNERS = ["auto", "cloud", "local"] as const;
+export type DefaultRunner = (typeof DEFAULT_RUNNERS)[number];
+
+/**
  * Operator-tunable policy (SPEC §18 settings screen).
  *
  * The bounds are the interesting part: a timeout of five minutes would reap
@@ -23,6 +33,8 @@ export const updateSettingsSchema = z.object({
     }),
   orphanSweepEnabled: z.boolean(),
   orphanSweepIntervalMinutes: z.number().int().min(5).max(1440),
+  /** The money switch — see `DEFAULT_RUNNERS`. */
+  defaultRunner: z.enum(DEFAULT_RUNNERS),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
@@ -31,7 +43,23 @@ export interface SettingsDto {
   parkedSessionTimeoutMinutes: number;
   orphanSweepEnabled: boolean;
   orphanSweepIntervalMinutes: number;
+  defaultRunner: DefaultRunner;
   updatedAt: string | null;
+}
+
+/**
+ * Whether each backend can actually take a session right now.
+ *
+ * The switch above is a preference, not a promise: the local worker is only
+ * reachable if `LOCAL_RUNNER_URL` points at a running process, and it refuses
+ * sessions whose agent needs a restricted network because it cannot enforce
+ * egress. A settings screen that offered the choice without saying this would
+ * let an operator select `local`, see it accepted, and still be billed for
+ * every run on the cloud.
+ */
+export interface RunnerStatusDto {
+  cloud: { configured: boolean };
+  local: { configured: boolean; healthy: boolean; url: string | null };
 }
 
 /** Applied to a project that has never saved settings. */
@@ -41,4 +69,7 @@ export const DEFAULT_SETTINGS: Omit<SettingsDto, "projectId" | "updatedAt"> = {
   parkedSessionTimeoutMinutes: 1440,
   orphanSweepEnabled: true,
   orphanSweepIntervalMinutes: 15,
+  // Prefers the operator's own machine when it is there, because that is the
+  // cheap one; falls back to cloud rather than failing the run.
+  defaultRunner: "auto",
 };

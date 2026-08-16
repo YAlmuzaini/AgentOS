@@ -11,6 +11,8 @@ import {
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, asc, desc, eq, gt, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
+import { toDto } from "./session-dto";
+import { pendingVaultQuery } from "./pending-vaults";
 
 export type SessionRow = typeof sessions.$inferSelect;
 
@@ -182,43 +184,13 @@ export class SessionsService {
     await this.db.update(sessions).set({ runtimeVaultIds: [] }).where(eq(sessions.id, id));
   }
 
-  /**
-   * Finished sessions whose credential holders were never cleaned up.
-   *
-   * The row keeps its vault ids until a delete succeeds, so this list *is* the
-   * retry queue — no separate bookkeeping, and nothing is forgotten because a
-   * process died between the failure and the retry.
-   */
-  async sessionsWithPendingVaults(
+  /** Finished sessions whose credential holders were never cleaned up. */
+  sessionsWithPendingVaults(
     staleMinutes = 60,
     limit = 500,
     after: Date | null = null,
   ): Promise<SessionRow[]> {
-    const cutoff = new Date(Date.now() - staleMinutes * 60_000);
-    // Selected in SQL rather than by filtering a page of recent rows. Taking
-    // the newest 200 and filtering meant a stranded vault fell off the list as
-    // soon as 200 newer sessions existed — permanently, and silently. Oldest
-    // first for the same reason: the page has to drain the backlog, not the
-    // fresh end of it.
-    return this.db
-      .select()
-      .from(sessions)
-      .where(
-        and(
-          sql`jsonb_array_length(${sessions.runtimeVaultIds}) > 0`,
-          // The cursor is what lets the caller walk past rows whose deletion
-          // keeps failing, instead of retrying the same page forever.
-          after ? gt(sessions.startedAt, after) : undefined,
-          or(
-            inArray(sessions.status, [...TERMINAL_SESSION_STATUSES]),
-            // A session still `starting` long after it began is a crash
-            // between minting the vault and attaching the runtime.
-            and(eq(sessions.status, "starting"), lt(sessions.startedAt, cutoff)),
-          ),
-        ),
-      )
-      .orderBy(asc(sessions.startedAt))
-      .limit(limit);
+    return pendingVaultQuery(this.db, staleMinutes, limit, after);
   }
 
   async attachRuntime(
@@ -304,24 +276,4 @@ export class SessionsService {
     }
     return row;
   }
-}
-
-export function toDto(row: SessionRow): SessionDto {
-  return {
-    id: row.id,
-    projectId: row.projectId,
-    agentId: row.agentId,
-    taskId: row.taskId,
-    goalId: row.goalId,
-    runner: row.runner,
-    status: row.status,
-    runtimeHandle: row.runtimeHandle,
-    traceUrl: row.traceUrl,
-    toolCallLog: row.toolCallLog,
-    commitShas: row.commitShas,
-    costUsd: row.costUsd != null ? Number(row.costUsd) : null,
-    error: row.error,
-    startedAt: row.startedAt.toISOString(),
-    endedAt: row.endedAt?.toISOString() ?? null,
-  };
 }

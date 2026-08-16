@@ -18,9 +18,11 @@ import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
 import { Dot, StatusPill } from "../components/ui/pill";
 import { StatCard, type MeterSegment } from "../components/ui/stat";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
-import { useActiveProject } from "../hooks/use-project";
+import { useProjectGate } from "../hooks/use-project";
 import { relativeTime } from "../lib/time";
-import { NoProject } from "./tasks";
+import { NoProject, ProjectPending } from "./project-states";
+import { BoardMeter, Figure, truncate } from "./dashboard-figures";
+import { ActivityFeed } from "./activity-feed";
 
 /**
  * The operator's opening screen.
@@ -35,7 +37,7 @@ import { NoProject } from "./tasks";
  * one has the facts we actually hold.
  */
 export function DashboardPage(): React.JSX.Element {
-  const { project } = useActiveProject();
+  const { project, pending, absent } = useProjectGate();
   const projectId = project?.id;
 
   const tasks = useQuery({
@@ -72,8 +74,11 @@ export function DashboardPage(): React.JSX.Element {
     refetchInterval: 10_000,
   });
 
-  if (!project) {
+  if (absent) {
     return <NoProject />;
+  }
+  if (pending || !project) {
+    return <ProjectPending />;
   }
 
   const taskList = tasks.data ?? [];
@@ -81,8 +86,18 @@ export function DashboardPage(): React.JSX.Element {
   const goalList = goals.data ?? [];
 
   const running = sessionList.filter((s) => s.status === "running").length;
-  const failed = sessionList.filter((s) => s.status === "failed").length;
-  const finished = sessionList.filter((s) => s.status === "destroyed").length;
+  // "Idle" has to mean no container is being held, not merely none is in the
+  // `running` state. `starting`, `committing` and `waiting-inbox` all hold one
+  // — the last one deliberately and indefinitely — and calling that idle told
+  // the operator nothing was costing them anything while something was.
+  const holdingContainer = sessionList.filter((s) => HOLDS_CONTAINER.has(s.status)).length;
+  // A clean finish is `destroyed` *and* no error. The control plane
+  // deliberately leaves the status as `destroyed` while appending
+  // "container was not destroyed: …" when teardown fails — which is precisely
+  // the session still costing money. Counting it as finished put the one
+  // number that should have raised the alarm in the reassuring column.
+  const finished = sessionList.filter((s) => s.status === "destroyed" && !s.error).length;
+  const failed = sessionList.filter((s) => s.status === "failed" || (s.status === "destroyed" && s.error)).length;
   const settled = finished + failed;
 
   const openQuestions = (inbox.data ?? []).filter((m) => m.status === "open").length;
@@ -93,8 +108,9 @@ export function DashboardPage(): React.JSX.Element {
   const spend = sessionList.reduce((sum, s) => sum + (Number(s.costUsd) || 0), 0);
   const activeGoals = goalList.filter((g) => g.status === "active");
   const goalSpend = goalList.reduce((sum, g) => sum + g.spendUsd, 0);
-  const cappedGoals = goalList.filter((g) => g.spendCapUsd !== null);
-  const uncapped = goalList.length - cappedGoals.length;
+  // Only a goal that can still spend is worth warning about. Counting drafts,
+  // paused, completed and stopped goals meant a finished one nagged forever.
+  const uncapped = activeGoals.filter((g) => g.spendCapUsd === null).length;
 
   const boardMeter: MeterSegment[] = TASK_STATUSES.map((status) => ({
     label: STATUS_LABEL[status],
@@ -109,9 +125,11 @@ export function DashboardPage(): React.JSX.Element {
         title="Overview"
         meta={project.name}
         actions={
-          running > 0 ? (
-            <StatusPill tone="live" dot pulse>
-              {running} running
+          holdingContainer > 0 ? (
+            <StatusPill tone="live" dot pulse={running > 0}>
+              {running > 0
+                ? `${running} running`
+                : `${holdingContainer} holding a container`}
             </StatusPill>
           ) : (
             <StatusPill tone="neutral">idle</StatusPill>
@@ -166,7 +184,7 @@ export function DashboardPage(): React.JSX.Element {
           footer={
             uncapped > 0 ? (
               <span className="text-gate">
-                {uncapped} goal{uncapped === 1 ? "" : "s"} running without a spend cap
+                {uncapped} active goal{uncapped === 1 ? "" : "s"} with no spend cap
               </span>
             ) : (
               `$${goalSpend.toFixed(2)} of it against goals`
@@ -226,62 +244,8 @@ export function DashboardPage(): React.JSX.Element {
         </Panel>
       </div>
 
-      {/* The reference's Activity Log, carrying what actually happened here. */}
-      <TableCard>
-        <PanelHeader className="border-b border-edge">
-          <PanelTitle icon={<History />}>Recent activity</PanelTitle>
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/activity">
-              See more
-              <ArrowRight />
-            </Link>
-          </Button>
-        </PanelHeader>
+      <ActivityFeed entries={activity.data ?? []} loading={activity.isLoading} />
 
-        {activity.isLoading ? (
-          <SkeletonRows rows={5} />
-        ) : (activity.data ?? []).length === 0 ? (
-          <EmptyState
-            icon={<Inbox />}
-            title="Nothing has happened yet"
-            hint="Runs, questions and goal progress land here."
-          />
-        ) : (
-          <Table>
-            <THead>
-              <tr>
-                <TH className="w-28">When</TH>
-                <TH className="w-24">Kind</TH>
-                <TH>What</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {[...(activity.data ?? [])]
-                .sort((a, b) => b.at.localeCompare(a.at))
-                .slice(0, 8)
-                .map((entry) => (
-                  <TR key={entry.id}>
-                    <TD className="whitespace-nowrap text-ink-muted">
-                      <span title={entry.at}>{relativeTime(entry.at)}</span>
-                    </TD>
-                    <TD>
-                      <span className="flex items-center gap-1.5 text-ink-muted">
-                        <Dot />
-                        {KIND_LABEL[entry.kind]}
-                      </span>
-                    </TD>
-                    <TD>
-                      <span className="font-medium text-ink">{entry.title}</span>
-                      {entry.detail ? (
-                        <span className="ml-2 text-ink-muted">{truncate(entry.detail, 90)}</span>
-                      ) : null}
-                    </TD>
-                  </TR>
-                ))}
-            </tbody>
-          </Table>
-        )}
-      </TableCard>
     </Page>
   );
 }
@@ -303,72 +267,13 @@ const STATUS_ACCENT: Record<
   done: "emerald",
 };
 
-const KIND_LABEL: Record<ActivityEntryDto["kind"], string> = {
-  "task-activity": "task",
-  session: "session",
-  inbox: "inbox",
-  goal: "goal",
-};
-
 /** The board meter labels every column, including the empty ones. */
-function BoardMeter(props: { segments: MeterSegment[] }): React.JSX.Element {
-  const total = props.segments.reduce((sum, s) => sum + s.value, 0);
-  const fill: Record<string, string> = {
-    violet: "bg-data-violet",
-    sky: "bg-data-sky",
-    amber: "bg-data-amber",
-    emerald: "bg-data-emerald",
-  };
 
-  return (
-    <div className="space-y-2">
-      <div className="flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-sunken">
-        {total === 0
-          ? null
-          : props.segments
-              .filter((s) => s.value > 0)
-              .map((s) => (
-                <div
-                  key={s.label}
-                  className={`h-full rounded-full ${fill[s.accent]}`}
-                  style={{ width: `${Math.max((s.value / total) * 100, 2)}%` }}
-                />
-              ))}
-      </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-1">
-        {props.segments.map((s) => (
-          <span key={s.label} className="flex items-center gap-1.5 text-xs text-ink-muted">
-            <span aria-hidden className={`size-1.5 rounded-full ${fill[s.accent]}`} />
-            {s.label}
-            <span className="tnum font-medium text-ink">{s.value}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Figure(props: {
-  icon: React.ReactNode;
-  value: number;
-  label: string;
-  to: string;
-}): React.JSX.Element {
-  return (
-    <Link
-      to={props.to}
-      className="rounded-control p-2 transition-colors hover:bg-sunken [&_svg]:size-3.5"
-    >
-      <dt className="flex items-center gap-1.5 text-xs text-ink-faint">
-        {props.icon}
-        {props.label}
-      </dt>
-      <dd className="tnum mt-1 text-[22px] leading-none font-semibold text-ink">{props.value}</dd>
-    </Link>
-  );
-}
-
-function truncate(text: string, max: number): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
-}
+/**
+ * Session states that still hold a runtime container.
+ *
+ * `waiting-inbox` is the one worth naming: it holds its container on purpose,
+ * for as long as the operator takes to answer, and that is exactly the case
+ * where "idle" would be the most expensive word on the screen.
+ */
+const HOLDS_CONTAINER = new Set(["starting", "running", "committing", "waiting-inbox"]);

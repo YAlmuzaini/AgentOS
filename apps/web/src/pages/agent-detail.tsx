@@ -17,6 +17,7 @@ import { api } from "../api";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { Dot, StatusPill } from "../components/ui/pill";
+import { describeRunner, GrantRow, Section } from "./agent-detail-parts";
 
 /**
  * Everything the control plane knows about one agent, on one screen.
@@ -57,6 +58,12 @@ export function AgentDetail(props: {
     queryKey: ["sessions"],
     queryFn: api.sessions,
     refetchInterval: 5000,
+  });
+  // An agent that inherits is showing the project's choice, not its own, and
+  // "runs inherit" told the operator nothing about where their money goes.
+  const settings = useQuery({
+    queryKey: ["settings", props.projectId],
+    queryFn: () => api.settings(props.projectId),
   });
 
   if (!agent.data) {
@@ -103,7 +110,7 @@ export function AgentDetail(props: {
                 <span aria-hidden className="text-edge-strong">
                   ·
                 </span>
-                <span>runs {data.runnerPreference}</span>
+                <span>{describeRunner(data.runnerPreference, settings.data?.defaultRunner)}</span>
               </div>
             </div>
           </div>
@@ -269,51 +276,3 @@ export function AgentDetail(props: {
     </div>
   );
 }
-
-function Section(props: {
-  title: string;
-  icon: ReactNode;
-  children: ReactNode;
-}): React.JSX.Element {
-  return (
-    <div className="space-y-2 border-b border-edge p-4 last:border-0">
-      <PanelTitle icon={props.icon}>{props.title}</PanelTitle>
-      {props.children}
-    </div>
-  );
-}
-
-/** One wall. The empty state says what the absence means, not that it is empty. */
-function GrantRow(props: {
-  icon: ReactNode;
-  label: string;
-  items: ReactNode[];
-  empty: string;
-  last?: boolean;
-}): React.JSX.Element {
-  return (
-    <div
-      className={`flex flex-col gap-2 px-4 py-3 sm:flex-row sm:gap-4 ${
-        props.last ? "" : "border-b border-edge"
-      }`}
-    >
-      <div className="flex w-40 shrink-0 items-center gap-2 text-[13px] text-ink-muted [&_svg]:size-3.5 [&_svg]:text-ink-faint">
-        {props.icon}
-        {props.label}
-      </div>
-      <div className="min-w-0 flex-1">
-        {props.items.length === 0 ? (
-          <p className="text-[13px] text-ink-faint">{props.empty}</p>
-        ) : (
-          <ul className="space-y-1.5 text-[13px] text-ink">
-            {props.items.map((item, index) => (
-              <li key={index}>{item}</li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export type { AgentDto };

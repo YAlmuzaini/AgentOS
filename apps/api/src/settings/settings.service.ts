@@ -40,6 +40,7 @@ export class SettingsService {
       parkedSessionTimeoutMinutes: row.parkedSessionTimeoutMinutes,
       orphanSweepEnabled: row.orphanSweepEnabled,
       orphanSweepIntervalMinutes: row.orphanSweepIntervalMinutes,
+      defaultRunner: row.defaultRunner as SettingsDto["defaultRunner"],
       updatedAt: row.updatedAt.toISOString(),
     };
   }
@@ -98,7 +99,8 @@ export class SettingsService {
     // aggressively they are reclaimed.
     this.logger.log(
       `settings for ${projectId}: parked timeout ${input.parkedSessionTimeoutMinutes}m, ` +
-        `sweep ${input.orphanSweepEnabled ? `every ${input.orphanSweepIntervalMinutes}m` : "off"}`,
+        `sweep ${input.orphanSweepEnabled ? `every ${input.orphanSweepIntervalMinutes}m` : "off"}, ` +
+        `default runner ${input.defaultRunner}`,
     );
 
     return {
@@ -106,6 +108,7 @@ export class SettingsService {
       parkedSessionTimeoutMinutes: row!.parkedSessionTimeoutMinutes,
       orphanSweepEnabled: row!.orphanSweepEnabled,
       orphanSweepIntervalMinutes: row!.orphanSweepIntervalMinutes,
+      defaultRunner: row!.defaultRunner as SettingsDto["defaultRunner"],
       updatedAt: row!.updatedAt.toISOString(),
     };
   }

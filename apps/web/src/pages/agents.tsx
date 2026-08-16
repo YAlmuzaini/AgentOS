@@ -1,14 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { Bot } from "lucide-react";
+import { useSearch } from "@tanstack/react-router";
+import { useUrlSelection } from "../hooks/use-url-selection";
 import { useState } from "react";
 import { api } from "../api";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
-import { useActiveProject } from "../hooks/use-project";
+import { useProjectGate } from "../hooks/use-project";
 import { AgentDetail } from "./agent-detail";
-import { NoProject } from "./tasks";
+import { NoProject, ProjectPending } from "./project-states";
 
 /**
  * Agents are the thing this product is about, so this is a list beside a
@@ -16,8 +18,10 @@ import { NoProject } from "./tasks";
  * where the agent's grants — the whole least-privilege story — are readable.
  */
 export function AgentsPage(): React.JSX.Element {
-  const { project } = useActiveProject();
-  const [selected, setSelected] = useState<string | null>(null);
+  const { project, pending, absent } = useProjectGate();
+  // The URL is the selection; a click overrides it until the URL moves again.
+  const { id: idFromUrl } = useSearch({ strict: false }) as { id?: string };
+  const [selected, setSelected] = useUrlSelection(idFromUrl);
 
   const agents = useQuery({
     queryKey: ["agents", project?.id],
@@ -25,8 +29,11 @@ export function AgentsPage(): React.JSX.Element {
     enabled: Boolean(project),
   });
 
-  if (!project) {
+  if (absent) {
     return <NoProject />;
+  }
+  if (pending || !project) {
+    return <ProjectPending />;
   }
 
   const list = agents.data ?? [];

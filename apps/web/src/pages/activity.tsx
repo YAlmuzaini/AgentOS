@@ -5,8 +5,8 @@ import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
-import { useActiveProject } from "../hooks/use-project";
-import { NoProject } from "./tasks";
+import { useProjectGate } from "../hooks/use-project";
+import { NoProject, ProjectPending } from "./project-states";
 
 const KIND_LABEL: Record<ActivityEntryDto["kind"], string> = {
   "task-activity": "task",
@@ -30,7 +30,7 @@ const KIND_ACCENT: Record<ActivityEntryDto["kind"], string> = {
 };
 
 export function ActivityPage(): React.JSX.Element {
-  const { project } = useActiveProject();
+  const { project, pending, absent } = useProjectGate();
   const projectId = project?.id;
 
   const activity = useQuery({
@@ -40,8 +40,11 @@ export function ActivityPage(): React.JSX.Element {
     refetchInterval: 5000,
   });
 
-  if (!project) {
+  if (absent) {
     return <NoProject />;
+  }
+  if (pending || !project) {
+    return <ProjectPending />;
   }
 
   const entries = [...(activity.data ?? [])].sort((a, b) => b.at.localeCompare(a.at));

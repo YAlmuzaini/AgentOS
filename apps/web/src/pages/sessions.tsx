@@ -1,8 +1,11 @@
 import type { SessionDto, ToolCallLogEntry } from "@agentos/shared";
 import { useQuery } from "@tanstack/react-query";
+import { useSearch } from "@tanstack/react-router";
+import { useUrlSelection } from "../hooks/use-url-selection";
+import { useLiveSession } from "./use-live-session";
 import { ExternalLink, Terminal } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, BASE, getToken } from "../api";
+import { api } from "../api";
 import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
@@ -28,13 +31,27 @@ function toneFor(status: SessionDto["status"] | undefined) {
   }
 }
 
+/**
+ * Whether this session left something behind.
+ *
+ * A destroy that failed keeps the status `destroyed` and records the reason on
+ * the row, because the run really did end — but the container did not, and it
+ * bills until someone reclaims it. Reading the status alone made the most
+ * expensive outcome in the system look like the ordinary one.
+ */
+function leftContainerBehind(session: Pick<SessionDto, "status" | "error">): boolean {
+  return session.status === "destroyed" && Boolean(session.error);
+}
+
 /** True while the session is still doing something worth watching. */
 function isInFlight(status: SessionDto["status"] | undefined): boolean {
   return status === "starting" || status === "running" || status === "committing";
 }
 
 export function SessionsPage(): React.JSX.Element {
-  const [selected, setSelected] = useState<string | null>(null);
+  // The URL is the selection; a click overrides it until the URL moves again.
+  const { id: idFromUrl } = useSearch({ strict: false }) as { id?: string };
+  const [selected, setSelected] = useUrlSelection(idFromUrl);
   const sessions = useQuery({
     queryKey: ["sessions"],
     queryFn: api.sessions,
@@ -91,7 +108,7 @@ export function SessionsPage(): React.JSX.Element {
                     aria-current={selected === session.id}
                   >
                     <Dot
-                      tone={toneFor(session.status)}
+                      tone={leftContainerBehind(session) ? "danger" : toneFor(session.status)}
                       pulse={isInFlight(session.status)}
                     />
                     <span className="machine flex-1 truncate text-xs text-ink">
@@ -105,7 +122,16 @@ export function SessionsPage(): React.JSX.Element {
                         ${session.costUsd.toFixed(2)}
                       </span>
                     ) : null}
-                    <span className="shrink-0 text-xs text-ink-muted">{session.status}</span>
+                    <span
+                      className={
+                        leftContainerBehind(session)
+                          ? "shrink-0 text-xs text-danger"
+                          : "shrink-0 text-xs text-ink-muted"
+                      }
+                      title={leftContainerBehind(session) ? (session.error ?? undefined) : undefined}
+                    >
+                      {leftContainerBehind(session) ? "not released" : session.status}
+                    </span>
                   </button>
                 </li>
               ))}
@@ -194,10 +220,6 @@ export function SessionsPage(): React.JSX.Element {
   );
 }
 
-interface LiveFrame {
-  status: SessionDto["status"];
-  entries: ToolCallLogEntry[];
-}
 
 /**
  * Streams the live session viewer while a session is running.
@@ -208,78 +230,3 @@ interface LiveFrame {
  * component keeps its 2s poll, which is what makes this safe behind a proxy
  * that buffers server-sent events.
  */
-function useLiveSession(
-  sessionId: string | null,
-  status: SessionDto["status"] | undefined,
-): { status: SessionDto["status"] | null; entries: ToolCallLogEntry[] | null; connected: boolean } {
-  const [frame, setFrame] = useState<LiveFrame | null>(null);
-  const [connected, setConnected] = useState(false);
-  const shouldStream = isInFlight(status) || status === "waiting-inbox";
-
-  useEffect(() => {
-    setFrame(null);
-    setConnected(false);
-    if (!sessionId || !shouldStream) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    void (async () => {
-      try {
-        const response = await fetch(`${BASE}/sessions/${sessionId}/live`, {
-          headers: {
-            authorization: `Bearer ${getToken() ?? ""}`,
-            accept: "text/event-stream",
-          },
-          signal: controller.signal,
-        });
-        if (!response.ok || !response.body) {
-          return;
-        }
-        setConnected(true);
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-          buffer += decoder.decode(value, { stream: true });
-
-          let boundary = buffer.indexOf("\n\n");
-          while (boundary !== -1) {
-            const payload = buffer
-              .slice(0, boundary)
-              .split("\n")
-              .filter((line) => line.startsWith("data:"))
-              .map((line) => line.slice(5).trim())
-              .join("");
-            buffer = buffer.slice(boundary + 2);
-            boundary = buffer.indexOf("\n\n");
-
-            if (payload) {
-              try {
-                setFrame(JSON.parse(payload) as LiveFrame);
-              } catch {
-                // A malformed frame is not worth tearing the stream down for;
-                // the next one carries the full state anyway.
-              }
-            }
-          }
-        }
-      } catch {
-        // Aborted or the stream broke — the poll below keeps the view current.
-      } finally {
-        setConnected(false);
-      }
-    })();
-
-    return () => controller.abort();
-  }, [sessionId, shouldStream]);
-
-  return { status: frame?.status ?? null, entries: frame?.entries ?? null, connected };
-}

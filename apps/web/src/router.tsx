@@ -30,6 +30,19 @@ const indexRoute = createRoute({
   component: DashboardPage,
 });
 
+
+/**
+ * `?id=` — how the command palette opens the thing you actually searched for.
+ *
+ * Validated rather than trusted: the router parses search values as JSON, so a
+ * hand-typed id can arrive as a number, an object, or anything else. Only a
+ * plain non-empty string is accepted, and everything else degrades to the bare
+ * list rather than crashing the page.
+ */
+function idSearch(search: Record<string, unknown>): { id?: string } {
+  return typeof search.id === "string" && search.id.length > 0 ? { id: search.id } : {};
+}
+
 const tasksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tasks",
@@ -40,22 +53,26 @@ const tasksRoute = createRoute({
   // an omitted flag is the closed state, and the bare /tasks stays clean.
   // The router parses search values as JSON, so a hand-typed `?new=1` arrives
   // as the number 1 and `?new=true` as a boolean. Accept the lot.
-  validateSearch: (search: Record<string, unknown>): { new?: true } =>
-    search.new === true || search.new === "true" || search.new === "1" || search.new === 1
-      ? { new: true }
-      : {},
+  validateSearch: (search: Record<string, unknown>): { new?: true; id?: string } => ({
+    ...(search.new === true || search.new === "true" || search.new === "1" || search.new === 1
+      ? { new: true as const }
+      : {}),
+    ...idSearch(search),
+  }),
 });
 
 const agentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/agents",
   component: AgentsPage,
+  validateSearch: idSearch,
 });
 
 const sessionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sessions",
   component: SessionsPage,
+  validateSearch: idSearch,
 });
 
 const inboxRoute = createRoute({
@@ -68,6 +85,7 @@ const goalsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/goals",
   component: GoalsPage,
+  validateSearch: idSearch,
 });
 
 const activityRoute = createRoute({

@@ -1,3 +1,4 @@
+import type { EnvBindingDto } from "@agentos/shared";
 import { SECRET_PURPOSES, type CreateSecretRefInput, type SecretRefDto } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
@@ -12,15 +13,24 @@ import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
-import { useActiveProject } from "../hooks/use-project";
-import { NoProject } from "./tasks";
+import { useProjectGate } from "../hooks/use-project";
+import { NoProject, ProjectPending } from "./project-states";
 
 export function SecretsPage(): React.JSX.Element {
-  const { project } = useActiveProject();
+  const { project, pending, absent } = useProjectGate();
   const queryClient = useQueryClient();
   const projectId = project?.id;
   const [creating, setCreating] = useState(false);
   const confirm = useConfirm();
+  // Deleting a secret does not merely break the things using it: the
+  // environment-variable bindings that reference it are removed by a cascading
+  // foreign key, taking their variable names and host restrictions with them.
+  // The confirmation has to name them, because nothing else will.
+  const bindings = useQuery({
+    queryKey: ["env-bindings", projectId],
+    queryFn: () => api.envBindings(projectId!),
+    enabled: Boolean(projectId),
+  });
 
   const secrets = useQuery({
     queryKey: ["secrets", projectId],
@@ -45,8 +55,11 @@ export function SecretsPage(): React.JSX.Element {
   const [providerRef, setProviderRef] = useState("");
   const [purpose, setPurpose] = useState<CreateSecretRefInput["purpose"]>("env");
 
-  if (!project) {
+  if (absent) {
     return <NoProject />;
+  }
+  if (pending || !project) {
+    return <ProjectPending />;
   }
 
   const list = secrets.data ?? [];
@@ -85,8 +98,8 @@ export function SecretsPage(): React.JSX.Element {
         pending={create.isPending}
         disabled={!name || !providerRef}
         error={create.isError ? "Could not create it." : null}
-        onSubmit={() => {
-          create.mutate({ name, providerRef, purpose });
+        onSubmit={async () => {
+          await create.mutateAsync({ name, providerRef, purpose });
           setName("");
           setProviderRef("");
         }}
@@ -185,7 +198,20 @@ export function SecretsPage(): React.JSX.Element {
                           body: (
                             <>
                               Any agent, repo, or MCP connection using this credential will stop
-                              authenticating. This cannot be undone.
+                              authenticating.
+                              {boundKeys(bindings.data, secret.id).length > 0 ? (
+                                <>
+                                  {" "}
+                                  It also <strong>deletes</strong> the environment variable
+                                  {boundKeys(bindings.data, secret.id).length === 1 ? " " : "s "}
+                                  <span className="machine">
+                                    {boundKeys(bindings.data, secret.id).join(", ")}
+                                  </span>{" "}
+                                  outright — the name and its host restrictions go too, not just the
+                                  value.
+                                </>
+                              ) : null}{" "}
+                              This cannot be undone.
                             </>
                           ),
                           confirmLabel: "Delete secret",
@@ -204,4 +230,9 @@ export function SecretsPage(): React.JSX.Element {
       )}
     </Page>
   );
+}
+
+/** The environment variables a cascading delete would take with the secret. */
+function boundKeys(bindings: EnvBindingDto[] | undefined, secretId: string): string[] {
+  return (bindings ?? []).filter((binding) => binding.secretId === secretId).map((b) => b.key);
 }

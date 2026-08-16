@@ -11,11 +11,11 @@ import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
-import { useActiveProject } from "../hooks/use-project";
-import { NoProject } from "./tasks";
+import { useProjectGate } from "../hooks/use-project";
+import { NoProject, ProjectPending } from "./project-states";
 
 export function SkillsPage(): React.JSX.Element {
-  const { project } = useActiveProject();
+  const { project, pending, absent } = useProjectGate();
   const queryClient = useQueryClient();
   const projectId = project?.id;
   const [creating, setCreating] = useState(false);
@@ -40,8 +40,11 @@ export function SkillsPage(): React.JSX.Element {
   const [body, setBody] = useState("");
   const [filePath, setFilePath] = useState("");
 
-  if (!project) {
+  if (absent) {
     return <NoProject />;
+  }
+  if (pending || !project) {
+    return <ProjectPending />;
   }
 
   const list = skills.data ?? [];
@@ -69,8 +72,8 @@ export function SkillsPage(): React.JSX.Element {
         pending={create.isPending}
         disabled={!name || !slug}
         error={create.isError ? "Could not create it." : null}
-        onSubmit={() => {
-          create.mutate({
+        onSubmit={async () => {
+          await create.mutateAsync({
             name,
             slug,
             kind,

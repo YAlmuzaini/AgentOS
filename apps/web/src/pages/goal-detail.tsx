@@ -4,6 +4,8 @@ import { Check, Pause, Play, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { useConfirm } from "../components/ui/confirm";
+import { GoalControls, Rail } from "./goal-detail-parts";
 import { InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Input } from "../components/ui/form";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
@@ -17,6 +19,7 @@ export function GoalDetail(props: {
   goalId: string;
   onChanged: () => void;
 }): React.JSX.Element {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const goal = useQuery({
     queryKey: ["goal", props.projectId, props.goalId],
@@ -143,7 +146,23 @@ export function GoalDetail(props: {
             <Button
               variant="solid"
               disabled={draft.filter((item) => item.text.trim()).length === 0 || approve.isPending}
-              onClick={() => approve.mutate(draft.filter((item) => item.text.trim()))}
+              onClick={() =>
+                confirm({
+                  kind: "spend",
+                  title: `Approve and start “${data.title}”?`,
+                  body: (
+                    <>
+                      This starts the goal loop: it dispatches specialists one after another until
+                      the checklist is satisfied or a rail stops it.{" "}
+                      {data.spendCapUsd === null
+                        ? "This goal has no spend cap, so the only limits are its time and stuck rails."
+                        : `It will stop at $${data.spendCapUsd.toFixed(2)}.`}
+                    </>
+                  ),
+                  confirmLabel: "Approve and start",
+                  onConfirm: () => approve.mutate(draft.filter((item) => item.text.trim())),
+                })
+              }
             >
               <Check />
               {approve.isPending ? "Approving…" : "Approve and start"}
@@ -242,45 +261,6 @@ export function GoalDetail(props: {
           ) : null}
         </>
       )}
-    </div>
-  );
-}
-
-function Rail(props: { label: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div>
-      <dt className="text-ink-faint">{props.label}</dt>
-      <dd className="tnum mt-0.5 font-medium text-ink">{props.children}</dd>
-    </div>
-  );
-}
-
-function GoalControls(props: {
-  data: { status: string };
-  pause: { mutate: () => void; isPending: boolean };
-  resume: { mutate: () => void; isPending: boolean };
-}): React.JSX.Element {
-  return (
-    <div className="flex items-center gap-2">
-      {props.data.status === "active" ? (
-        <StatusPill tone="live" dot pulse>
-          active
-        </StatusPill>
-      ) : (
-        <StatusPill>{props.data.status}</StatusPill>
-      )}
-      {props.data.status === "active" ? (
-        <Button size="sm" onClick={() => props.pause.mutate()} disabled={props.pause.isPending}>
-          <Pause />
-          Pause
-        </Button>
-      ) : null}
-      {props.data.status === "paused" ? (
-        <Button size="sm" onClick={() => props.resume.mutate()} disabled={props.resume.isPending}>
-          <Play />
-          Resume
-        </Button>
-      ) : null}
     </div>
   );
 }

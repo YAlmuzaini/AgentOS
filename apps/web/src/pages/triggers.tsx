@@ -12,15 +12,18 @@ import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { Dot, StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
-import { useActiveProject } from "../hooks/use-project";
-import { NoProject } from "./tasks";
+import { useProjectGate } from "../hooks/use-project";
+import { FireRow, SigningKeyPanel } from "./trigger-panels";
+import { NoProject, ProjectPending } from "./project-states";
 
 export function TriggersPage(): React.JSX.Element {
-  const { project } = useActiveProject();
+  const { project, pending, absent } = useProjectGate();
   const queryClient = useQueryClient();
   const projectId = project?.id;
   const [selected, setSelected] = useState<string | null>(null);
-  const [revealed, setRevealed] = useState<TriggerSecretDto | null>(null);
+  // A list, because installing the examples mints several keys at once and the
+  // server shows each exactly once. Holding a single one threw the rest away.
+  const [revealed, setRevealed] = useState<TriggerSecretDto[]>([]);
   const [creating, setCreating] = useState(false);
   const confirm = useConfirm();
 
@@ -42,7 +45,7 @@ export function TriggersPage(): React.JSX.Element {
     onSuccess: (trigger) => {
       setCreating(false);
       void queryClient.invalidateQueries({ queryKey: ["triggers", projectId] });
-      setRevealed(trigger);
+      setRevealed([trigger]);
     },
   });
 
@@ -50,13 +53,18 @@ export function TriggersPage(): React.JSX.Element {
     mutationFn: (id: string) => api.rotateTriggerSecret(projectId!, id),
     onSuccess: (trigger) => {
       void queryClient.invalidateQueries({ queryKey: ["triggers", projectId] });
-      setRevealed(trigger);
+      setRevealed([trigger]);
     },
   });
 
   const installExamples = useMutation({
     mutationFn: () => api.installExampleTriggers(projectId!),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["triggers", projectId] }),
+    onSuccess: (triggers) => {
+      void queryClient.invalidateQueries({ queryKey: ["triggers", projectId] });
+      // Every key the server just minted. Discarding them left the operator
+      // with triggers they had to rotate before they could configure.
+      setRevealed(triggers);
+    },
   });
 
   const fires = useQuery({
@@ -70,8 +78,11 @@ export function TriggersPage(): React.JSX.Element {
   const [agentId, setAgentId] = useState("");
   const [jobPrompt, setJobPrompt] = useState("");
 
-  if (!project) {
+  if (absent) {
     return <NoProject />;
+  }
+  if (pending || !project) {
+    return <ProjectPending />;
   }
 
   const list = triggers.data ?? [];
@@ -101,8 +112,16 @@ export function TriggersPage(): React.JSX.Element {
         }
       />
 
-      {revealed ? (
-        <SigningKeyPanel trigger={revealed} onDismiss={() => setRevealed(null)} />
+      {revealed.length > 0 ? (
+        <div className="space-y-3">
+          {revealed.map((trigger) => (
+            <SigningKeyPanel
+              key={trigger.id}
+              trigger={trigger}
+              onDismiss={() => setRevealed((keys) => keys.filter((k) => k.id !== trigger.id))}
+            />
+          ))}
+        </div>
       ) : null}
 
       <CreatePanel
@@ -113,8 +132,8 @@ export function TriggersPage(): React.JSX.Element {
         submitLabel="Create"
         pending={create.isPending}
         disabled={!name || !agentId}
-        onSubmit={() => {
-          create.mutate({ name, agentId, jobPrompt, enabled: true });
+        onSubmit={async () => {
+          await create.mutateAsync({ name, agentId, jobPrompt, enabled: true });
           setName("");
           setJobPrompt("");
         }}
@@ -267,63 +286,5 @@ export function TriggersPage(): React.JSX.Element {
         </Panel>
       ) : null}
     </Page>
-  );
-}
-
-function FireRow(props: { fire: TriggerFireDto }): React.JSX.Element {
-  const { fire } = props;
-  return (
-    <li className="flex items-center gap-2.5 px-3.5 py-1.5">
-      <Dot tone={fire.accepted ? "live" : "danger"} />
-      <span className="shrink-0 text-ink-faint">{fire.createdAt.slice(0, 19)}</span>
-      {fire.accepted ? (
-        <span className="text-live">accepted</span>
-      ) : (
-        <span className="text-danger">rejected{fire.reason ? `: ${fire.reason}` : ""}</span>
-      )}
-    </li>
-  );
-}
-
-/**
- * The one screen in the app that shows a secret. It says plainly that this is
- * the only time it will be shown, and hands over a copy button rather than
- * asking the operator to select 64 characters of base64 by hand.
- */
-function SigningKeyPanel(props: {
-  trigger: TriggerSecretDto;
-  onDismiss: () => void;
-}): React.JSX.Element {
-  const [copied, setCopied] = useState(false);
-
-  return (
-    <Panel className="rise border-gate-line">
-      <PanelHeader className="border-b border-gate-line bg-gate-soft">
-        <PanelTitle icon={<KeyRound />}>
-          <span className="text-gate">
-            Signing key for {props.trigger.name} — shown once, never again
-          </span>
-        </PanelTitle>
-      </PanelHeader>
-      <div className="space-y-3 p-4">
-        <Well>
-          <code className="block break-all text-xs text-ink">{props.trigger.signingKey}</code>
-        </Well>
-        <div className="flex gap-2">
-          <Button
-            onClick={() => {
-              void navigator.clipboard.writeText(props.trigger.signingKey);
-              setCopied(true);
-            }}
-          >
-            <Copy />
-            {copied ? "Copied" : "Copy key"}
-          </Button>
-          <Button variant="ghost" onClick={props.onDismiss}>
-            I've saved it, dismiss
-          </Button>
-        </div>
-      </div>
-    </Panel>
   );
 }

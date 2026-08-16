@@ -108,6 +108,18 @@ inbox, and goals behave identically. Two things are *not* identical.
 **It is off unless you turn it on.** Leave `LOCAL_RUNNER_URL` blank and every
 session goes to the cloud runner. Everything below is the price of turning it on.
 
+**Turning it on takes three things, and two of them are invisible.** Settings →
+*Where sessions run* chooses `auto`, `local` or `cloud` for every agent that
+does not pin a backend itself, and the screen shows whether a worker is actually
+reachable. But the switch only governs an agent whose own preference is
+`inherit`, and the worker **refuses** any agent whose environment restricts
+egress — those sessions fall back to the cloud and bill for it. So: set
+`LOCAL_RUNNER_URL` and run the worker, choose `local` in Settings, and give the
+agent an `open` environment (or set
+`LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=1`, which accepts the risk globally).
+The last one is a real security decision — an `open` environment means the
+network wall is not enforced for that agent.
+
 **It is not a sandbox.** Claude Code runs as the worker's unix user, in
 `bypassPermissions`, inside a throwaway directory. The directory is deleted when
 the session ends, but nothing stops a session reading whatever that user can

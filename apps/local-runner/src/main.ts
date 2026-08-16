@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { runSession } from "./agent.js";
 import { loadConfig, resolveCredential, type WorkerConfig } from "./config.js";
 import { frame, type ProvisionBody } from "./protocol.js";
@@ -214,6 +215,39 @@ async function cleanUp(session: LocalSession): Promise<void> {
 const CLEANUP_ATTEMPTS = 4;
 const CLEANUP_BACKOFF_MS = 2_000;
 
+/**
+ * Clears leftover session directories at boot.
+ *
+ * No session survives a restart — the map is in memory — so anything still
+ * here belongs to a run that is over. Two things leave one behind: a worker
+ * killed mid-session, and an agent's own background tooling writing into the
+ * workspace *after* cleanup has already removed it, which was observed in a
+ * real run leaving an empty `.omc/state` tree. Neither is dangerous on its
+ * own; both accumulate on a machine that is never looked at.
+ */
+async function sweepWorkRoot(): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await readdir(config.workRoot);
+  } catch {
+    return;
+  }
+  const stale = entries.filter((entry) => entry.startsWith("session-"));
+  for (const entry of stale) {
+    await rm(join(config.workRoot, entry), {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+      retryDelay: 100,
+    }).catch((error: unknown) => {
+      console.error(`could not remove the stale workspace ${entry}: ${String(error)}`);
+    });
+  }
+  if (stale.length > 0) {
+    console.log(`removed ${stale.length} workspace(s) left by a previous run`);
+  }
+}
+
 function authorised(request: IncomingMessage): boolean {
   return request.headers.authorization === `Bearer ${config.authToken}`;
 }
@@ -237,6 +271,7 @@ function send(response: ServerResponse, status: number, body: unknown): void {
 }
 
 await mkdir(config.workRoot, { recursive: true });
+await sweepWorkRoot();
 server.listen(config.port, () => {
   // The credential kind is worth printing; the credential itself never is.
   console.log(

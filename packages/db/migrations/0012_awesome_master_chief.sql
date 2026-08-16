@@ -1,0 +1,1 @@
+ALTER TABLE "project_settings" ADD COLUMN "default_runner" text DEFAULT 'auto' NOT NULL;

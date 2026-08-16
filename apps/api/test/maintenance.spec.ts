@@ -103,6 +103,7 @@ describe("maintenance", () => {
       parkedSessionTimeoutMinutes: 1440,
       orphanSweepEnabled: true,
       orphanSweepIntervalMinutes: 15,
+      defaultRunner: "auto",
     });
 
     expect(await maintenance.reapParkedSessions()).toBe(1);
@@ -125,6 +126,7 @@ describe("maintenance", () => {
       parkedSessionTimeoutMinutes: 1440,
       orphanSweepEnabled: true,
       orphanSweepIntervalMinutes: 15,
+      defaultRunner: "auto",
     });
 
     expect(await maintenance.reapParkedSessions()).toBe(0);
@@ -138,6 +140,7 @@ describe("maintenance", () => {
       parkedSessionTimeoutMinutes: 0,
       orphanSweepEnabled: true,
       orphanSweepIntervalMinutes: 15,
+      defaultRunner: "auto",
     });
 
     expect(await maintenance.reapParkedSessions()).toBe(0);
@@ -166,6 +169,7 @@ describe("maintenance", () => {
       parkedSessionTimeoutMinutes: 1440,
       orphanSweepEnabled: false,
       orphanSweepIntervalMinutes: 15,
+      defaultRunner: "auto",
     });
     harness.runner.runtimeSessions = [
       { runtimeSessionId: "sesn_orphan", startedAt: new Date(Date.now() - 60 * 60_000) },
@@ -187,6 +191,7 @@ describe("maintenance", () => {
       parkedSessionTimeoutMinutes: 1440,
       orphanSweepEnabled: true,
       orphanSweepIntervalMinutes: 15,
+      defaultRunner: "auto",
     });
     // Stand in for a session that was provisioned with credentials.
     await harness.db
@@ -205,6 +210,7 @@ describe("maintenance", () => {
       parkedSessionTimeoutMinutes: 1440,
       orphanSweepEnabled: true,
       orphanSweepIntervalMinutes: 15,
+      defaultRunner: "auto",
     });
     // The operator's answer lands between the reaper's read and its write.
     await sessions.setStatus(sessionId, "running");
@@ -221,6 +227,7 @@ describe("maintenance", () => {
       parkedSessionTimeoutMinutes: 1440,
       orphanSweepEnabled: true,
       orphanSweepIntervalMinutes: 15,
+      defaultRunner: "auto",
     });
     harness.runner.failNextDestroy(new Error("provider said no"));
 
@@ -241,6 +248,7 @@ describe("maintenance", () => {
       parkedSessionTimeoutMinutes: 1440,
       orphanSweepEnabled: true,
       orphanSweepIntervalMinutes: 15,
+      defaultRunner: "auto",
     });
     expect(await maintenance.reapParkedSessions()).toBe(1);
 

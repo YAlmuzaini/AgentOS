@@ -3,7 +3,7 @@ import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../components/ui/button";
 import { CreatePanel } from "../components/ui/create-panel";
-import { Field, Input, Select, Textarea } from "../components/ui/form";
+import { CheckboxField, Field, Input, Select, Textarea } from "../components/ui/form";
 import { MicroLabel } from "../components/ui/panel";
 
 export function CreateAutomationForm(props: {
@@ -21,11 +21,15 @@ export function CreateAutomationForm(props: {
     taskName: string;
     taskBody: string;
     templateVariables: Record<string, string>;
-  }) => void;
+    enabled: boolean;
+  }) => void | Promise<void>;
 }): React.JSX.Element | null {
   const [name, setName] = useState("");
   const [cron, setCron] = useState("");
   const [timezone, setTimezone] = useState("UTC");
+  // Off by default. An automation created to be inspected used to arm its
+  // schedule the moment it existed, and the next cron occurrence spent money.
+  const [enabled, setEnabled] = useState(false);
   const [shape, setShape] = useState<"inline" | "template">("inline");
   const [agentId, setAgentId] = useState("");
   const [taskName, setTaskName] = useState("");
@@ -42,11 +46,12 @@ export function CreateAutomationForm(props: {
       submitLabel="Create"
       pending={props.pending}
       disabled={!name || !cron}
-      onSubmit={() => {
+      onSubmit={async () => {
         const templateVariables = Object.fromEntries(
           variableRows.filter((row) => row.key.trim()).map((row) => [row.key, row.value]),
         );
-        props.onCreate({
+        // Awaited: a rejected create must leave every field where it was.
+        await props.onCreate({
           name,
           cron,
           timezone,
@@ -55,6 +60,7 @@ export function CreateAutomationForm(props: {
           taskName: shape === "inline" ? taskName : "",
           taskBody: shape === "inline" ? taskBody : "",
           templateVariables: shape === "template" ? templateVariables : {},
+          enabled,
         });
         setName("");
         setCron("");
@@ -95,6 +101,16 @@ export function CreateAutomationForm(props: {
           )}
         </Field>
       </div>
+
+      {/* Off unless asked for. Every occurrence of an armed schedule starts an
+          agent and spends credits, and an automation is usually created to be
+          looked at before it is trusted. */}
+      <CheckboxField
+        tone="gate"
+        label="Arm this schedule now — every occurrence starts an agent and spends credits"
+        checked={enabled}
+        onCheckedChange={setEnabled}
+      />
 
       {/* A segmented control rather than radios: two exclusive shapes, and the
           fields below swap wholesale between them. */}

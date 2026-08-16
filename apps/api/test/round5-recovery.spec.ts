@@ -118,6 +118,7 @@ describe("continuity — round five", () => {
       parkedSessionTimeoutMinutes: 1440,
       orphanSweepEnabled: false,
       orphanSweepIntervalMinutes: 15,
+      defaultRunner: "auto",
     });
 
     expect(await maintenance.reapParkedSessions()).toBe(1);

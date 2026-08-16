@@ -12,6 +12,7 @@ import { CloudPublisher } from "./cloud-publisher";
 import { CloudManagedAgentsRunner } from "./cloud-runner";
 import { LocalVmRunner } from "./local-runner";
 import { RunnerRouter } from "./runner-router";
+import { RunnersController } from "./runners.controller";
 import { ManifestResolver } from "./manifest";
 import { RUNNER_CLOUD } from "./runner.types";
 import { SessionConsumer } from "./session-consumer";
@@ -43,6 +44,7 @@ import { AgentToolHandler } from "./tool-handler";
     SettingsModule,
     PushModule,
   ],
+  controllers: [RunnersController],
   providers: [
     CloudPublisher,
     { provide: RUNNER_CLOUD, useClass: CloudManagedAgentsRunner },

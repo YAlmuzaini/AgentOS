@@ -9,6 +9,7 @@ import { Input, Switch } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
 import { useActiveProject } from "../hooks/use-project";
+import { RunnerPanel } from "./runner-panel";
 
 /**
  * Operator policy (SPEC §18).
@@ -28,6 +29,15 @@ export function SettingsPage(): React.JSX.Element {
     enabled: Boolean(projectId),
   });
 
+  // Availability of each backend, so the switch below can say when a choice
+  // will silently not take effect. Refetched on a timer because a worker that
+  // died since the page loaded is exactly the case worth catching.
+  const runners = useQuery({
+    queryKey: ["runner-status"],
+    queryFn: () => api.runnerStatus(),
+    refetchInterval: 15_000,
+  });
+
   const [form, setForm] = useState<UpdateSettingsInput | null>(null);
   useEffect(() => {
     if (settings.data && !form) {
@@ -35,6 +45,7 @@ export function SettingsPage(): React.JSX.Element {
         parkedSessionTimeoutMinutes: settings.data.parkedSessionTimeoutMinutes,
         orphanSweepEnabled: settings.data.orphanSweepEnabled,
         orphanSweepIntervalMinutes: settings.data.orphanSweepIntervalMinutes,
+        defaultRunner: settings.data.defaultRunner,
       });
     }
   }, [settings.data, form]);
@@ -65,6 +76,12 @@ export function SettingsPage(): React.JSX.Element {
           save.mutate(form);
         }}
       >
+        <RunnerPanel
+          value={form.defaultRunner}
+          onChange={(defaultRunner) => setForm({ ...form, defaultRunner })}
+          status={runners.data}
+        />
+
         <Panel>
           <PanelHeader className="border-b border-edge">
             <PanelTitle accent="amber">Unanswered questions</PanelTitle>

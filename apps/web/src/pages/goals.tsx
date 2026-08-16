@@ -2,6 +2,8 @@ import type { GoalDto } from "@agentos/shared";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Target } from "lucide-react";
+import { useSearch } from "@tanstack/react-router";
+import { useUrlSelection } from "../hooks/use-url-selection";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
@@ -10,15 +12,17 @@ import { CheckboxField, Field, FormActions, Input, Textarea } from "../component
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
-import { useActiveProject } from "../hooks/use-project";
+import { useProjectGate } from "../hooks/use-project";
 import { GoalDetail } from "./goal-detail";
-import { NoProject } from "./tasks";
+import { NoProject, ProjectPending } from "./project-states";
 
 export function GoalsPage(): React.JSX.Element {
-  const { project } = useActiveProject();
+  const { project, pending, absent } = useProjectGate();
   const queryClient = useQueryClient();
   const projectId = project?.id;
-  const [selected, setSelected] = useState<string | null>(null);
+  // The URL is the selection; a click overrides it until the URL moves again.
+  const { id: idFromUrl } = useSearch({ strict: false }) as { id?: string };
+  const [selected, setSelected] = useUrlSelection(idFromUrl);
   const [creating, setCreating] = useState(false);
 
   const goals = useQuery({
@@ -37,8 +41,11 @@ export function GoalsPage(): React.JSX.Element {
     },
   });
 
-  if (!project) {
+  if (absent) {
     return <NoProject />;
+  }
+  if (pending || !project) {
+    return <ProjectPending />;
   }
 
   const list = goals.data ?? [];
@@ -124,7 +131,9 @@ export function GoalsPage(): React.JSX.Element {
         open={creating}
         onOpenChange={setCreating}
         pending={create.isPending}
-        onCreate={(body) => create.mutate(body)}
+        // `mutateAsync` so the form can wait, and so a rejection reaches it —
+        // that is what stops the panel clearing input the server refused.
+        onCreate={(body) => create.mutateAsync(body).then(() => undefined)}
       />
     </Page>
   );
@@ -166,7 +175,7 @@ function CreateGoalDialog(props: {
     spendCapUsd: number | null;
     acknowledgeNoSpendCap: boolean;
     maxDurationMinutes: number | null;
-  }) => void;
+  }) => void | Promise<void>;
 }): React.JSX.Element {
   const [title, setTitle] = useState("");
   const [spec, setSpec] = useState("");
@@ -182,10 +191,12 @@ function CreateGoalDialog(props: {
         <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay" />
         <Dialog.Content className="rise fixed top-1/2 left-1/2 z-50 max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-panel border border-edge bg-panel shadow-pop outline-none">
           <form
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
               if (blocked) return;
-              props.onCreate({
+              // Awaited, so a rejected create leaves the spec the operator just
+              // wrote exactly where it is. Clearing on submit destroyed it.
+              await props.onCreate({
                 title,
                 spec,
                 spendCapUsd: noSpendCap ? null : Number(spendCapUsd),

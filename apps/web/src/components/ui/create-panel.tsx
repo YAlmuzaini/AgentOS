@@ -32,7 +32,12 @@ export function CreatePanel({
   pending?: boolean;
   disabled?: boolean;
   error?: ReactNode;
-  onSubmit: () => void;
+  /**
+   * May be async. A form that clears itself before the server answered
+   * destroys the operator's input on a 400 — so the caller awaits, and only
+   * resets when the create actually succeeded.
+   */
+  onSubmit: () => void | Promise<void>;
   children: ReactNode;
 }): React.JSX.Element | null {
   if (!open) {
@@ -45,7 +50,10 @@ export function CreatePanel({
         onSubmit={(event: FormEvent) => {
           event.preventDefault();
           if (!disabled) {
-            onSubmit();
+            // Swallowed here, not by the caller: the child awaits `onSubmit`
+            // and a rejection must skip its reset, which only works if the
+            // rejection actually reaches it first.
+            void Promise.resolve(onSubmit()).catch(() => undefined);
           }
         }}
       >

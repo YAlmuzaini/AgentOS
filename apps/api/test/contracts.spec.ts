@@ -87,6 +87,7 @@ describe("contracts and publishing", () => {
         parkedSessionTimeoutMinutes: 5,
         orphanSweepEnabled: true,
         orphanSweepIntervalMinutes: 15,
+        defaultRunner: "auto",
       }).success,
     ).toBe(false);
 
@@ -96,6 +97,7 @@ describe("contracts and publishing", () => {
         parkedSessionTimeoutMinutes: 0,
         orphanSweepEnabled: true,
         orphanSweepIntervalMinutes: 15,
+        defaultRunner: "auto",
       }).success,
     ).toBe(true);
   });

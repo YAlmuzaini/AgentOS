@@ -10,13 +10,13 @@ import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
-import { useActiveProject } from "../hooks/use-project";
+import { useProjectGate } from "../hooks/use-project";
 import { relativeTime } from "../lib/time";
 import { CreateAutomationForm } from "./create-automation-form";
-import { NoProject } from "./tasks";
+import { NoProject, ProjectPending } from "./project-states";
 
 export function AutomationsPage(): React.JSX.Element {
-  const { project } = useActiveProject();
+  const { project, pending, absent } = useProjectGate();
   const queryClient = useQueryClient();
   const projectId = project?.id;
   const [creating, setCreating] = useState(false);
@@ -63,8 +63,11 @@ export function AutomationsPage(): React.JSX.Element {
     onSuccess: invalidate,
   });
 
-  if (!project) {
+  if (absent) {
     return <NoProject />;
+  }
+  if (pending || !project) {
+    return <ProjectPending />;
   }
 
   const list = automations.data ?? [];
@@ -92,7 +95,9 @@ export function AutomationsPage(): React.JSX.Element {
         pending={create.isPending}
         agents={agents.data ?? []}
         templates={templates.data ?? []}
-        onCreate={(body) => create.mutate(body)}
+        // `mutateAsync` so the form can wait, and so a rejection reaches it —
+        // that is what stops the panel clearing input the server refused.
+        onCreate={(body) => create.mutateAsync(body).then(() => undefined)}
       />
 
       {automations.isLoading ? (
@@ -134,7 +139,22 @@ export function AutomationsPage(): React.JSX.Element {
                   automation={automation}
                   agents={agents.data ?? []}
                   templates={templates.data ?? []}
-                  onEnable={() => enable.mutate(automation.id)}
+                  onEnable={() =>
+                    confirm({
+                      kind: "spend",
+                      title: `Enable “${automation.name}”?`,
+                      body: (
+                        <>
+                          This arms the schedule{" "}
+                          <span className="machine">{automation.cron}</span> ({automation.timezone}).
+                          Every future occurrence starts an agent and spends API credits, without
+                          asking again.
+                        </>
+                      ),
+                      confirmLabel: "Enable",
+                      onConfirm: () => enable.mutate(automation.id),
+                    })
+                  }
                   onDisable={() => disable.mutate(automation.id)}
                   onRunConfirmed={() =>
                     confirm({

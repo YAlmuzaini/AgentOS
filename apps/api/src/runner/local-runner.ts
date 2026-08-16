@@ -34,6 +34,11 @@ export class LocalVmRunner implements Runner {
 
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
+  /** The worker's origin, for the settings screen. Never a credential. */
+  endpointForDisplay(): string | null {
+    return this.configured ? this.base() : null;
+  }
+
   /** Routing asks this before sending work here. */
   get configured(): boolean {
     return Boolean(this.config.LOCAL_RUNNER_URL);

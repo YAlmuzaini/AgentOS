@@ -1,4 +1,4 @@
-import { boolean, integer, pgTable, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { projects } from "./projects";
 
 /**
@@ -28,6 +28,21 @@ export const projectSettings = pgTable("project_settings", {
 
   /** How often that reconciliation runs. */
   orphanSweepIntervalMinutes: integer("orphan_sweep_interval_minutes").notNull().default(15),
+
+  /**
+   * Which backend runs a session when the agent does not name one.
+   *
+   * This is the money switch. `cloud` bills the Anthropic API per token;
+   * `local` runs Claude Code on a machine the operator owns, against a
+   * subscription, at a flat rate. `auto` prefers local when it is reachable and
+   * falls back to cloud, so losing the worker degrades cost rather than
+   * availability.
+   *
+   * A setting rather than an env var because it is a judgement the operator
+   * revises — where the local worker *lives* (`LOCAL_RUNNER_URL`) is the
+   * deployment fact, and that stays in env.
+   */
+  defaultRunner: text("default_runner").notNull().default("auto"),
 
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

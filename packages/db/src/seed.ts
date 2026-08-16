@@ -67,7 +67,10 @@ async function main(): Promise<void> {
         // The coordinator is the only role that spawns anyone, and it may spawn
         // exactly the four plan reviewers (SPEC §5.10, §10 step 3).
         collaborationList: COLLABORATION[role.name] ?? [],
-        runnerPreference: "cloud",
+        // Inherit, so the project's own setting decides. Pinning these to
+        // "cloud" meant every seeded agent billed the API no matter what the
+        // operator chose, and nothing in the UI could change it.
+        runnerPreference: "inherit",
         inboxAccess: true,
       })
       .onConflictDoUpdate({
@@ -77,6 +80,13 @@ async function main(): Promise<void> {
           foundationalPrompt: FOUNDATIONAL_PROMPT,
           rolePrompt: role.rolePrompt,
           collaborationList: COLLABORATION[role.name] ?? [],
+          // `runnerPreference` is deliberately absent. What this upsert
+          // reconciles is content *we* author — titles, prompts, the
+          // collaboration list — and re-seeding is how a built-in picks up an
+          // improved prompt. Where an agent runs is the operator's judgement
+          // and their money, so re-seeding must not quietly move it back.
+          // Migration 0013 does the one-time correction for installs that were
+          // seeded while the old hardcoded `cloud` default was in place.
           updatedAt: new Date(),
         },
       });
