@@ -192,6 +192,41 @@ export class FilesService {
    * paths, because that is what the filesystem tools take. Ids belonging to
    * another project resolve to nothing rather than to a path.
    */
+  /**
+   * Deletes every stored object this project owns, and says how many.
+   *
+   * The `file_objects` rows cascade when a project goes, but a cascade only
+   * removes the index — the bytes in R2 stay, unreachable and still billed,
+   * which is the opposite of what "delete this project" promises.
+   *
+   * Split in two on purpose. The keys are read *before* the rows are deleted
+   * and the objects removed *after* the delete commits, because doing it in one
+   * step meant a deletion that was later refused had already destroyed the
+   * files. Failures are counted rather than thrown: a bucket that has already
+   * lost an object must not block anything.
+   */
+  async bucketKeysForProject(projectId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ bucketKey: fileObjects.bucketKey })
+      .from(fileObjects)
+      .where(eq(fileObjects.projectId, projectId));
+    return rows.map((row) => row.bucketKey);
+  }
+
+  async removeAllForProject(bucketKeys: string[]): Promise<{ removed: number; failed: number }> {
+    let removed = 0;
+    let failed = 0;
+    for (const key of bucketKeys) {
+      try {
+        await this.storage.remove(key);
+        removed++;
+      } catch {
+        failed++;
+      }
+    }
+    return { removed, failed };
+  }
+
   async pathsByIds(projectId: string, ids: string[]): Promise<string[]> {
     if (ids.length === 0) {
       return [];

@@ -2,6 +2,7 @@ import { Settings2 } from "lucide-react";
 import { Page, PageHeader } from "../components/ui/page";
 import { useProjectGate } from "../hooks/use-project";
 import { ProjectCode } from "./project-code";
+import { ProjectDanger } from "./project-danger";
 import { ProjectIdentity } from "./project-identity";
 import { ProjectOwns } from "./project-owns";
 import { ProjectPolicy } from "./project-policy";
@@ -41,6 +42,7 @@ export function ProjectSettingsPage(): React.JSX.Element {
         <div className="min-w-0 space-y-5">
           <ProjectIdentity project={project} />
           <ProjectPolicy projectId={project.id} />
+          <ProjectDanger project={project} />
         </div>
 
         <div className="min-w-0 space-y-5 xl:sticky xl:top-0">

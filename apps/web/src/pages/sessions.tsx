@@ -7,6 +7,7 @@ import { useLiveSession } from "./use-live-session";
 import { ExternalLink, Terminal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { DeleteAction } from "../components/ui/delete-action";
 import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle, SectionLabel, Well } from "../components/ui/panel";
@@ -173,6 +174,26 @@ export function SessionsPage(): React.JSX.Element {
               ) : null}
               {/* Cost, runner and commits for the open session: all recorded,
                   none of it previously rendered anywhere. */}
+              {/* Only once the run is over: the row is the only handle the
+                  control plane has on a live container, and the server refuses
+                  it anyway. */}
+              {selected && detail.data && !isInFlight(detail.data.status) ? (
+                <DeleteAction
+                  what="this session"
+                  label="Delete"
+                  body={
+                    <>
+                      Its tool-call log, cost and commit record go with it. The container is long
+                      gone; this is only the record of what it did.
+                    </>
+                  }
+                  onDelete={async () => {
+                    await api.deleteSession(selected);
+                    setSelected(null);
+                  }}
+                  invalidate={[["sessions", projectId]]}
+                />
+              ) : null}
               {detail.data?.costUsd != null ? (
                 <StatusPill tone="neutral">${detail.data.costUsd.toFixed(2)}</StatusPill>
               ) : null}

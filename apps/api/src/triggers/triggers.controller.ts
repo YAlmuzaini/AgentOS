@@ -8,6 +8,7 @@ import {
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -61,6 +62,14 @@ export class TriggersController {
     @Param("id", ParseUUIDPipe) id: string,
   ): Promise<TriggerFireDto[]> {
     return this.triggers.fires(projectId, id);
+  }
+
+  @Delete(":id")
+  remove(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.triggers.remove(projectId, id);
   }
 }
 

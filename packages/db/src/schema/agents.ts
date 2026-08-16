@@ -16,6 +16,15 @@ export const agents = pgTable(
   "agents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * True only for an agent AgentOS itself installed.
+     *
+     * Without it "install built-ins" reconciles by name, and an operator's own
+     * agent that happens to be called `plan` has its role prompt — which *is*
+     * its behaviour — silently rewritten. The installer only updates rows it
+     * created; anything else is left alone.
+     */
+    builtIn: boolean("built_in").notNull().default(false),
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),

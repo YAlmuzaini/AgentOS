@@ -152,6 +152,21 @@ export class TemplatesService {
     }
     return row;
   }
+
+  /**
+   * Removes one template. Chains already instantiated from it keep running: a template is a mould, not
+   * a parent.
+   */
+  async remove(projectId: string, id: string): Promise<void> {
+    const [row] = await this.db
+      .select({ id: taskTemplates.id })
+      .from(taskTemplates)
+      .where(and(eq(taskTemplates.projectId, projectId), eq(taskTemplates.id, id)));
+    if (!row) {
+      throw new NotFoundException(`template ${id} not found`);
+    }
+    await this.db.delete(taskTemplates).where(eq(taskTemplates.id, id));
+  }
 }
 
 function toDto(row: TemplateRow): TaskTemplateDto {

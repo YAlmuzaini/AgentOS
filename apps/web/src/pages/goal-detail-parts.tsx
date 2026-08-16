@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Folder, Pause, Play } from "lucide-react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { DeleteAction } from "../components/ui/delete-action";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 
@@ -86,6 +87,8 @@ export function GoalControls(props: {
   data: { status: string };
   pause: { mutate: () => void; isPending: boolean };
   resume: { mutate: () => void; isPending: boolean };
+  /** Removing the goal itself. Its sessions keep their record. */
+  onDelete?: { run: () => Promise<unknown>; projectId: string; title: string };
 }): React.JSX.Element {
   return (
     <div className="flex items-center gap-2">
@@ -96,6 +99,19 @@ export function GoalControls(props: {
       ) : (
         <StatusPill>{props.data.status}</StatusPill>
       )}
+      {props.onDelete ? (
+        <DeleteAction
+          what={props.onDelete.title}
+          body={
+            <>
+              Its definition of done and progress log go with it. Sessions that ran for it keep
+              their record and simply stop naming a goal.
+            </>
+          }
+          onDelete={props.onDelete.run}
+          invalidate={[["goals", props.onDelete.projectId]]}
+        />
+      ) : null}
       {props.data.status === "active" ? (
         <Button size="sm" onClick={() => props.pause.mutate()} disabled={props.pause.isPending}>
           <Pause />

@@ -4,6 +4,8 @@
 // reconstructed in SPEC §23: he named three plan reviewers and said there were
 // four, so the fourth lens is ours.
 
+import { FOUNDATIONAL_PROMPT } from "./foundational";
+
 export interface RoleSeed {
   name: string;
   title: string;
@@ -116,4 +118,60 @@ export const DEFAULT_ROLE_NAME = "default";
 
 export function findRoleSeed(name: string): RoleSeed | undefined {
   return ROLE_SEEDS.find((role) => role.name === name);
+}
+
+
+/**
+ * How a built-in role is installed into a project.
+ *
+ * This lived in `packages/db/src/seed.ts`, where only `pnpm db:seed` could
+ * reach it — so a project created any other way had no agents and no way to get
+ * them without retyping fourteen prompts. It moved here so the seed and the
+ * "install built-ins" endpoint install the *same* agents; two copies of this
+ * knowledge would have drifted the first time a prompt was improved.
+ */
+const PLANNER_MODEL = "claude-opus-5";
+const WORKER_MODEL = "claude-sonnet-5";
+
+/** Roles that do the work rather than the thinking, and run on the cheaper model. */
+const WORKER_ROLES = new Set([
+  "customer-support",
+  "linkedin-content",
+  "senior-dev",
+  "implementation-plan-executioner",
+  "librarian",
+  "default",
+]);
+
+/** The only spawn paths that exist. Absent from this map means: spawns nobody. */
+const COLLABORATION: Record<string, string[]> = {
+  "review-coordinator": ["feasibility", "scope-guardian", "coherence", "plan-risk"],
+};
+
+export interface RoleInstall {
+  name: string;
+  title: string;
+  model: string;
+  foundationalPrompt: string;
+  rolePrompt: string;
+  collaborationList: string[];
+  /**
+   * Always `inherit`: where an agent runs is the operator's judgement and their
+   * money, so installing built-ins must never quietly move it.
+   */
+  runnerPreference: "inherit";
+  inboxAccess: boolean;
+}
+
+export function builtInRoleInstalls(): RoleInstall[] {
+  return ROLE_SEEDS.map((role) => ({
+    name: role.name,
+    title: role.title,
+    model: WORKER_ROLES.has(role.name) ? WORKER_MODEL : PLANNER_MODEL,
+    foundationalPrompt: FOUNDATIONAL_PROMPT,
+    rolePrompt: role.rolePrompt,
+    collaborationList: COLLABORATION[role.name] ?? [],
+    runnerPreference: "inherit" as const,
+    inboxAccess: true,
+  }));
 }

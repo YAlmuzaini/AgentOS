@@ -37,6 +37,17 @@ export const sessions = pgTable(
      * has to delete them, and destroy can happen in a later process than the
      * one that created them — a resumed session, or the maintenance sweep.
      */
+    /**
+     * When the runtime was provably destroyed.
+     *
+     * Teardown writes a terminal status *before* it destroys the container, so
+     * `destroyed` alone does not mean the container is gone — and
+     * `runtimeHandle` is kept afterwards for the record, so it cannot tell the
+     * two apart either. Deleting a session in that window leaves a runtime with
+     * nothing pointing at it and no handle for the retry. Null with a handle
+     * set means: still out there.
+     */
+    runtimeReleasedAt: timestamp("runtime_released_at", { withTimezone: true }),
     runtimeVaultIds: jsonb("runtime_vault_ids")
       .$type<string[]>()
       .notNull()

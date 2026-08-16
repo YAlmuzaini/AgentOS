@@ -6,7 +6,9 @@ import {
   type TaskDto,
   type TaskTemplateDto,
 } from "@agentos/shared";
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import {
+  Body, Controller,
+  Delete, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
 import { OperatorGuard } from "../auth/operator.guard";
 import { ZodBody } from "../common/zod-body.pipe";
 import { TemplatesService } from "./templates.service";
@@ -44,5 +46,13 @@ export class TemplatesController {
     @Body(new ZodBody(instantiateTemplateSchema)) body: InstantiateTemplateInput,
   ): Promise<TaskDto[]> {
     return this.templates.instantiate(projectId, id, body);
+  }
+
+  @Delete(":id")
+  remove(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.templates.remove(projectId, id);
   }
 }

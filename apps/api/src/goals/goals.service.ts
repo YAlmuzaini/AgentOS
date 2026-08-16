@@ -1,4 +1,5 @@
-import { type Database, goals } from "@agentos/db";
+import { type Database, goals, sessions } from "@agentos/db";
+import { TERMINAL_SESSION_STATUSES } from "@agentos/shared";
 import {
   type ApproveDodInput,
   type CreateGoalInput,
@@ -6,9 +7,15 @@ import {
   type GoalDto,
   type GoalStatus,
 } from "@agentos/shared";
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 import { ProjectsService } from "../projects/projects.service";
 import { SessionQueue } from "../queue/session.queue";
@@ -236,6 +243,64 @@ export class GoalsService {
       throw new NotFoundException(`goal ${id} not found`);
     }
     return row;
+  }
+
+  /**
+   * Removes one goal.
+   *
+   * Refused while the goal is `active`, and while a session of its own is still
+   * live.
+   *
+   * The status check is the load-bearing one. `sessions.goal_id` has no foreign
+   * key, so those sessions do not "stop naming a goal" — they keep a uuid that
+   * points at nothing. And checking only for *existing* live sessions leaves a
+   * window: the orchestrator reads the goal, then creates the session, so a
+   * delete landing between the two produces a container that runs, spends, and
+   * fails at the end trying to update a goal that is gone. An active goal has
+   * to be paused first, which stops the loop dispatching another iteration.
+   *
+   * Finished sessions keep their record and are left alone.
+   */
+  /** Whether this goal is still there. Checked immediately before a dispatch. */
+  async exists(id: string): Promise<boolean> {
+    const [row] = await this.db.select({ id: goals.id }).from(goals).where(eq(goals.id, id));
+    return Boolean(row);
+  }
+
+  async remove(projectId: string, id: string): Promise<void> {
+    const [row] = await this.db
+      .select({ id: goals.id, status: goals.status })
+      .from(goals)
+      .where(and(eq(goals.projectId, projectId), eq(goals.id, id)));
+    if (!row) {
+      throw new NotFoundException(`goal ${id} not found`);
+    }
+
+    if (row.status === "active") {
+      throw new ConflictException(
+        "this goal is still active. Pause it first — its orchestrator may already be dispatching " +
+          "the next specialist, and that session would run and spend against a goal that is gone.",
+      );
+    }
+
+    const live = await this.db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.goalId, id),
+          notInArray(sessions.status, [...TERMINAL_SESSION_STATUSES]),
+        ),
+      );
+    if (live.length > 0) {
+      throw new ConflictException(
+        `this goal still has ${live.length} live session${live.length === 1 ? "" : "s"}. Pause it ` +
+          "and let them finish, or the next orchestrator turn will fail looking for a goal that " +
+          "is no longer there.",
+      );
+    }
+
+    await this.db.delete(goals).where(eq(goals.id, id));
   }
 }
 

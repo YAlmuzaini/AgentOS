@@ -214,6 +214,10 @@ export class MaintenanceService {
       await runner.destroy(handle);
       if (sessionId) {
         await this.sessions.clearVaults(sessionId);
+        // The reaper destroys containers too, so it records the release as
+        // teardown does. Omitting it left every session this path finished
+        // permanently undeletable: the row claimed a runtime that was gone.
+        await this.sessions.markRuntimeReleased(sessionId);
       }
       return true;
     } catch (error) {

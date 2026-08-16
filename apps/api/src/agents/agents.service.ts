@@ -1,6 +1,7 @@
 import { agents, type Database } from "@agentos/db";
 import {
   type AgentDto,
+  builtInRoleInstalls,
   type CreateAgentInput,
   FOUNDATIONAL_PROMPT,
   type UpdateAgentInput,
@@ -47,6 +48,52 @@ export class AgentsService {
       })
       .returning();
     return toDto(row!);
+  }
+
+  /**
+   * Installs the built-in roles, so a new project is not fourteen forms away
+   * from being usable (SPEC §4).
+   *
+   * Idempotent by name, and deliberately narrow about what it reconciles: it
+   * refreshes the text *we* author — title and prompts — so a project picks up
+   * an improved built-in prompt by running it again.
+   *
+   * It never touches `model`, `runnerPreference`, any grant, or the
+   * **collaboration list**. That last one was in the reconciled set and should
+   * not have been: a collaboration list is spawn authorisation, not content, so
+   * an operator who removed `feasibility` from `review-coordinator` would have
+   * had it silently restored by a re-install. It is set when the agent is
+   * created and left alone afterwards.
+   *
+   * And it only updates rows it created. Reconciling purely by name meant an
+   * operator's own agent called `plan` had its role prompt — which is its
+   * behaviour — rewritten by an installer they ran for unrelated reasons.
+   * `built_in` is the provenance marker that makes the difference visible.
+   */
+  async installBuiltIns(projectId: string): Promise<AgentDto[]> {
+    await this.projects.require(projectId);
+    const installed: AgentDto[] = [];
+    for (const role of builtInRoleInstalls()) {
+      const [row] = await this.db
+        .insert(agents)
+        .values({ ...role, projectId, builtIn: true })
+        .onConflictDoUpdate({
+          target: [agents.projectId, agents.name],
+          set: {
+            title: role.title,
+            foundationalPrompt: role.foundationalPrompt,
+            rolePrompt: role.rolePrompt,
+            updatedAt: new Date(),
+          },
+          // An operator's own agent with this name keeps everything it has.
+          setWhere: eq(agents.builtIn, true),
+        })
+        .returning();
+      if (row) {
+        installed.push(toDto(row));
+      }
+    }
+    return installed;
   }
 
   async get(projectId: string, id: string): Promise<AgentDto> {

@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { Bot, Plus } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bot, Download, Plus } from "lucide-react";
 import { useSearch } from "@tanstack/react-router";
 import { useUrlSelection } from "../hooks/use-url-selection";
 import { useState } from "react";
@@ -21,6 +21,7 @@ import { NoProject, ProjectPending } from "./project-states";
  */
 export function AgentsPage(): React.JSX.Element {
   const { project, pending, absent } = useProjectGate();
+  const queryClient = useQueryClient();
   // The URL is the selection; a click overrides it until the URL moves again.
   const { id: idFromUrl } = useSearch({ strict: false }) as { id?: string };
   const [selected, setSelected] = useUrlSelection(idFromUrl);
@@ -33,12 +34,20 @@ export function AgentsPage(): React.JSX.Element {
     enabled: Boolean(project),
   });
 
+  // Above the project guards: every hook has to run on every render, and the
+  // guards below return early.
+  const installBuiltIns = useMutation({
+    mutationFn: () => api.installBuiltInAgents(project!.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["agents", project?.id] }),
+  });
+
   if (absent) {
     return <NoProject />;
   }
   if (pending || !project) {
     return <ProjectPending />;
   }
+
 
   const list = agents.data ?? [];
   const active = selected ?? list[0]?.id ?? null;
@@ -77,7 +86,17 @@ export function AgentsPage(): React.JSX.Element {
             <EmptyState
               icon={<Bot />}
               title="No agents configured"
-              hint="Create one here, or declare a fleet in agentos.yml and push it."
+              hint="Install the built-in roles, create one here, or declare a fleet in agentos.yml and push it."
+              action={
+                <Button
+                  variant="solid"
+                  onClick={() => installBuiltIns.mutate()}
+                  disabled={installBuiltIns.isPending}
+                >
+                  <Download />
+                  Install built-ins
+                </Button>
+              }
             />
           ) : (
             <ul className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">

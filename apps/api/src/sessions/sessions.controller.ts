@@ -1,5 +1,14 @@
 import type { SessionDto, SessionSummaryDto, ToolCallLogEntry } from "@agentos/shared";
-import { Controller, Get, Param, ParseUUIDPipe, Query, Sse, UseGuards } from "@nestjs/common";
+import {
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  Sse,
+  UseGuards,
+} from "@nestjs/common";
 import { concatMap, distinctUntilChanged, from, interval, map, type Observable, startWith } from "rxjs";
 import { OperatorGuard } from "../auth/operator.guard";
 import { SessionsService } from "./sessions.service";
@@ -43,6 +52,20 @@ export class SessionsController {
       ),
       map((frame) => ({ data: frame })),
     );
+  }
+
+  /**
+   * `?force=true` deletes the record even when the runtime was never confirmed
+   * released — for rows that cannot satisfy the guard, like sessions predating
+   * the column. It is logged as a warning, because it discards the control
+   * plane's only handle on a container it cannot prove is gone.
+   */
+  @Delete(":id")
+  remove(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Query("force") force?: string,
+  ): Promise<void> {
+    return this.sessions.remove(id, force === "true");
   }
 }
 

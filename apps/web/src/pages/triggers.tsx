@@ -4,6 +4,7 @@ import { Copy, Download, KeyRound, Plus, RefreshCw, Webhook } from "lucide-react
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { DeleteAction } from "../components/ui/delete-action";
 import { useConfirm } from "../components/ui/confirm";
 import { CreatePanel } from "../components/ui/create-panel";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
@@ -232,7 +233,23 @@ export function TriggersPage(): React.JSX.Element {
                     )}
                   </TD>
                   <TD>
-                    <div className="flex justify-end">
+                    {/* The row itself selects, so anything inside it stops the
+                        click from also opening the detail pane. */}
+                    <div
+                      className="flex items-center justify-end gap-1"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <DeleteAction
+                        what={trigger.name}
+                        body={
+                          <>
+                            The webhook URL stops answering immediately, and the record of its
+                            recent fires goes with it. Callers still posting to it get a 404.
+                          </>
+                        }
+                        onDelete={() => api.deleteTrigger(project.id, trigger.id)}
+                        invalidate={[["triggers", project.id]]}
+                      />
                       <Button
                         size="sm"
                         variant="ghost"

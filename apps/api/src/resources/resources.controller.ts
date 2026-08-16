@@ -17,10 +17,21 @@ import {
   type UpdateEnvironmentInput,
   updateEnvironmentSchema,
 } from "@agentos/shared";
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Put,
+  UseGuards,
+} from "@nestjs/common";
 import { OperatorGuard } from "../auth/operator.guard";
 import { ZodBody } from "../common/zod-body.pipe";
 import { CatalogService } from "./catalog.service";
+import { DeletionService } from "./deletion.service";
 import { EnvironmentsService } from "./environments.service";
 
 /** One controller for the grantable catalog; the services stay separate. */
@@ -30,7 +41,51 @@ export class ResourcesController {
   constructor(
     private readonly environments: EnvironmentsService,
     private readonly catalog: CatalogService,
+    private readonly deletion: DeletionService,
   ) {}
+
+  /* ── Removal ────────────────────────────────────────────────────────────
+     Each of these strips the deleted id out of every agent that granted it,
+     so an agent's screen never lists a resource that no longer exists. */
+
+  @Delete("environments/:id")
+  removeEnvironment(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.deletion.removeEnvironment(projectId, id);
+  }
+
+  @Delete("repos/:id")
+  removeRepo(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.deletion.removeRepo(projectId, id);
+  }
+
+  @Delete("mcp-connections/:id")
+  removeMcp(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.deletion.removeMcp(projectId, id);
+  }
+
+  @Post("skills/install-built-ins")
+  installBuiltInSkills(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+  ): Promise<SkillDto[]> {
+    return this.catalog.installBuiltInSkills(projectId);
+  }
+
+  @Delete("skills/:id")
+  removeSkill(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.deletion.removeSkill(projectId, id);
+  }
 
   @Get("environments")
   listEnvironments(@Param("projectId", ParseUUIDPipe) projectId: string): Promise<EnvironmentDto[]> {

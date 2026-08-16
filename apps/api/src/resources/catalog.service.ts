@@ -6,7 +6,7 @@ import {
   repos,
   skills,
 } from "@agentos/db";
-import { normaliseRemote } from "@agentos/shared";
+import { BUILT_IN_SKILLS, normaliseRemote } from "@agentos/shared";
 import type {
   CreateEnvBindingInput,
   CreateMcpConnectionInput,
@@ -221,6 +221,60 @@ export class CatalogService {
       body: row!.body,
       filePath: row!.filePath,
     };
+  }
+
+  /**
+   * Puts the shipped skills into this project (SPEC §4 Skill).
+   *
+   * Idempotent by slug, which is also the answer to "will this duplicate what I
+   * already have": a skill is unique per project, so a second run adds nothing.
+   *
+   * An existing slug is **left exactly as it is**, rather than refreshed. The
+   * first version overwrote it, on the reasoning that the built-in names were
+   * unlikely to collide — but "unlikely to collide" is not a safety boundary,
+   * and the thing being overwritten would have been an operator's own skill
+   * text. Editing a built-in and re-running the installer keeps your edit;
+   * delete the skill first if you want the shipped one back.
+   */
+  async installBuiltInSkills(projectId: string): Promise<SkillDto[]> {
+    await this.projects.require(projectId);
+    const installed: SkillDto[] = [];
+    for (const skill of BUILT_IN_SKILLS) {
+      const [row] = await this.db
+        .insert(skills)
+        .values({ ...skill, projectId, filePath: null })
+        .onConflictDoNothing({ target: [skills.projectId, skills.slug] })
+        .returning();
+      if (!row) {
+        // Already present and left alone; report what is there rather than
+        // silently returning a short list.
+        const existing = await this.db.query.skills.findFirst({
+          where: and(eq(skills.projectId, projectId), eq(skills.slug, skill.slug)),
+        });
+        if (existing) {
+          installed.push({
+            id: existing.id,
+            projectId: existing.projectId,
+            name: existing.name,
+            slug: existing.slug,
+            kind: existing.kind as SkillDto["kind"],
+            body: existing.body,
+            filePath: existing.filePath,
+          });
+        }
+        continue;
+      }
+      installed.push({
+        id: row.id,
+        projectId: row.projectId,
+        name: row.name,
+        slug: row.slug,
+        kind: row.kind as SkillDto["kind"],
+        body: row.body,
+        filePath: row.filePath,
+      });
+    }
+    return installed;
   }
 
   /* ── Environment variable bindings ──────────────────────────────────── */

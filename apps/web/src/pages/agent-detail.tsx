@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { DeleteAction } from "../components/ui/delete-action";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { Dot, StatusPill } from "../components/ui/pill";
 import { describeRunner, GrantRow, Section } from "./agent-detail-parts";
@@ -114,6 +115,21 @@ export function AgentDetail(props: {
                 Edit
               </Button>
             ) : null}
+            {/* Refused by the server once this agent has run: a session is the
+                record of what it did and what it cost, and is unattributable
+                without it. */}
+            <DeleteAction
+              what={data.name}
+              body={
+                <>
+                  Its grants go with it, it is removed from any collaboration list that named it,
+                  and any trigger pointed at it is deleted too. Tasks it was assigned become
+                  unassigned rather than disappearing.
+                </>
+              }
+              onDelete={() => api.deleteAgent(props.projectId, props.agentId)}
+              invalidate={[["agents", props.projectId], ["triggers", props.projectId]]}
+            />
           </div>
 
           <Section title="Role" icon={<FileText />}>

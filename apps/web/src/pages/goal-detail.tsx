@@ -226,7 +226,18 @@ export function GoalDetail(props: {
               accent="emerald"
               value={checked}
               suffix={`of ${total} done`}
-              footer={<GoalControls data={data} pause={pause} resume={resume} />}
+              footer={
+                <GoalControls
+                  data={data}
+                  pause={pause}
+                  resume={resume}
+                  onDelete={{
+                    run: () => api.deleteGoal(props.projectId, props.goalId),
+                    projectId: props.projectId,
+                    title: data.title,
+                  }}
+                />
+              }
               meter={[
                 { label: "Done", value: checked, accent: "emerald" },
                 { label: "Open", value: total - checked, accent: "amber" },

@@ -1,0 +1,12 @@
+ALTER TABLE "agents" ADD COLUMN "built_in" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+-- Deliberately no backfill.
+--
+-- The first version marked every agent carrying one of the fourteen shipped
+-- names as built-in, which reclassifies an operator's own `plan` or `default`
+-- as ours and lets the installer overwrite its role prompt — the exact thing
+-- this column exists to prevent. Provenance cannot be recovered from a name.
+--
+-- So every pre-existing agent stays the operator's. The cost is small and the
+-- right way round: on an install that predates this column, "Install
+-- built-ins" will not refresh the shipped prompts in place. Delete an agent
+-- and reinstall it if you want the current text.

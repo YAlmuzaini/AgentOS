@@ -3,7 +3,9 @@ import {
   type CreateAutomationInput,
   createAutomationSchema,
 } from "@agentos/shared";
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import {
+  Body, Controller,
+  Delete, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
 import { OperatorGuard } from "../auth/operator.guard";
 import { ZodBody } from "../common/zod-body.pipe";
 import { AutomationsService } from "./automations.service";
@@ -51,5 +53,13 @@ export class AutomationsController {
     return this.automations
       .require(projectId, id)
       .then((row) => this.automations.fire(row.id));
+  }
+
+  @Delete(":id")
+  remove(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.automations.remove(projectId, id);
   }
 }

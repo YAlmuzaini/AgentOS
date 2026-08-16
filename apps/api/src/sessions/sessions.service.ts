@@ -9,7 +9,13 @@ import {
   TERMINAL_SESSION_STATUSES,
   type ToolCallLogEntry,
 } from "@agentos/shared";
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { and, asc, desc, eq, gt, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 import { toDto } from "./session-dto";
@@ -19,6 +25,8 @@ export type SessionRow = typeof sessions.$inferSelect;
 
 @Injectable()
 export class SessionsService {
+  private readonly logger = new Logger(SessionsService.name);
+
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
@@ -204,8 +212,31 @@ export class SessionsService {
   }
 
   /** Cleared only once the vaults are actually gone. */
+  /**
+   * The credentials are revoked. Says nothing about the container.
+   *
+   * These two were briefly one call, and that was wrong: `VaultCleanup` clears
+   * vaults on its own retry path, having deleted the vaults and nothing else.
+   * Marking the runtime released there would have let a container whose destroy
+   * failed lose the only row pointing at it, during ordinary failure recovery.
+   */
   async clearVaults(id: string): Promise<void> {
     await this.db.update(sessions).set({ runtimeVaultIds: [] }).where(eq(sessions.id, id));
+  }
+
+  /**
+   * The runtime is provably gone — `runner.destroy()` returned.
+   *
+   * This is what makes a row safe to delete. A terminal status does not: it is
+   * written *before* the destroy is attempted, and `runtimeHandle` is kept
+   * afterwards for the record, so neither can tell a released container from
+   * one still running.
+   */
+  async markRuntimeReleased(id: string): Promise<void> {
+    await this.db
+      .update(sessions)
+      .set({ runtimeReleasedAt: new Date() })
+      .where(eq(sessions.id, id));
   }
 
   /** Finished sessions whose credential holders were never cleaned up. */
@@ -217,6 +248,14 @@ export class SessionsService {
     return pendingVaultQuery(this.db, staleMinutes, limit, after);
   }
 
+  /**
+   * Records the runtime this session is running on.
+   *
+   * `runtimeReleasedAt` is cleared, because attaching means a container exists
+   * again. A session whose first backend was destroyed before falling back to
+   * another would otherwise carry the first one's release stamp, and a later
+   * failed destroy on the *second* container would read as already released.
+   */
   async attachRuntime(
     id: string,
     runtimeHandle: string,
@@ -225,7 +264,31 @@ export class SessionsService {
   ): Promise<void> {
     await this.db
       .update(sessions)
-      .set({ runtimeHandle, traceUrl, runtimeVaultIds, status: "running" })
+      .set({
+        runtimeHandle,
+        traceUrl,
+        runtimeVaultIds,
+        status: "running",
+        runtimeReleasedAt: null,
+      })
+      .where(eq(sessions.id, id));
+  }
+
+  /**
+   * A runtime that exists, could not be recorded, and could not be destroyed.
+   *
+   * The worst state the provisioner can reach. Writing the handle here is what
+   * lets the delete guards refuse the row and the operator find the container;
+   * without it there is a running container nothing in the system names.
+   */
+  async recordOrphanedRuntime(id: string, runtimeHandle: string, detail: string): Promise<void> {
+    await this.db
+      .update(sessions)
+      .set({
+        runtimeHandle,
+        runtimeReleasedAt: null,
+        error: `runtime ${runtimeHandle} could not be recorded or destroyed: ${detail}`,
+      })
       .where(eq(sessions.id, id));
   }
 
@@ -320,5 +383,59 @@ export class SessionsService {
       throw new NotFoundException(`session ${id} not found`);
     }
     return row;
+  }
+
+  /**
+   * Deletes a finished session's record.
+   *
+   * Refused while the session is still live. A session row is the only handle
+   * the control plane has on a running container — the teardown path, the
+   * orphan sweep and the cost record all find it by id — so deleting one
+   * mid-run would leave a container nothing points at, billing, until the
+   * sweep notices. Housekeeping is for runs that are over.
+   *
+   * Also refused while credentials are still out. Teardown marks a session
+   * terminal *before* it destroys the runtime, and when that destruction fails
+   * the row deliberately keeps its vault ids so the retry queue can find it
+   * (`pending-vaults.ts`). A terminal status is therefore not the same as "the
+   * container is gone and the vaults are revoked", and deleting such a row
+   * throws away the only record that those credentials still exist.
+   */
+  async remove(id: string, force = false): Promise<void> {
+    const row = await this.require(id);
+    if (!isTerminalSessionStatus(row.status)) {
+      throw new ConflictException(
+        `session ${id} is ${row.status}. Wait for it to finish, or cancel it first — deleting it ` +
+          "now would leave its container with nothing pointing at it.",
+      );
+    }
+    // `force` is the operator saying they have checked the runtime themselves.
+    // It exists because some rows can never satisfy the guard: sessions that
+    // predate `runtime_released_at`, and provisioning that failed before the
+    // handle was persisted. Refusing those forever is not safer than letting
+    // the operator say what they know — as long as the guard says what is being
+    // given up, and never passes silently.
+    if (!force && (row.runtimeVaultIds ?? []).length > 0) {
+      throw new ConflictException(
+        `session ${id} still has ${row.runtimeVaultIds.length} credential vault(s) that could not ` +
+          "be deleted. This row is what the cleanup retry finds them by. Delete it anyway with " +
+          "?force=true only if you have revoked them yourself.",
+      );
+    }
+    if (!force && row.runtimeHandle && !row.runtimeReleasedAt) {
+      throw new ConflictException(
+        `session ${id} has a terminal status but its runtime (${row.runtimeHandle}) was never ` +
+          "confirmed destroyed — the status is written before the destroy is attempted, so this " +
+          "row is still the only handle on that container. Check it, then delete it anyway with " +
+          "?force=true.",
+      );
+    }
+    if (force) {
+      this.logger.warn(
+        `session ${id} deleted with force: runtime ${row.runtimeHandle ?? "(none)"} and ` +
+          `${(row.runtimeVaultIds ?? []).length} vault(s) were not confirmed released`,
+      );
+    }
+    await this.db.delete(sessions).where(eq(sessions.id, id));
   }
 }

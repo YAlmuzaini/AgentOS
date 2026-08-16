@@ -1,10 +1,11 @@
 import { SKILL_KINDS, type CreateSkillInput, type SkillDto } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Sparkles } from "lucide-react";
+import { Download, Plus, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { CreatePanel } from "../components/ui/create-panel";
+import { DeleteAction } from "../components/ui/delete-action";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Field, Input, Select, Textarea } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
@@ -24,6 +25,11 @@ export function SkillsPage(): React.JSX.Element {
     queryKey: ["skills", projectId],
     queryFn: () => api.skills(projectId!),
     enabled: Boolean(projectId),
+  });
+
+  const installBuiltIns = useMutation({
+    mutationFn: () => api.installBuiltInSkills(projectId!),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["skills", projectId] }),
   });
 
   const create = useMutation({
@@ -56,10 +62,23 @@ export function SkillsPage(): React.JSX.Element {
         title="Skills"
         meta={list.length > 0 ? `${list.length} available` : undefined}
         actions={
-          <Button variant="solid" onClick={() => setCreating(true)}>
-            <Plus />
-            New skill
-          </Button>
+          <>
+            {/* A skill is text injected into the session prompt, not a file
+                written into a repository — so installing the shipped ones is
+                safe to repeat and cannot collide with anything in git. */}
+            <Button
+              variant="outline"
+              onClick={() => installBuiltIns.mutate()}
+              disabled={installBuiltIns.isPending}
+            >
+              <Download />
+              {installBuiltIns.isPending ? "Installing…" : "Install built-ins"}
+            </Button>
+            <Button variant="solid" onClick={() => setCreating(true)}>
+              <Plus />
+              New skill
+            </Button>
+          </>
         }
       />
 
@@ -174,6 +193,7 @@ export function SkillsPage(): React.JSX.Element {
                 <TH>Slug</TH>
                 <TH>Kind</TH>
                 <TH>Body / file</TH>
+                <TH aria-label="Actions" />
               </tr>
             </THead>
             <tbody>
@@ -186,6 +206,19 @@ export function SkillsPage(): React.JSX.Element {
                   </TD>
                   <TD className="max-w-xs truncate text-xs text-ink-faint">
                     {skill.kind === "prompt" ? skill.body : skill.filePath}
+                  </TD>
+                  <TD className="text-right">
+                    <DeleteAction
+                      what={skill.name}
+                      body={
+                        <>
+                          Any agent granted this skill loses it from its prompt on the next
+                          session. A file skill's file stays on the agent filesystem.
+                        </>
+                      }
+                      onDelete={() => api.deleteSkill(project.id, skill.id)}
+                      invalidate={[["skills", project.id], ["agents", project.id]]}
+                    />
                   </TD>
                 </TR>
               ))}

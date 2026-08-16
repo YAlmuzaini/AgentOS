@@ -195,4 +195,19 @@ export class TriggersService {
       createdAt: row.createdAt.toISOString(),
     };
   }
+
+  /**
+   * Removes one trigger. Its recorded fires go with it: they are that trigger's audit trail and mean
+   * nothing without it.
+   */
+  async remove(projectId: string, id: string): Promise<void> {
+    const [row] = await this.db
+      .select({ id: triggers.id })
+      .from(triggers)
+      .where(and(eq(triggers.projectId, projectId), eq(triggers.id, id)));
+    if (!row) {
+      throw new NotFoundException(`trigger ${id} not found`);
+    }
+    await this.db.delete(triggers).where(eq(triggers.id, id));
+  }
 }

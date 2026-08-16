@@ -1047,6 +1047,59 @@ rather than normalising it. A browser folds `\` into `/` and reads
 userinfo on host `attacker.example`. Agreeing with either one is a guess, and guessing wrong hands
 the token to the host git actually dials. No legitimate remote contains a backslash.
 
+## Deleting things, and installing them
+
+Two gaps the founder hit within an hour of using their own software.
+
+**Nothing could be deleted.** Only files, secrets, tasks and GitHub installations had a DELETE.
+Agents, repos, MCP connections, environments, skills, triggers, automations, templates, goals,
+sessions and projects could be created and never removed — the first typo was permanent. All of
+them now can be, from the UI.
+
+The interesting part is what deletion has to clean up. An agent holds its grants as **jsonb**
+(`repoAccess`, `mcpConnectionIds`, `skillIds`, `collaborationList`), which the database cannot
+cascade through, so `deletion.service.ts` strips each reference in the same transaction. Nothing
+insecure followed from a stale id — `manifest.ts` resolves by `(id, projectId)` and a missing row
+resolves to nothing — but an agent screen listing a repository that is gone tells the operator
+something untrue about what that agent can reach.
+
+**A new project was fourteen forms from being usable.** `ROLE_SEEDS` was the agent library all
+along, reachable only from `pnpm db:seed`. `builtInRoleInstalls()` moved it into
+`@agentos/shared` so the seed and the new install endpoint cannot drift, and both Agents and Skills
+now have an "Install built-ins" button.
+
+### Six review rounds, five of them refusals
+
+This is the longest review the project has run, and it earned it: every round found something real,
+and **three of the findings were regressions in the previous round's fix.**
+
+| Round | What it found |
+|---|---|
+| 5 | 4 High: project deletion stranding live containers; leaving R2 objects; the installer overwriting a collaboration list; a transaction that opened `tx` and then issued both statements on `this.db` |
+| 6 | 4 High: terminal status ≠ container destroyed; **the file deletion I had just added ran before the locked recheck, so a refused deletion destroyed the files**; provenance-by-name overwriting an operator's own agent; the goal-dispatch race |
+| 7 | `runtime_released_at` still falsely released a live runtime — the backfill guessed, and `VaultCleanup` set it after deleting vaults only |
+| 8 | **The maintenance reaper never marked release**, so every session it finished became permanently undeletable — my regression |
+| 9 | The unpersisted-handle window: `provision()` returns a live container and the row records it a statement later |
+| 10 | **My fix put handle persistence inside the fallback catch**, so a failed database write sent the session to the cloud while the live local container stayed unrecorded — and `destroyQuietly` swallowed the destroy failure, so it claimed a container was gone when it was not |
+| 11 | **GO** |
+
+**What actually changed as a result.** Deletion refuses while anything is live *or* holds
+credentials *or* has a runtime never confirmed destroyed. `runtime_released_at` is written in
+exactly two places, both immediately after `runner.destroy()` returns. `agents.built_in` is a real
+provenance column, and migration 0017 deliberately backfills **nothing** — two predicates were
+tried and both were unsound, and a name is not provenance. The handle is now persisted the instant
+it exists, and a runtime that can be neither recorded nor destroyed is written down anyway, because
+a row that names an orphan is the difference between one the operator can find and one they cannot.
+
+**The escape hatch.** `DELETE /sessions/:id?force=true` exists because some rows can never satisfy
+the guard — anything predating the column. It refuses by default, names the runtime in the refusal,
+and logs a warning when forced. Project deletion has no force.
+
+**Known and accepted.** An operator who pauses a goal and deletes it in the same second, while an
+iteration is mid-dispatch, can still produce a session for a goal that is gone; the orchestrator
+re-checks immediately before creating the container, which narrows it to a window the operator has
+to race deliberately. The reviewer agreed this is not a deployment blocker for a single operator.
+
 ## Next session
 
 The nine gaps are closed and every wall around them has a test. What is left is the part a coding

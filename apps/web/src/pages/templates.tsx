@@ -6,6 +6,7 @@ import { ArrowRight, Download, FolderGit2, Play, ShieldCheck, User } from "lucid
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { DeleteAction } from "../components/ui/delete-action";
 import { useConfirm } from "../components/ui/confirm";
 import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Field, FormActions, Input } from "../components/ui/form";
@@ -110,6 +111,8 @@ export function TemplatesPage(): React.JSX.Element {
               key={template.id}
               template={template}
               onPreview={() => setPreviewing(template)}
+              projectId={project.id}
+              onDeleted={() => api.deleteTemplate(project.id, template.id)}
             />
           ))}
         </div>
@@ -134,6 +137,8 @@ export function TemplatesPage(): React.JSX.Element {
 function TemplateCard(props: {
   template: TaskTemplateDto;
   onPreview: () => void;
+  projectId: string;
+  onDeleted: () => Promise<unknown>;
 }): React.JSX.Element {
   const { template } = props;
   const gates = template.steps.filter((step) => step.approvalGate).length;
@@ -182,6 +187,19 @@ function TemplateCard(props: {
           ) : null}
         </div>
 
+        <div className="mt-2 flex items-center gap-2">
+          <DeleteAction
+            what={template.name}
+            body={
+              <>
+                Chains already instantiated from it keep running — a template is a mould, not a
+                parent. Built-in templates come back with "Install built-ins".
+              </>
+            }
+            onDelete={props.onDeleted}
+            invalidate={[["templates", props.projectId]]}
+          />
+        </div>
         <Button className="mt-2 w-full" onClick={props.onPreview}>
           <Play />
           Use template

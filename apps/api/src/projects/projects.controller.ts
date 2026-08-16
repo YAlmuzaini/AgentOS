@@ -5,7 +5,17 @@ import {
   type UpdateProjectInput,
   updateProjectSchema,
 } from "@agentos/shared";
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Put,
+  UseGuards,
+} from "@nestjs/common";
 import { OperatorGuard } from "../auth/operator.guard";
 import { ZodBody } from "../common/zod-body.pipe";
 import { ProjectsService } from "./projects.service";
@@ -38,5 +48,10 @@ export class ProjectsController {
     @Body(new ZodBody(updateProjectSchema)) body: UpdateProjectInput,
   ): Promise<ProjectDto> {
     return this.projects.update(id, body);
+  }
+
+  @Delete(":id")
+  remove(@Param("id", ParseUUIDPipe) id: string): Promise<void> {
+    return this.projects.remove(id);
   }
 }

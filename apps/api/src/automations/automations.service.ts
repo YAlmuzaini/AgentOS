@@ -162,6 +162,26 @@ export class AutomationsService implements OnModuleInit {
     }
     return row;
   }
+
+  /**
+   * Removes one automation. Tasks it already created are left alone; those are
+   * work in their own right.
+   *
+   * The repeatable job is cancelled *first*. Deleting only the row leaves the
+   * schedule alive in Redis until its next occurrence, which then fires, finds
+   * nothing, and fails — and a monthly cron would sit there for weeks.
+   */
+  async remove(projectId: string, id: string): Promise<void> {
+    const [row] = await this.db
+      .select({ id: automations.id })
+      .from(automations)
+      .where(and(eq(automations.projectId, projectId), eq(automations.id, id)));
+    if (!row) {
+      throw new NotFoundException(`automation ${id} not found`);
+    }
+    await this.queue.cancelAutomation(id);
+    await this.db.delete(automations).where(eq(automations.id, id));
+  }
 }
 
 function toDto(row: AutomationRow): AutomationDto {

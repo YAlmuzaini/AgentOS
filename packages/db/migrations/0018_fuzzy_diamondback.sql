@@ -1,0 +1,14 @@
+ALTER TABLE "sessions" ADD COLUMN "runtime_released_at" timestamp with time zone;--> statement-breakpoint
+-- Deliberately no backfill.
+--
+-- Two predicates were tried and both were wrong. "No vaults left" is false for
+-- local and credential-free sessions, which start empty and would be marked
+-- released while still running. "destroyed with no error" is false too:
+-- `finish()` writes exactly that state *before* the destroy is attempted, so a
+-- process that crashed in between leaves a live container looking clean.
+--
+-- There is no signal in the old rows that distinguishes a destroyed container
+-- from one that was never reached, so this guesses at nothing. Sessions that
+-- predate the column keep a null here and are refused by the delete guards.
+-- Deleting one anyway is an explicit choice, made per session through the
+-- `force` flag, which says out loud what it is giving up.

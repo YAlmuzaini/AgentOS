@@ -59,6 +59,8 @@ async function main(): Promise<void> {
       .insert(agents)
       .values({
         projectId: project.id,
+        // Marks provenance: the installer only refreshes rows it created.
+        builtIn: true,
         name: role.name,
         title: role.title,
         model,
@@ -75,16 +77,20 @@ async function main(): Promise<void> {
       })
       .onConflictDoUpdate({
         target: [agents.projectId, agents.name],
+        // Only rows the seed itself created. Reconciling by name alone meant an
+        // operator's own agent that happens to be called `plan` had its role
+        // prompt — its behaviour — rewritten by a re-seed.
+        setWhere: eq(agents.builtIn, true),
         set: {
           title: role.title,
           foundationalPrompt: FOUNDATIONAL_PROMPT,
           rolePrompt: role.rolePrompt,
-          collaborationList: COLLABORATION[role.name] ?? [],
-          // `runnerPreference` is deliberately absent. What this upsert
-          // reconciles is content *we* author — titles, prompts, the
-          // collaboration list — and re-seeding is how a built-in picks up an
-          // improved prompt. Where an agent runs is the operator's judgement
-          // and their money, so re-seeding must not quietly move it back.
+          // `runnerPreference` and `collaborationList` are deliberately
+          // absent. What this upsert reconciles is text *we* author — titles
+          // and prompts — and re-seeding is how a built-in picks up an improved
+          // one. Where an agent runs is the operator's money, and a
+          // collaboration list is spawn authorisation, so re-seeding must not
+          // quietly restore either.
           // Migration 0013 does the one-time correction for installs that were
           // seeded while the old hardcoded `cloud` default was in place.
           updatedAt: new Date(),

@@ -74,12 +74,8 @@ export class SessionOrchestrator {
         budgetUsd: null,
         preference,
       }));
-      await this.sessions.attachRuntime(
-        session.id,
-        handle.runtimeSessionId,
-        handle.traceUrl,
-        handle.vaultIds ?? [],
-      );
+      // The handle was recorded by `provisionWithFallback` the moment it
+      // existed; nothing to attach here.
 
       const result = await this.consumer.consume({
         runner,
@@ -149,12 +145,8 @@ export class SessionOrchestrator {
         goalId: input.goalId,
         preference,
       }));
-      await this.sessions.attachRuntime(
-        session.id,
-        handle.runtimeSessionId,
-        handle.traceUrl,
-        handle.vaultIds ?? [],
-      );
+      // The handle was recorded by `provisionWithFallback` the moment it
+      // existed; nothing to attach here.
 
       const result = await this.consumer.consume({
         runner,
@@ -201,6 +193,56 @@ export class SessionOrchestrator {
    * session into a failure instead of a cloud run — the opposite of what
    * "prefers local, falls back to cloud" promises.
    */
+  /**
+   * Writes the runtime handle down the instant it exists.
+   *
+   * `provision` returns a live container and `attachRuntime` is what records
+   * it. Everything between those two statements is a window in which a runtime
+   * is running that the control plane has no handle for — not recoverable by
+   * the orphan sweep, not attributable, not destroyable. So the write happens
+   * here, immediately, and a failure to write is treated as a failed
+   * provision: the container is destroyed rather than left behind.
+   */
+  private async persistHandle(
+    runner: Runner,
+    handle: RunnerHandle,
+    sessionId: string,
+  ): Promise<void> {
+    try {
+      await this.sessions.attachRuntime(
+        sessionId,
+        handle.runtimeSessionId,
+        handle.traceUrl,
+        handle.vaultIds ?? [],
+      );
+    } catch (error) {
+      // `destroyQuietly` swallows a failed destroy, which would let this claim
+      // the container is gone when it is not. Called directly so the failure is
+      // visible, and on failure the handle is written by whatever means are
+      // left — a row that names the runtime is the difference between an
+      // orphan the operator can find and one they cannot.
+      try {
+        await runner.destroy(handle);
+      } catch (destroyError) {
+        await this.sessions
+          .recordOrphanedRuntime(sessionId, handle.runtimeSessionId, String(destroyError))
+          .catch((writeError: unknown) =>
+            this.logger.error(
+              `session ${sessionId}: runtime ${handle.runtimeSessionId} is orphaned and could ` +
+                `not be recorded: ${String(writeError)}`,
+            ),
+          );
+        throw new Error(
+          `provisioned ${handle.runtimeSessionId}, could not record it (${String(error)}), and ` +
+            `could not destroy it either (${String(destroyError)}) — it is still running`,
+        );
+      }
+      throw new Error(
+        `provisioned ${handle.runtimeSessionId} but could not record it, so it was destroyed: ${String(error)}`,
+      );
+    }
+  }
+
   private async provisionWithFallback(input: {
     agent: AgentRow;
     task: TaskRow | null;
@@ -210,6 +252,25 @@ export class SessionOrchestrator {
     budgetUsd: number | null;
     goalId?: string | null;
     /** How this backend was chosen — decides whether a refusal may fall back. */
+    preference: "cloud" | "local" | "auto";
+  }): Promise<{ runner: Runner; handle: RunnerHandle }> {
+    const provisioned = await this.chooseAndProvision(input);
+    // Outside the fallback decision on purpose. Persisting the handle inside it
+    // classified a failed *database write* as a local provisioning refusal, and
+    // sent the session to the cloud while the live local container stayed
+    // unrecorded.
+    await this.persistHandle(provisioned.runner, provisioned.handle, input.sessionId);
+    return provisioned;
+  }
+
+  private async chooseAndProvision(input: {
+    agent: AgentRow;
+    task: TaskRow | null;
+    runner: Runner;
+    sessionId: string;
+    kickoff?: string;
+    budgetUsd: number | null;
+    goalId?: string | null;
     preference: "cloud" | "local" | "auto";
   }): Promise<{ runner: Runner; handle: RunnerHandle }> {
     const onVaultsCreated = (vaultIds: string[]) =>

@@ -11,6 +11,7 @@ import { Pencil, Plus, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { DeleteAction } from "../components/ui/delete-action";
 import { CreatePanel } from "../components/ui/create-panel";
 import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Field, FormActions, Input, Select } from "../components/ui/form";
@@ -226,6 +227,22 @@ export function EnvironmentPage(): React.JSX.Element {
                           <Pencil />
                           Edit
                         </Button>
+                        <DeleteAction
+                          what={environment.name}
+                          body={
+                            <>
+                              Agents placed in it keep running but lose their environment, and an
+                              agent without one resolves no environment variables at all. Its
+                              variable bindings go with it.
+                            </>
+                          }
+                          onDelete={() => api.deleteEnvironment(project.id, environment.id)}
+                          invalidate={[
+                            ["environments", project.id],
+                            ["env-bindings", project.id],
+                            ["agents", project.id],
+                          ]}
+                        />
                       </div>
                     </TD>
                   </TR>

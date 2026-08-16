@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { CreatePanel } from "../components/ui/create-panel";
+import { DeleteAction } from "../components/ui/delete-action";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Field, Input } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
@@ -198,6 +199,7 @@ export function ReposPage(): React.JSX.Element {
                 <TH>Mount path</TH>
                 <TH>Branch</TH>
                 <TH>Auth</TH>
+                <TH aria-label="Actions" />
               </tr>
             </THead>
             <tbody>
@@ -221,6 +223,20 @@ export function ReposPage(): React.JSX.Element {
                         ? (secrets.data?.find((s) => s.id === repo.credentialSecretId)?.name ??
                           repo.credentialSecretId)
                         : "none"}
+                  </TD>
+                  <TD className="text-right">
+                    <DeleteAction
+                      what={repo.name}
+                      body={
+                        <>
+                          The repository stays on GitHub. What goes is this mount and the grant
+                          every agent had to it, so any agent that was working in{" "}
+                          <span className="machine">{repo.mountPath}</span> will no longer see it.
+                        </>
+                      }
+                      onDelete={() => api.deleteRepo(project.id, repo.id)}
+                      invalidate={[["repos", project.id], ["agents", project.id]]}
+                    />
                   </TD>
                 </TR>
               ))}

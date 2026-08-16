@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { CreatePanel } from "../components/ui/create-panel";
+import { DeleteAction } from "../components/ui/delete-action";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Field, Input, Select } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
@@ -166,6 +167,7 @@ export function McpsPage(): React.JSX.Element {
                 <TH>URL</TH>
                 <TH>Allowed operations</TH>
                 <TH>Credential</TH>
+                <TH aria-label="Actions" />
               </tr>
             </THead>
             <tbody>
@@ -193,6 +195,19 @@ export function McpsPage(): React.JSX.Element {
                       ? (secrets.data?.find((s) => s.id === connection.credentialSecretId)?.name ??
                         connection.credentialSecretId)
                       : "none"}
+                  </TD>
+                  <TD className="text-right">
+                    <DeleteAction
+                      what={connection.name}
+                      body={
+                        <>
+                          Any agent granted this connection loses those tools on its next session.
+                          Nothing is changed on the MCP server itself.
+                        </>
+                      }
+                      onDelete={() => api.deleteMcpConnection(project.id, connection.id)}
+                      invalidate={[["mcp-connections", project.id], ["agents", project.id]]}
+                    />
                   </TD>
                 </TR>
               ))}

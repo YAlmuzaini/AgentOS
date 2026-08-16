@@ -91,9 +91,6 @@ export class SessionTeardown {
     }
     try {
       await runner.destroy(handle);
-      // Only now: the row keeps its vault ids until the credentials are
-      // provably gone, which is what makes the retry queue self-maintaining.
-      await this.sessions.clearVaults(sessionId);
     } catch (error) {
       // A container that outlived its session bills until a human notices, and
       // the whole point of this product is that no human is looking.
@@ -107,6 +104,22 @@ export class SessionTeardown {
         .catch((recordError: unknown) =>
           this.logger.error(`session ${sessionId}: ${String(recordError)}`),
         );
+      return;
+    }
+
+    // Outside the try, because a database failure here is not a destroy
+    // failure: the container really is gone, and recording "container was not
+    // destroyed" would send someone hunting for one that does not exist.
+    try {
+      // The row keeps its vault ids until the credentials are provably gone,
+      // which is what makes the retry queue self-maintaining; and
+      // `markRuntimeReleased` is what later allows the row to be deleted.
+      await this.sessions.clearVaults(sessionId);
+      await this.sessions.markRuntimeReleased(sessionId);
+    } catch (error) {
+      this.logger.error(
+        `session ${sessionId}: destroyed, but the row could not be updated: ${String(error)}`,
+      );
     }
   }
 

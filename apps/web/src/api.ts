@@ -64,6 +64,7 @@ function query(params: Record<string, string | undefined>): string {
 
 export const api = {
   projects: () => request<ProjectDto[]>("/projects"),
+  deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: "DELETE" }),
   createProject: (body: CreateProjectInput) =>
     request<ProjectDto>("/projects", { method: "POST", body: JSON.stringify(body) }),
   // PUT, matching the controller — a PATCH here 404s, which reads in the UI as
@@ -82,6 +83,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  deleteAgent: (projectId: string, id: string) =>
+    request<void>(`/projects/${projectId}/agents/${id}`, { method: "DELETE" }),
+  installBuiltInAgents: (projectId: string) =>
+    request<AgentDto[]>(`/projects/${projectId}/agents/install-built-ins`, { method: "POST" }),
   agent: (projectId: string, id: string) =>
     request<AgentDto>(`/projects/${projectId}/agents/${id}`),
 
@@ -114,6 +119,7 @@ export const api = {
   sessions: (projectId?: string) =>
     request<SessionSummaryDto[]>(`/sessions${projectId ? `?projectId=${projectId}` : ""}`),
   session: (id: string) => request<SessionDto>(`/sessions/${id}`),
+  deleteSession: (id: string) => request<void>(`/sessions/${id}`, { method: "DELETE" }),
 
   inbox: (projectId?: string, status?: string) =>
     request<InboxMessageDto[]>(
@@ -144,6 +150,8 @@ export const api = {
 
   environments: (projectId: string) =>
     request<EnvironmentDto[]>(`/projects/${projectId}/environments`),
+  deleteEnvironment: (projectId: string, id: string) =>
+    request<void>(`/projects/${projectId}/environments/${id}`, { method: "DELETE" }),
   createEnvironment: (projectId: string, body: CreateEnvironmentInput) =>
     request<EnvironmentDto>(`/projects/${projectId}/environments`, {
       method: "POST",
@@ -157,6 +165,8 @@ export const api = {
 
   mcpConnections: (projectId: string) =>
     request<McpConnectionDto[]>(`/projects/${projectId}/mcp-connections`),
+  deleteMcpConnection: (projectId: string, id: string) =>
+    request<void>(`/projects/${projectId}/mcp-connections/${id}`, { method: "DELETE" }),
   createMcpConnection: (projectId: string, body: CreateMcpConnectionInput) =>
     request<McpConnectionDto>(`/projects/${projectId}/mcp-connections`, {
       method: "POST",
@@ -178,6 +188,8 @@ export const api = {
     }),
 
   repos: (projectId: string) => request<RepoDto[]>(`/projects/${projectId}/repos`),
+  deleteRepo: (projectId: string, id: string) =>
+    request<void>(`/projects/${projectId}/repos/${id}`, { method: "DELETE" }),
   createRepo: (projectId: string, body: CreateRepoInput) =>
     request<RepoDto>(`/projects/${projectId}/repos`, {
       method: "POST",
@@ -185,6 +197,10 @@ export const api = {
     }),
 
   skills: (projectId: string) => request<SkillDto[]>(`/projects/${projectId}/skills`),
+  installBuiltInSkills: (projectId: string) =>
+    request<SkillDto[]>(`/projects/${projectId}/skills/install-built-ins`, { method: "POST" }),
+  deleteSkill: (projectId: string, id: string) =>
+    request<void>(`/projects/${projectId}/skills/${id}`, { method: "DELETE" }),
   createSkill: (projectId: string, body: CreateSkillInput) =>
     request<SkillDto>(`/projects/${projectId}/skills`, {
       method: "POST",
@@ -253,6 +269,8 @@ export const api = {
   goals: (projectId: string) => request<GoalDto[]>(`/projects/${projectId}/goals`),
   goal: (projectId: string, id: string) =>
     request<GoalDto>(`/projects/${projectId}/goals/${id}`),
+  deleteGoal: (projectId: string, id: string) =>
+    request<void>(`/projects/${projectId}/goals/${id}`, { method: "DELETE" }),
   createGoal: (projectId: string, body: Partial<CreateGoalInput>) =>
     request<GoalDto>(`/projects/${projectId}/goals`, {
       method: "POST",
@@ -269,6 +287,8 @@ export const api = {
     request<GoalDto>(`/projects/${projectId}/goals/${id}/resume`, { method: "POST" }),
 
   triggers: (projectId: string) => request<TriggerDto[]>(`/projects/${projectId}/triggers`),
+  deleteTrigger: (projectId: string, id: string) =>
+    request<void>(`/projects/${projectId}/triggers/${id}`, { method: "DELETE" }),
   createTrigger: (projectId: string, body: CreateTriggerInput) =>
     request<TriggerSecretDto>(`/projects/${projectId}/triggers`, {
       method: "POST",
@@ -294,6 +314,8 @@ export const api = {
 
   automations: (projectId: string) =>
     request<AutomationDto[]>(`/projects/${projectId}/automations`),
+  deleteAutomation: (projectId: string, id: string) =>
+    request<void>(`/projects/${projectId}/automations/${id}`, { method: "DELETE" }),
   createAutomation: (projectId: string, body: Partial<CreateAutomationInput>) =>
     request<AutomationDto>(`/projects/${projectId}/automations`, {
       method: "POST",
@@ -314,6 +336,8 @@ export const api = {
 
   templates: (projectId: string) =>
     request<TaskTemplateDto[]>(`/projects/${projectId}/templates`),
+  deleteTemplate: (projectId: string, id: string) =>
+    request<void>(`/projects/${projectId}/templates/${id}`, { method: "DELETE" }),
   /** Re-installs the built-in workflows over whatever is there. */
   installBuiltInTemplates: (projectId: string) =>
     request<TaskTemplateDto[]>(`/projects/${projectId}/templates/install-built-ins`, {

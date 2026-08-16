@@ -5,7 +5,9 @@ import {
   createGoalSchema,
   type GoalDto,
 } from "@agentos/shared";
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import {
+  Body, Controller,
+  Delete, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
 import { OperatorGuard } from "../auth/operator.guard";
 import { ZodBody } from "../common/zod-body.pipe";
 import { GoalsService } from "./goals.service";
@@ -60,5 +62,13 @@ export class GoalsController {
     @Param("id", ParseUUIDPipe) id: string,
   ): Promise<GoalDto> {
     return this.goals.resume(projectId, id);
+  }
+
+  @Delete(":id")
+  remove(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.goals.remove(projectId, id);
   }
 }

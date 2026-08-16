@@ -4,6 +4,7 @@ import { CalendarClock, Pause, Play, Plus } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { DeleteAction } from "../components/ui/delete-action";
 import { useConfirm } from "../components/ui/confirm";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
@@ -156,6 +157,8 @@ export function AutomationsPage(): React.JSX.Element {
                     })
                   }
                   onDisable={() => disable.mutate(automation.id)}
+                  projectId={project.id}
+                  onDeleted={() => api.deleteAutomation(project.id, automation.id)}
                   onRunConfirmed={() =>
                     confirm({
                       kind: "spend",
@@ -187,6 +190,8 @@ function AutomationRow(props: {
   onEnable: () => void;
   onDisable: () => void;
   onRunConfirmed: () => void;
+  onDeleted: () => Promise<unknown>;
+  projectId: string;
 }): React.JSX.Element {
   const { automation } = props;
   const target = automation.taskTemplateId
@@ -224,6 +229,17 @@ function AutomationRow(props: {
             {automation.enabled ? <Pause /> : <Play />}
             {automation.enabled ? "Disable" : "Enable"}
           </Button>
+          <DeleteAction
+            what={automation.name}
+            body={
+              <>
+                The schedule stops. Tasks it already created are left alone — those are work in
+                their own right.
+              </>
+            }
+            onDelete={props.onDeleted}
+            invalidate={[["automations", props.projectId]]}
+          />
           <Button size="sm" onClick={props.onRunConfirmed}>
             Run now
           </Button>

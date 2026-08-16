@@ -152,6 +152,22 @@ export class GoalOrchestrator {
     // more than the ceiling allows.
     await this.goals.reserveIteration(goal.id, agentName);
 
+    // Re-read immediately before the container exists. This turn checked the
+    // goal was active several awaits ago; an operator can pause and delete it
+    // in that window, and `sessions.goal_id` has no foreign key to stop the
+    // session being created against a goal that is gone — it would run, spend,
+    // and fail at the end trying to update nothing. The reservation above is
+    // already recorded, so the cost of losing this race is one unused
+    // iteration slot on a goal that no longer exists.
+    if (!(await this.goals.exists(goal.id))) {
+      await this.goalLog.appendProgress(
+        goal.id,
+        "orchestrator",
+        `${agentName} was not dispatched: the goal was deleted while this turn was deciding`,
+      );
+      return false;
+    }
+
     const result = await this.sessions.runGoalStep({
       goalId: goal.id,
       projectId: goal.projectId,
