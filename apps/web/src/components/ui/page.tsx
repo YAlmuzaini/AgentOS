@@ -41,8 +41,16 @@ export function Page({
 }: {
   children: ReactNode;
   className?: string;
-  /** `reading` narrows to a comfortable measure for text-led screens. */
-  width?: "full" | "reading" | "form";
+  /**
+   * `reading` narrows to a comfortable measure for text-led screens.
+   *
+   * There was a third, `form` (`max-w-2xl`), for the settings screens. It is
+   * gone: unlike `reading` it did not centre, so on a desk monitor it produced
+   * a 670px strip of panels hard against the rail with the other half of the
+   * sheet empty. Configuration screens are two columns now — things you set in
+   * the main column, reference in a rail beside it.
+   */
+  width?: "full" | "reading";
   /**
    * Make the page exactly as tall as the viewport and let its own regions
    * scroll, instead of growing the main scroller.
@@ -62,7 +70,6 @@ export function Page({
         // turning a single stacked column into its own little scroller is not.
         fill ? "space-y-5 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:space-y-0 lg:gap-5" : "space-y-5",
         width === "reading" ? "mx-auto max-w-3xl" : null,
-        width === "form" ? "max-w-2xl" : null,
         className,
       )}
     >

@@ -253,7 +253,7 @@ describe("review findings", () => {
     ]);
     await orchestrator.runTask(task.id);
 
-    const [message] = await inbox.list("open");
+    const [message] = await inbox.list(undefined, "open");
     await expect(inbox.reply(message!.id, { selectedChoiceId: "mongodb" })).rejects.toThrow(
       /not one of the offered choices/,
     );

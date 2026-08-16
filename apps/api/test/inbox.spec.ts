@@ -93,7 +93,7 @@ describe("inbox pause and resume", () => {
     const parkedTask = await tasks.get(projectId, task.id);
     expect(parkedTask.status).toBe("doing");
 
-    const messages = await inbox.list("open");
+    const messages = await inbox.list(undefined, "open");
     expect(messages).toHaveLength(1);
     expect(messages[0]!.kind).toBe("multiple-choice");
     expect(messages[0]!.choices.map((choice) => choice.id)).toEqual(["postgres", "sqlite"]);
@@ -102,7 +102,7 @@ describe("inbox pause and resume", () => {
 
   it("resumes the session with the chosen answer and then finishes it", async () => {
     const { projectId, task } = await runUntilParked();
-    const [message] = await inbox.list("open");
+    const [message] = await inbox.list(undefined, "open");
 
     const answered = await inbox.reply(message!.id, { selectedChoiceId: "sqlite" });
     expect(answered.status).toBe("answered");
@@ -145,7 +145,7 @@ describe("inbox pause and resume", () => {
     ]);
     await orchestrator.runTask(task.id);
 
-    const [message] = await inbox.list("open");
+    const [message] = await inbox.list(undefined, "open");
     expect(message!.kind).toBe("text");
     const [session] = await sessions.list();
     expect(session!.status).toBe("destroyed");
@@ -156,7 +156,7 @@ describe("inbox pause and resume", () => {
 
   it("refuses an answer that is not one of the offered choices", async () => {
     await runUntilParked();
-    const [message] = await inbox.list("open");
+    const [message] = await inbox.list(undefined, "open");
     await expect(inbox.reply(message!.id, { selectedChoiceId: "mongodb" })).rejects.toThrow(
       /not one of the offered choices/,
     );
@@ -164,7 +164,7 @@ describe("inbox pause and resume", () => {
 
   it("refuses to answer the same question twice", async () => {
     await runUntilParked();
-    const [message] = await inbox.list("open");
+    const [message] = await inbox.list(undefined, "open");
     await inbox.reply(message!.id, { selectedChoiceId: "postgres" });
     await expect(inbox.reply(message!.id, { selectedChoiceId: "sqlite" })).rejects.toThrow(
       /already answered/,
@@ -197,7 +197,7 @@ describe("inbox pause and resume", () => {
     await orchestrator.runTask(task.id);
 
     expect(harness.runner.injectedResults[0]!.result).toMatch(/no inbox access/);
-    expect(await inbox.list("open")).toHaveLength(0);
+    expect(await inbox.list(undefined, "open")).toHaveLength(0);
   });
 
   /**
@@ -250,7 +250,7 @@ describe("inbox pause and resume", () => {
 
     await orchestrator.runTask(task.id);
 
-    const [message] = await inbox.list("open");
+    const [message] = await inbox.list(undefined, "open");
     expect(message!.questions).toHaveLength(2);
     expect(message!.questions[0]!.detail).toBe("It decides the whole flow.");
     // Everything the operator needs to answer without opening another screen.
@@ -287,7 +287,7 @@ describe("inbox pause and resume", () => {
     expect(resumed).toContain("A: Magic link");
     expect(resumed).toContain("they invite each other");
 
-    const [answered] = await inbox.list("answered");
+    const [answered] = await inbox.list(undefined, "answered");
     expect(answered!.answers).toHaveLength(2);
     expect(answered!.answeredAt).not.toBeNull();
   });
@@ -324,7 +324,7 @@ describe("inbox pause and resume", () => {
     ]);
     await orchestrator.runTask(task.id);
 
-    const [message] = await inbox.list("open");
+    const [message] = await inbox.list(undefined, "open");
     // The legacy column is still filled, so anything reading `choices` works.
     expect(message!.choices).toHaveLength(2);
     expect(message!.questions).toHaveLength(1);

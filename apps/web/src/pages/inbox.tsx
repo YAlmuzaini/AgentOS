@@ -9,6 +9,7 @@ import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
+import { useActiveProject } from "../hooks/use-project";
 import { useUrlSelection } from "../hooks/use-url-selection";
 import { EnableNotifications } from "./enable-notifications";
 import { InboxList } from "./inbox-list";
@@ -32,9 +33,16 @@ export function InboxPage(): React.JSX.Element {
   const { id: idFromUrl } = useSearch({ strict: false }) as { id?: string };
   const [selected, setSelected] = useUrlSelection(idFromUrl);
 
+  // Scoped to the project on screen: a question from another workspace is one
+  // the operator cannot open the card for, and answering it resumes a session
+  // they cannot see.
+  const { project } = useActiveProject();
+  const projectId = project?.id;
+
   const messages = useQuery({
-    queryKey: ["inbox"],
-    queryFn: () => api.inbox(),
+    queryKey: ["inbox", projectId],
+    queryFn: () => api.inbox(projectId),
+    enabled: Boolean(projectId),
     refetchInterval: 5000,
   });
 
@@ -51,6 +59,8 @@ export function InboxPage(): React.JSX.Element {
         answers: input.answers,
       }),
     onSuccess: () => {
+      // Prefix keys, so both the scoped list here and the top bar's badge
+      // refresh whichever project they were asked for.
       void queryClient.invalidateQueries({ queryKey: ["inbox"] });
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
       void queryClient.invalidateQueries({ queryKey: ["inbox-thread"] });

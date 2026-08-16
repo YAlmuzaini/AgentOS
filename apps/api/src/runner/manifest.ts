@@ -5,10 +5,13 @@ import {
   repos as reposTable,
   skills as skillsTable,
 } from "@agentos/db";
+import { remoteAcceptsInstallationToken } from "@agentos/shared";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { and, eq, inArray } from "drizzle-orm";
 import type { AgentRow } from "../agents/agents.service";
 import { DATABASE } from "../db/db.module";
+import { GithubAppService } from "../github/github-app.service";
+import { GithubService } from "../github/github.service";
 import { registerSecret } from "../observability/secret-registry";
 import { SecretsService } from "../secrets/secrets.service";
 import type {
@@ -40,6 +43,8 @@ export class ManifestResolver {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly secrets: SecretsService,
+    private readonly github: GithubService,
+    private readonly githubApp: GithubAppService,
   ) {}
 
   async resolve(agent: AgentRow): Promise<ResolvedGrants> {
@@ -104,12 +109,64 @@ export class ManifestResolver {
         mountPath: access.mountPath || row.mountPath,
         branch: row.defaultBranch,
         permissions: access.permissions,
-        token: row.credentialSecretId
-          ? await this.resolveSecret(row.credentialSecretId, `repo ${row.name}`)
-          : null,
+        token: await this.repoToken(row),
       });
     }
     return granted;
+  }
+
+  /**
+   * The credential this clone will use.
+   *
+   * A GitHub App installation beats a stored personal access token whenever
+   * both are set, and the difference is the point of having it: the installation
+   * mints a token that expires in an hour and reaches only the repositories the
+   * operator selected on github.com, where a PAT is long-lived and carries the
+   * union of every scope its owner ticked. A session that leaks one leaks very
+   * different amounts.
+   *
+   * Two rules make that safe, and both are here rather than at the form that
+   * usually creates a repo, because this is the one place every clone passes
+   * through — `agentos push` is a second door that can rewrite `remoteUrl` on a
+   * row whose installation stays put.
+   *
+   * **The whole origin must be the App's own, over https.** Otherwise a repo
+   * pointing at `https://attacker.example/x.git` with a legitimate installation
+   * attached makes the next session post a live token to that host, and that
+   * token opens every repository the installation covers. Scheme and port are
+   * part of that check rather than the host alone: `http://github.com/x` was
+   * accepted by a host-only comparison, and git then sent the token in
+   * plaintext to whatever answered on port 80.
+   *
+   * **A repo bound to an installation never silently falls back to the PAT.**
+   * A transient GitHub outage would otherwise swap a narrow, hour-long
+   * credential for a long-lived account-wide one at exactly the moment nobody
+   * is watching. The clone fails instead, which is the smaller loss and the one
+   * that shows up in the session record.
+   */
+  private async repoToken(row: typeof reposTable.$inferSelect): Promise<string | null> {
+    if (row.githubInstallationId) {
+      if (!remoteAcceptsInstallationToken(row.remoteUrl, this.githubApp.htmlUrl)) {
+        this.logger.error(
+          `repo ${row.name}: ${row.remoteUrl} is not an https remote on ${this.githubApp.htmlUrl}, so no installation token was minted`,
+        );
+        return null;
+      }
+      try {
+        const token = await this.github.cloneToken(row);
+        if (token) {
+          registerSecret(token);
+          return token;
+        }
+        this.logger.warn(`repo ${row.name}: its GitHub installation no longer exists`);
+      } catch (error) {
+        this.logger.warn(`repo ${row.name}: could not mint an installation token: ${String(error)}`);
+      }
+      return null;
+    }
+    return row.credentialSecretId
+      ? this.resolveSecret(row.credentialSecretId, `repo ${row.name}`)
+      : null;
   }
 
   private async resolveSkills(agent: AgentRow): Promise<GrantedSkill[]> {

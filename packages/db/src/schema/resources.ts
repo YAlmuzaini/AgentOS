@@ -59,6 +59,45 @@ export const mcpConnections = pgTable(
   (table) => [uniqueIndex("mcp_connections_project_name_key").on(table.projectId, table.name)],
 );
 
+/**
+ * A GitHub App installation the operator approved on github.com.
+ *
+ * This is the alternative to pasting a personal access token. Nothing secret is
+ * in this row: the installation id is a public identifier, and it is only
+ * useful when combined with the App's private key, which stays in the secret
+ * store. Cloning mints a fresh installation token that expires in an hour and
+ * reaches only the repositories selected during installation.
+ *
+ * Project-scoped like every other resource, so connecting GitHub for one
+ * project does not hand its repositories to another. The same installation may
+ * be recorded in two projects deliberately; each project's repos resolve
+ * against their own row.
+ */
+export const githubInstallations = pgTable(
+  "github_installations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** GitHub's numeric installation id, as text — it is an identifier, not a number to sum. */
+    installationId: text("installation_id").notNull(),
+    /** The user or organisation the App was installed on, for the UI. */
+    accountLogin: text("account_login").notNull().default(""),
+    accountType: text("account_type").notNull().default(""),
+    /** "all" or "selected", as GitHub reports it. */
+    repositorySelection: text("repository_selection").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("github_installations_project_installation_key").on(
+      table.projectId,
+      table.installationId,
+    ),
+  ],
+);
+
 export const repos = pgTable(
   "repos",
   {
@@ -69,6 +108,15 @@ export const repos = pgTable(
     name: text("name").notNull(),
     remoteUrl: text("remote_url").notNull(),
     mountPath: text("mount_path").notNull(),
+    /**
+     * How a session authenticates to clone this repo. Exactly one of these is
+     * used: the installation wins when both are set, because it is the
+     * short-lived credential and the safer default.
+     */
+    githubInstallationId: uuid("github_installation_id").references(
+      () => githubInstallations.id,
+      { onDelete: "set null" },
+    ),
     credentialSecretId: uuid("credential_secret_id").references(() => secretRefs.id, {
       onDelete: "set null",
     }),

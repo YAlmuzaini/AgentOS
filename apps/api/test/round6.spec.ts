@@ -165,7 +165,7 @@ describe("round six", () => {
 
     const [parked] = await sessions.list();
     const inbox = harness.app.get(InboxService);
-    const message = (await inbox.list("open"))[0]!;
+    const message = (await inbox.list(undefined, "open"))[0]!;
     await inbox.reply(message.id, { selectedChoiceId: "pg", body: null });
 
     // The resumed half fails after the answer lands.

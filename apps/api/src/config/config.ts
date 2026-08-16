@@ -6,6 +6,14 @@ import { z } from "zod";
  * Secrets are read from env only and never persisted (RECIPE A2). A missing
  * required secret fails startup loudly rather than degrading at runtime.
  */
+/** A URL that may carry a credential, so plaintext is refused outright. */
+const httpsUrl = z
+  .string()
+  .url()
+  .refine((value) => value.toLowerCase().startsWith("https://"), {
+    message: "must be an https:// URL — credentials are sent to it",
+  });
+
 const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(3001),
   WEB_ORIGIN: z.string().default("http://localhost:5173"),
@@ -49,6 +57,39 @@ const envSchema = z.object({
   SECRETS_PROVIDER: z.enum(["env", "gcp"]).default("env"),
   /** Default GCP project for a bare secret name; full resource paths win. */
   GCP_PROJECT_ID: z.string().default(""),
+
+  /**
+   * GitHub App, so a repo needs no personal access token (SPEC §4 Repo).
+   *
+   * A PAT is a long-lived credential with the union of every scope its owner
+   * ticked; a GitHub App mints an *installation token* that expires in an hour
+   * and reaches only the repositories the operator selected on github.com.
+   * That is strictly better for a system whose whole premise is handing
+   * credentials to a model.
+   *
+   * The App is created once by hand on github.com and its private key lives in
+   * the secret store like every other credential — the manifest flow would have
+   * AgentOS *generate* and persist a private key, and there is no write path
+   * into Secret Manager here. `GITHUB_APP_PRIVATE_KEY` is a providerRef, so
+   * under `SECRETS_PROVIDER=gcp` it names a Secret Manager resource rather than
+   * holding a PEM.
+   */
+  GITHUB_APP_ID: z.string().default(""),
+  GITHUB_APP_SLUG: z.string().default(""),
+  GITHUB_APP_PRIVATE_KEY: z.string().default(""),
+  /**
+   * GitHub Enterprise Server installs point these at their own host.
+   *
+   * **https, enforced at startup.** `GITHUB_HTML_URL` is the origin every clone
+   * credential is checked against, so a value that does not parse would make
+   * that check compare against nothing. And `GITHUB_API_URL` is where an
+   * `Authorization: Bearer` header carrying the App JWT and every minted
+   * installation token is sent — an `http://` value there puts live credentials
+   * on the wire in the clear, which is the same failure as an http clone remote
+   * and is not something a deployment should be able to configure by accident.
+   */
+  GITHUB_API_URL: httpsUrl.default("https://api.github.com"),
+  GITHUB_HTML_URL: httpsUrl.default("https://github.com"),
 
   /** Local runner worker endpoint, used by the local backend when healthy. */
   LOCAL_RUNNER_URL: z.string().default(""),

@@ -906,6 +906,147 @@ Written down rather than discovered later:
    API key; they are left deliberately as evidence that the failure path records a provider outage
    on the session row instead of swallowing it. Delete them whenever you like.
 
+## Projects were real everywhere except where you could see them
+
+The founder asked which things belong to a project and which belong to AgentOS, and said they got
+confused by their own software. They were right to be: the answer was correct in the database and
+absent from the interface.
+
+**What was already true.** Every domain table carries `projectId` — agents, tasks, goals, repos,
+MCP connections, skills, secrets, env bindings, environments, triggers, automations, files,
+sessions, inbox messages, and `project_settings` itself. `agents_project_name_key` is on
+`(projectId, name)`, so two projects each get their own `senior-dev`. Every grant in `manifest.ts`
+resolves with `eq(x.projectId, agent.projectId)`, so a repo or secret id belonging to another
+project resolves to *nothing* rather than to someone else's credential. File rows are filtered by
+project and the R2 key is `${projectId}${path}`. The isolation the founder was worried about was
+never missing.
+
+**What was missing was the whole UI.** `useActiveProject` returned `data[0]` — the first project by
+creation date, forever. The comment admitted it: *"A project picker lands with YAML-as-code in
+Phase 6."* Phase 6 shipped the CLI and the picker never came, so a second project created from
+`agentos project create` would have been **invisible in the browser**.
+
+**Now:** a switcher card at the top of the rail with a gear beside it, the selection held in a
+module-level store (`useSyncExternalStore`, persisted to `localStorage`) rather than a context — the
+shell needs the answer before the router mounts, and a provider would have left anything outside it
+silently reading a default. All 34 call sites of `useProjectGate`/`useActiveProject` followed with
+no edits.
+
+**Two scopes, two pages, and the rail now says which is which.** Everything above the new hairline
+belongs to the project named at the top; the "All projects" section below it does not. `/project`
+(the gear) owns identity, a *What this project owns* panel that counts the eleven owned resources,
+and the policy that was always per-project but read as global: default runner, parked-session
+timeout, orphan sweep. `/settings` is now the installation — runner reachability, push (a property
+of the browser, not a workspace), and the operator token.
+
+**Two real bugs fell out of building it.**
+
+1. `GET /inbox` accepted `projectId` and used it *only* to resolve a thread; the flat list ignored
+   it and returned all 200 most recent messages across every project. Verified against a live
+   second project: both projects reported the same ten questions. `GET /sessions` had no project
+   filter at all — so the Sessions screen's spend total silently summed another project's runs.
+   Both fixed in SQL, with `test/project-scope.spec.ts` covering all three cases; the test exists
+   because this failure is invisible until the day a second project is created.
+2. `api.updateProject` was written as `PATCH`; the controller is `PUT`. Confirmed by hand — PUT 200,
+   PATCH 404 — so rename would have looked like a button that does nothing.
+
+**Verified in a browser at 1440 and 390.** Created a real second project (`todo-app`), switched to
+it and back: the board emptied, the inbox emptied, the top-bar badge cleared, and the counts on
+`/project` matched the API exactly (14 agents / 50 tasks / 1 goal for `acme`, all zeros for
+`todo-app`). Renamed through the form and watched the sidebar, the heading and the "Saved." feedback
+all follow. No horizontal scroll at 390px. The gear went from 36px to 44px wide after measuring it
+in the mobile drawer.
+
+**The `todo-app` project is still in the dev database.** There is no delete-project endpoint, so it
+stays until one exists or it is removed by hand.
+
+## Settings stopped being a form
+
+The founder called the two settings screens out as looking bad next to the rest of the app, and the
+cause was one token. `Page width="form"` was `max-w-2xl` **without `mx-auto`** — so on a 1440px
+monitor both screens rendered as a 670px strip hard against the rail with the other half of the
+sheet empty. It was defensible when Settings held four fields; it stopped being defensible when
+`/project` grew an eleven-row inventory and three policy panels.
+
+Both are now two columns — `xl:grid-cols-[minmax(0,1fr)_360px]`, collapsing to one below `xl`. The
+things you *set* run down the main column; reference material sits in a sticky rail beside them, so
+the inventory can be read while the policy is being changed. `width="form"` is deleted rather than
+left for someone to reach for again, and `DESIGN.md` records the two-column rule for configuration
+screens instead of the width that caused this.
+
+Measured: 762px + 360px used of 1190px available at 1440, one 802px column at 1100, no horizontal
+scroll at 390.
+
+**A new panel answers a question the product could not.** The founder asked whether creating a
+project creates a directory on their machine. It does not, and nothing on screen said so. *Where the
+code lives* now states it: a repo is a pointer to a remote plus a credential, a session clones it
+into a throwaway directory, and what survives is what was pushed. It shows an amber `no repo` badge
+when the project has none — which is the true state of `acme`, and the actual cause of the librarian
+and implementation agents parking "no repo access" questions in the inbox. The create dialog says
+the same thing in one line.
+
+## GitHub without a personal access token
+
+The founder pointed at Coolify's "connect your GitHub" flow and asked whether it ports. It does,
+and the reason is worth stating plainly: a personal access token is long-lived and carries the
+union of every scope its owner ticked, while a **GitHub App installation** mints a token that
+expires in an hour and reaches only the repositories the operator selected on github.com. For a
+system whose entire premise is handing credentials to a model, that is not a convenience feature.
+
+**What was read.** Coolify's `bootstrap/helpers/github.php` and `app/Http/Controllers/Webhook/
+Github.php`, including the two security fixes visible in its own history: the setup callback's
+`state` is single-use and stored hashed, and the `installation_id` it carries is re-checked against
+the GitHub API before it is persisted, because that callback is an unauthenticated GET whose query
+string an attacker supplies.
+
+**What was not copied.** Coolify's manifest flow has the app *generate and persist a private key*.
+There is no write path into Secret Manager here and a PEM must never land in the app database
+(SPEC §5.8), so the App is created once by hand and `GITHUB_APP_PRIVATE_KEY` is a providerRef like
+every other credential. The operator's per-repo experience is the same either way: press Connect,
+approve on github.com, pick repositories from a list.
+
+The runtime needed **no change at all** — `apps/local-runner/src/workspace.ts` already clones with
+`x-access-token` as the username, which is exactly what an installation token expects.
+
+### Four review rounds, three of them refusals
+
+Codex reviewed this and would not pass it until the fourth pass.
+
+**Round 1 — High: the token could be sent anywhere.** `remoteUrl` is free text and nothing bound it
+to the installation, so pairing a real installation with `https://attacker.example/x.git` made the
+next session post a live token — good for every repository that installation covers — to that host.
+Fixed at two doors, and while fixing it I found a **second door Codex had not flagged**:
+`agentos push` upserts a repo by name and can rewrite `remoteUrl` on a row whose installation stays
+put, which no create-time check would ever see. So the real fix is at the mint site in
+`manifest.ts`, which every clone passes through.
+
+**Round 2 — High again: scheme and port confusion.** The first fix compared *hosts*. Codex ran a
+live probe: `http://github.com/owner/repo.git` passed as github.com, and git sent the token in
+plaintext to whatever answered on port 80. `https://host:9443` and `https://host:8443` were equal
+too. `remoteMatchesHost` became `remoteAcceptsInstallationToken`, comparing the whole origin —
+scheme, host, port — and requiring https, because an installation token is HTTP Basic auth and an
+ssh remote cannot carry one at all.
+
+**Round 3 — High: the same bug by configuration instead of by data.** `GITHUB_API_URL` was
+`z.string().url()`, which accepts `http://`, and that URL receives an `Authorization: Bearer`
+header carrying the App JWT and every minted token. Both GitHub URLs now go through an `httpsUrl`
+schema that fails at startup.
+
+**Round 4 — GO.** No Critical or High. Its one remaining note was that a regression test did not
+directly assert the non-numeric bracketed-IPv6 port; that test now exists.
+
+Three smaller findings were fixed along the way: a repo bound to an installation no longer falls
+back to a stored PAT when minting fails (an outage would otherwise swap an hour-long repo-scoped
+credential for a long-lived account-wide one, unattended); the secret registry now evicts its
+oldest entry instead of refusing new ones, which mattered the moment hourly-rotating tokens started
+filling it; and repository pagination says so when it truncates.
+
+**One divergence from git worth recording.** The parser rejects any remote containing a backslash
+rather than normalising it. A browser folds `\` into `/` and reads
+`https://github.com\@attacker.example/x` as host `github.com`; git reads the same string as
+userinfo on host `attacker.example`. Agreeing with either one is a guess, and guessing wrong hands
+the token to the host git actually dials. No legitimate remote contains a backslash.
+
 ## Next session
 
 The nine gaps are closed and every wall around them has a test. What is left is the part a coding

@@ -1,7 +1,10 @@
-import { SquareKanban } from "lucide-react";
+import { Plus, SquareKanban } from "lucide-react";
+import { useState } from "react";
+import { Button } from "../components/ui/button";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Page } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
+import { CreateProjectDialog } from "./create-project-dialog";
 
 export function ProjectPending(): React.JSX.Element {
   return (
@@ -14,6 +17,7 @@ export function ProjectPending(): React.JSX.Element {
 }
 
 export function NoProject(): React.JSX.Element {
+  const [creating, setCreating] = useState(false);
   return (
     <Page>
       <Panel>
@@ -22,11 +26,19 @@ export function NoProject(): React.JSX.Element {
           title="No project yet"
           hint={
             <>
-              Seed one with <code className="text-ink">pnpm db:seed</code>, then reload.
+              A project is a workspace with its own agents, repos, secrets and history. Create one
+              here, or seed the example with <code className="text-ink">pnpm db:seed</code>.
             </>
+          }
+          action={
+            <Button variant="solid" onClick={() => setCreating(true)}>
+              <Plus />
+              New project
+            </Button>
           }
         />
       </Panel>
+      <CreateProjectDialog open={creating} onOpenChange={setCreating} />
     </Page>
   );
 }

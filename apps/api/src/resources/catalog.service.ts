@@ -1,4 +1,12 @@
-import { type Database, envBindings, mcpConnections, repos, skills } from "@agentos/db";
+import {
+  type Database,
+  envBindings,
+  githubInstallations,
+  mcpConnections,
+  repos,
+  skills,
+} from "@agentos/db";
+import { normaliseRemote } from "@agentos/shared";
 import type {
   CreateEnvBindingInput,
   CreateMcpConnectionInput,
@@ -9,11 +17,18 @@ import type {
   RepoDto,
   SkillDto,
 } from "@agentos/shared";
-import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 import { ProjectsService } from "../projects/projects.service";
 import { SecretsService } from "../secrets/secrets.service";
+import { GithubAppService } from "../github/github-app.service";
 import { EnvironmentsService } from "./environments.service";
 
 /**
@@ -29,6 +44,7 @@ export class CatalogService {
     private readonly projects: ProjectsService,
     private readonly secrets: SecretsService,
     private readonly environments: EnvironmentsService,
+    private readonly github: GithubAppService,
   ) {}
 
   /* ── MCP connections ────────────────────────────────────────────────── */
@@ -70,6 +86,31 @@ export class CatalogService {
     };
   }
 
+  /**
+   * Refuses a remote the installation does not actually cover.
+   *
+   * Without this an operator can pair a legitimate installation with any URL
+   * they like, and the next session posts a live installation token — good for
+   * every repository that installation covers — to whatever host it names. The
+   * clone path refuses a foreign host on its own, but that produces a failed
+   * session at 3am; this produces a sentence at the moment the repo is added.
+   */
+  private async assertRemoteIsInstalled(installationId: string, remoteUrl: string): Promise<void> {
+    const wanted = normaliseRemote(remoteUrl);
+    if (!wanted) {
+      throw new BadRequestException(`${remoteUrl} is not a git remote this can parse`);
+    }
+    const available = await this.github.listRepositories(installationId);
+    if (!available.some((repo) => normaliseRemote(repo.cloneUrl) === wanted)) {
+      throw new BadRequestException(
+        `that GitHub connection does not cover ${wanted}. Pick one of the repositories it granted, ` +
+          "or add it to the App's installation on GitHub first. Note the remote must be the https " +
+          "one GitHub reports — an installation token is HTTP Basic auth, so an ssh or http remote " +
+          "is a different thing that cannot carry it.",
+      );
+    }
+  }
+
   async requireMcp(projectId: string, id: string) {
     const row = await this.db.query.mcpConnections.findFirst({
       where: and(eq(mcpConnections.projectId, projectId), eq(mcpConnections.id, id)),
@@ -95,6 +136,7 @@ export class CatalogService {
       name: row.name,
       remoteUrl: row.remoteUrl,
       mountPath: row.mountPath,
+      githubInstallationId: row.githubInstallationId,
       credentialSecretId: row.credentialSecretId,
       defaultBranch: row.defaultBranch,
     }));
@@ -104,6 +146,22 @@ export class CatalogService {
     await this.projects.require(projectId);
     if (input.credentialSecretId) {
       await this.secrets.require(projectId, input.credentialSecretId);
+    }
+    if (input.githubInstallationId) {
+      // Same rule as a secret: the installation has to belong to this project,
+      // or a repo could name another project's connection and clone through it.
+      const installation = await this.db.query.githubInstallations.findFirst({
+        where: and(
+          eq(githubInstallations.id, input.githubInstallationId),
+          eq(githubInstallations.projectId, projectId),
+        ),
+      });
+      if (!installation) {
+        throw new NotFoundException(
+          `github installation ${input.githubInstallationId} not found in this project`,
+        );
+      }
+      await this.assertRemoteIsInstalled(installation.installationId, input.remoteUrl);
     }
     await this.assertFree(repos, projectId, input.name, "repo");
     const [row] = await this.db
@@ -116,6 +174,7 @@ export class CatalogService {
       name: row!.name,
       remoteUrl: row!.remoteUrl,
       mountPath: row!.mountPath,
+      githubInstallationId: row!.githubInstallationId,
       credentialSecretId: row!.credentialSecretId,
       defaultBranch: row!.defaultBranch,
     };

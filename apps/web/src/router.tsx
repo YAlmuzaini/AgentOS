@@ -9,6 +9,7 @@ import { FilesPage } from "./pages/files";
 import { GoalsPage } from "./pages/goals";
 import { InboxPage } from "./pages/inbox";
 import { McpsPage } from "./pages/mcps";
+import { ProjectSettingsPage } from "./pages/project-settings";
 import { ReposPage } from "./pages/repos";
 import { SecretsPage } from "./pages/secrets";
 import { SessionsPage } from "./pages/sessions";
@@ -145,6 +146,17 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+/**
+ * The gear beside the project name. Deliberately a sibling of `/settings`
+ * rather than a child: the two pages are different scopes, and nesting one
+ * under the other would say they are the same thing at different depths.
+ */
+const projectSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/project",
+  component: ProjectSettingsPage,
+});
+
 const triggersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/triggers",
@@ -175,6 +187,7 @@ const routeTree = rootRoute.addChildren([
   triggersRoute,
   automationsRoute,
   settingsRoute,
+  projectSettingsRoute,
 ]);
 
 export const router = createRouter({ routeTree });

@@ -48,7 +48,7 @@ export class InboxController {
       }
       return this.inbox.thread({ projectId, goalId, taskId });
     }
-    return this.inbox.list(status as InboxStatus | undefined);
+    return this.inbox.list(projectId, status as InboxStatus | undefined);
   }
 
   @Post(":id/reply")

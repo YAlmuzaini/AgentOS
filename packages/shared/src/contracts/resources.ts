@@ -86,6 +86,12 @@ export const createRepoSchema = z.object({
   name: slugSchema,
   remoteUrl: z.string().url(),
   mountPath: mountPathSchema,
+  /**
+   * How a session authenticates the clone. A GitHub App installation is the
+   * better of the two — the token it mints expires in an hour and reaches only
+   * the repositories the operator selected — so it wins when both are set.
+   */
+  githubInstallationId: z.string().uuid().nullable().default(null),
   credentialSecretId: z.string().uuid().nullable().default(null),
   defaultBranch: z.string().min(1).default("main"),
 });
@@ -97,6 +103,7 @@ export interface RepoDto {
   name: string;
   remoteUrl: string;
   mountPath: string;
+  githubInstallationId: string | null;
   credentialSecretId: string | null;
   defaultBranch: string;
 }

@@ -4,6 +4,7 @@ import { FilesModule } from "../files/files.module";
 import { InboxModule } from "../inbox/inbox.module";
 import { PushModule } from "../push/push.module";
 import { ResourcesModule } from "../resources/resources.module";
+import { GithubModule } from "../github/github.module";
 import { SecretsModule } from "../secrets/secrets.module";
 import { SessionsModule } from "../sessions/sessions.module";
 import { SettingsModule } from "../settings/settings.module";
@@ -47,6 +48,7 @@ import { AgentToolHandler } from "./tool-handler";
     SettingsModule,
     PushModule,
     ResourcesModule,
+    GithubModule,
   ],
   controllers: [RunnersController],
   providers: [

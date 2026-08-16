@@ -6,13 +6,15 @@ import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { CreatePanel } from "../components/ui/create-panel";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
-import { Field, Input, Select } from "../components/ui/form";
+import { Field, Input } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useProjectGate } from "../hooks/use-project";
+import { GithubPanel } from "./github-panel";
 import { NoProject, ProjectPending } from "./project-states";
+import { RepoSourceField, type RepoSource } from "./repo-source-field";
 
 export function ReposPage(): React.JSX.Element {
   const { project, pending, absent } = useProjectGate();
@@ -32,6 +34,12 @@ export function ReposPage(): React.JSX.Element {
     enabled: Boolean(projectId),
   });
 
+  const github = useQuery({
+    queryKey: ["github-status", projectId],
+    queryFn: () => api.githubStatus(projectId!),
+    enabled: Boolean(projectId),
+  });
+
   const create = useMutation({
     mutationFn: (body: CreateRepoInput) => api.createRepo(projectId!, body),
     onSuccess: () => {
@@ -44,7 +52,17 @@ export function ReposPage(): React.JSX.Element {
   const [remoteUrl, setRemoteUrl] = useState("");
   const [mountPath, setMountPath] = useState("/repo");
   const [defaultBranch, setDefaultBranch] = useState("main");
-  const [credentialSecretId, setCredentialSecretId] = useState("");
+  // Defaults to the first connected installation, because that is the safer of
+  // the two credentials and an operator who connected one meant to use it.
+  const [source, setSource] = useState<RepoSource>({
+    installationId: "",
+    credentialSecretId: "",
+  });
+  const installations = github.data?.installations ?? [];
+  const effectiveSource: RepoSource =
+    source.installationId || source.credentialSecretId || installations.length === 0
+      ? source
+      : { installationId: installations[0]!.id, credentialSecretId: "" };
 
   if (absent) {
     return <NoProject />;
@@ -69,6 +87,8 @@ export function ReposPage(): React.JSX.Element {
         }
       />
 
+      <GithubPanel projectId={project.id} />
+
       <CreatePanel
         open={creating}
         onClose={() => setCreating(false)}
@@ -84,13 +104,14 @@ export function ReposPage(): React.JSX.Element {
             remoteUrl,
             mountPath,
             defaultBranch: defaultBranch || "main",
-            credentialSecretId: credentialSecretId || null,
+            githubInstallationId: effectiveSource.installationId || null,
+            credentialSecretId: effectiveSource.credentialSecretId || null,
           });
           setName("");
           setRemoteUrl("");
           setMountPath("/repo");
           setDefaultBranch("main");
-          setCredentialSecretId("");
+          setSource({ installationId: "", credentialSecretId: "" });
         }}
       >
         <div className="grid gap-4 sm:grid-cols-2">
@@ -130,22 +151,22 @@ export function ReposPage(): React.JSX.Element {
               />
             )}
           </Field>
-          <Field label="Credential" className="sm:col-span-2">
-            {(id) => (
-              <Select
-                id={id}
-                value={credentialSecretId}
-                onChange={(event) => setCredentialSecretId(event.target.value)}
-              >
-                <option value="">no credential…</option>
-                {(secrets.data ?? []).map((secret) => (
-                  <option key={secret.id} value={secret.id}>
-                    {secret.name}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
+          <RepoSourceField
+            projectId={project.id}
+            installations={installations}
+            value={effectiveSource}
+            onChange={setSource}
+            onPickRepo={(repo) => {
+              // GitHub is the authority on all three: a hand-typed remote is
+              // how a repo ends up cloning the wrong default branch.
+              setRemoteUrl(repo.cloneUrl);
+              setDefaultBranch(repo.defaultBranch);
+              const short = repo.fullName.split("/").pop() ?? repo.fullName;
+              setName(short);
+              setMountPath(`/${short}`);
+            }}
+            secrets={secrets.data ?? []}
+          />
         </div>
       </CreatePanel>
 
@@ -176,7 +197,7 @@ export function ReposPage(): React.JSX.Element {
                 <TH>Remote</TH>
                 <TH>Mount path</TH>
                 <TH>Branch</TH>
-                <TH>Credential</TH>
+                <TH>Auth</TH>
               </tr>
             </THead>
             <tbody>
@@ -191,10 +212,15 @@ export function ReposPage(): React.JSX.Element {
                     <StatusPill>{repo.defaultBranch}</StatusPill>
                   </TD>
                   <TD className="text-xs text-ink-faint">
-                    {repo.credentialSecretId
-                      ? (secrets.data?.find((s) => s.id === repo.credentialSecretId)?.name ??
-                        repo.credentialSecretId)
-                      : "none"}
+                    {repo.githubInstallationId
+                      ? `GitHub · ${
+                          installations.find((i) => i.id === repo.githubInstallationId)
+                            ?.accountLogin ?? "app"
+                        }`
+                      : repo.credentialSecretId
+                        ? (secrets.data?.find((s) => s.id === repo.credentialSecretId)?.name ??
+                          repo.credentialSecretId)
+                        : "none"}
                   </TD>
                 </TR>
               ))}

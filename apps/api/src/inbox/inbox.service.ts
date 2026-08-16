@@ -31,11 +31,23 @@ export class InboxService {
     @Inject(ERROR_REPORTER) private readonly errors: ErrorReporter,
   ) {}
 
-  async list(status?: InboxStatus): Promise<InboxMessageDto[]> {
+  /**
+   * The operator's queue for one project.
+   *
+   * `projectId` was previously accepted by the controller and used only to
+   * resolve a thread, so the flat list quietly returned every project's
+   * questions — which is how a second workspace showed the first one's inbox.
+   */
+  async list(projectId?: string, status?: InboxStatus): Promise<InboxMessageDto[]> {
+    const filters = [
+      projectId ? eq(inboxMessages.projectId, projectId) : undefined,
+      status ? eq(inboxMessages.status, status) : undefined,
+    ].filter((filter) => filter !== undefined);
+
     const rows = await this.db
       .select()
       .from(inboxMessages)
-      .where(status ? eq(inboxMessages.status, status) : undefined)
+      .where(filters.length > 0 ? and(...filters) : undefined)
       .orderBy(desc(inboxMessages.createdAt))
       .limit(200);
     const context = await inboxContext(this.db, rows);

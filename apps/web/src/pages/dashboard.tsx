@@ -47,13 +47,15 @@ export function DashboardPage(): React.JSX.Element {
     refetchInterval: 5000,
   });
   const sessions = useQuery({
-    queryKey: ["sessions"],
-    queryFn: api.sessions,
+    queryKey: ["sessions", projectId],
+    queryFn: () => api.sessions(projectId!),
+    enabled: Boolean(projectId),
     refetchInterval: 5000,
   });
   const inbox = useQuery({
-    queryKey: ["inbox"],
-    queryFn: () => api.inbox(),
+    queryKey: ["inbox", projectId],
+    queryFn: () => api.inbox(projectId!),
+    enabled: Boolean(projectId),
     refetchInterval: 5000,
   });
   const goals = useQuery({

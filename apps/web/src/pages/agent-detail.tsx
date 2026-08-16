@@ -47,8 +47,8 @@ export function AgentDetail(props: {
     queryFn: () => api.environments(props.projectId),
   });
   const sessions = useQuery({
-    queryKey: ["sessions"],
-    queryFn: api.sessions,
+    queryKey: ["sessions", props.projectId],
+    queryFn: () => api.sessions(props.projectId),
     refetchInterval: 5000,
   });
   // An agent that inherits is showing the project's choice, not its own, and

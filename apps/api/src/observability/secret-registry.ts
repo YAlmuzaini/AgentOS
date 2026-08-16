@@ -31,12 +31,34 @@ const MIN_LENGTH = 12;
  */
 const MAX_ENTRIES = 500;
 
-/** Records a resolved secret. Safe to call repeatedly with the same value. */
+/**
+ * Records a resolved secret. Safe to call repeatedly with the same value.
+ *
+ * At the cap the *oldest* entry is dropped rather than the new one refused.
+ * That distinction became load-bearing with GitHub App installation tokens:
+ * they rotate roughly hourly and each one is a new distinct value, so a
+ * refusing cap meant a long-running process eventually stopped protecting
+ * every credential minted after it filled — silently, and precisely for the
+ * short-lived tokens most likely to appear in a fresh error. An old entry is
+ * the safer thing to lose: by the time 500 newer secrets have been resolved,
+ * it has almost certainly expired or been rotated.
+ */
 export function registerSecret(value: string | null | undefined): void {
-  if (!value || value.length < MIN_LENGTH || secrets.size >= MAX_ENTRIES) {
+  if (!value || value.length < MIN_LENGTH) {
     return;
   }
+  // Re-inserting an existing value would keep its original position, so it is
+  // deleted first — a secret still in use should not age out ahead of one that
+  // has not been seen since.
+  secrets.delete(value);
   secrets.add(value);
+  while (secrets.size > MAX_ENTRIES) {
+    const oldest = secrets.values().next();
+    if (oldest.done) {
+      break;
+    }
+    secrets.delete(oldest.value);
+  }
 }
 
 /** Removes every registered secret from `text`, whatever shape it has. */

@@ -62,9 +62,9 @@ export function CommandPalette(props: {
     enabled,
   });
   const sessions = useQuery({
-    queryKey: ["sessions"],
-    queryFn: api.sessions,
-    enabled: props.open,
+    queryKey: ["sessions", projectId],
+    queryFn: () => api.sessions(projectId!),
+    enabled,
   });
 
   const hits = useMemo<Hit[]>(() => {

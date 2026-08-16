@@ -43,7 +43,7 @@ export class SessionsService {
    * seeded database the full-row version of this query was 89 KB per poll to
    * paint a list of ids and statuses.
    */
-  async listSummaries(limit = 100): Promise<SessionSummaryDto[]> {
+  async listSummaries(projectId?: string, limit = 100): Promise<SessionSummaryDto[]> {
     const rows = await this.db
       .select({
         id: sessions.id,
@@ -67,6 +67,10 @@ export class SessionsService {
       })
       .from(sessions)
       .leftJoin(agents, eq(agents.id, sessions.agentId))
+      // Applied in SQL rather than after the fact: without it the limit is
+      // spent on other projects' runs, so a quiet project can page in empty
+      // while a busy one fills the list.
+      .where(projectId ? eq(sessions.projectId, projectId) : undefined)
       .orderBy(desc(sessions.startedAt))
       .limit(limit);
 

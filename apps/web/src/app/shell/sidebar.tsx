@@ -5,6 +5,7 @@ import { useConfirm } from "../../components/ui/confirm";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Kbd } from "../../components/ui/menu";
 import { cn } from "../../lib/cn";
 import { NAV } from "../nav";
+import { ProjectSwitcher } from "./project-switcher";
 
 const ROW =
   "flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-[13px] transition-colors [&_svg]:size-4 [&_svg]:shrink-0";
@@ -48,6 +49,8 @@ export function Sidebar({
         ) : null}
       </div>
 
+      <ProjectSwitcher onNavigate={onNavigate} />
+
       <button
         type="button"
         onClick={onOpenSearch}
@@ -59,6 +62,12 @@ export function Sidebar({
         <Kbd>K</Kbd>
       </button>
 
+      {/*
+        Everything in this nav belongs to the project named above it, and
+        switching projects replaces all of it. The rows under the hairline at
+        the bottom do not change — that asymmetry is the whole lesson, so the
+        divider is load-bearing and not a decorative rule.
+      */}
       <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-0.5">
         {NAV.map((group, index) => (
           <div key={group.label ?? `lead-${index}`} className="space-y-0.5">
@@ -91,7 +100,10 @@ export function Sidebar({
         ))}
       </nav>
 
-      <div className="space-y-0.5">
+      <div className="space-y-0.5 border-t border-edge pt-3">
+        <p className="px-2.5 pb-1 text-[11px] font-medium tracking-[0.06em] text-ink-faint uppercase">
+          All projects
+        </p>
         <Link
           to="/settings"
           onClick={onNavigate}
@@ -101,7 +113,7 @@ export function Sidebar({
           }}
         >
           <Settings />
-          Settings
+          AgentOS settings
         </Link>
 
         <Menu>

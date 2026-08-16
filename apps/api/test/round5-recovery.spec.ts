@@ -181,7 +181,7 @@ describe("continuity — round five", () => {
    */
   it("reopens an answered question when its resume could not be queued", async () => {
     const { sessionId } = await parkedGoalSession(1);
-    const message = (await inbox.list("open"))[0]!;
+    const message = (await inbox.list(undefined, "open"))[0]!;
 
     const queue = harness.app.get(SessionQueue);
     queue.enqueueResume = async () => {

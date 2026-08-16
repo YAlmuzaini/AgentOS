@@ -19,6 +19,7 @@ import {
   MenuTrigger,
 } from "../../components/ui/menu";
 import { StatusPill } from "../../components/ui/pill";
+import { useActiveProject } from "../../hooks/use-project";
 
 /**
  * The top bar carries what is true of the whole control plane, not of the
@@ -39,16 +40,24 @@ export function Topbar({
   onForgetToken: () => void;
   onOpenSearch: () => void;
 }): React.JSX.Element {
+  // Both counts are about the project on screen. A badge that also counted
+  // another project's parked questions would send the operator to an inbox
+  // where the number does not appear.
+  const { project } = useActiveProject();
+  const projectId = project?.id;
+
   const sessions = useQuery({
-    queryKey: ["sessions"],
-    queryFn: api.sessions,
+    queryKey: ["sessions", projectId],
+    queryFn: () => api.sessions(projectId),
+    enabled: Boolean(projectId),
     refetchInterval: 5000,
   });
   const inbox = useQuery({
-    queryKey: ["inbox"],
-    // Wrapped rather than passed by reference: `api.inbox` takes an optional
-    // status filter, and React Query would hand it the query context.
-    queryFn: () => api.inbox(),
+    queryKey: ["inbox", projectId],
+    // Wrapped rather than passed by reference: `api.inbox` takes optional
+    // filters, and React Query would hand it the query context.
+    queryFn: () => api.inbox(projectId),
+    enabled: Boolean(projectId),
     refetchInterval: 5000,
   });
 

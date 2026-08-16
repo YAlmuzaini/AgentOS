@@ -9,6 +9,8 @@ import type {
   CreateEnvironmentInput,
   CreateGoalInput,
   CreateMcpConnectionInput,
+  CreateProjectInput,
+  UpdateProjectInput,
   CreateRepoInput,
   CreateSecretRefInput,
   CreateSkillInput,
@@ -17,7 +19,9 @@ import type {
   EnvBindingDto,
   EnvironmentDto,
   FileEntryDto,
+  GithubStatusDto,
   GoalDto,
+  RemoteRepoDto,
   InstantiateTemplateInput,
   InboxAnswer,
   InboxMessageDto,
@@ -49,8 +53,23 @@ export { ApiError, BASE, clearToken, getToken, setToken } from "./api-client";
 export type { ActivityEntryDto } from "./api-client";
 import type { ActivityEntryDto } from "./api-client";
 
+/** Drops the keys that are absent, so an unset filter never becomes `?x=undefined`. */
+function query(params: Record<string, string | undefined>): string {
+  const pairs = Object.entries(params).filter(([, value]) => value != null && value !== "");
+  if (pairs.length === 0) {
+    return "";
+  }
+  return `?${pairs.map(([key, value]) => `${key}=${encodeURIComponent(value!)}`).join("&")}`;
+}
+
 export const api = {
   projects: () => request<ProjectDto[]>("/projects"),
+  createProject: (body: CreateProjectInput) =>
+    request<ProjectDto>("/projects", { method: "POST", body: JSON.stringify(body) }),
+  // PUT, matching the controller — a PATCH here 404s, which reads in the UI as
+  // a rename that silently did nothing.
+  updateProject: (id: string, body: UpdateProjectInput) =>
+    request<ProjectDto>(`/projects/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   agents: (projectId: string) => request<AgentDto[]>(`/projects/${projectId}/agents`),
   createAgent: (projectId: string, body: CreateAgentInput) =>
     request<AgentDto>(`/projects/${projectId}/agents`, {
@@ -89,11 +108,17 @@ export const api = {
     request<FileEntryDto[]>(`/projects/${projectId}/tasks/${id}/attachments`),
 
   // The list carries no tool-call log — fetch a single session to replay one.
-  sessions: () => request<SessionSummaryDto[]>("/sessions"),
+  // `projectId` is not optional in practice: a session list that spans projects
+  // shows the operator runs they cannot open, from agents that are not on their
+  // Agents page.
+  sessions: (projectId?: string) =>
+    request<SessionSummaryDto[]>(`/sessions${projectId ? `?projectId=${projectId}` : ""}`),
   session: (id: string) => request<SessionDto>(`/sessions/${id}`),
 
-  inbox: (status?: string) =>
-    request<InboxMessageDto[]>(`/inbox${status ? `?status=${status}` : ""}`),
+  inbox: (projectId?: string, status?: string) =>
+    request<InboxMessageDto[]>(
+      `/inbox${query({ projectId, status })}`,
+    ),
   /**
    * One subject's thread, oldest first (SPEC §11, §12).
    *
@@ -136,6 +161,20 @@ export const api = {
     request<McpConnectionDto>(`/projects/${projectId}/mcp-connections`, {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+
+  /* GitHub App — connecting a repo without a personal access token. */
+  githubStatus: (projectId: string) =>
+    request<GithubStatusDto>(`/projects/${projectId}/github/status`),
+  githubInstallUrl: (projectId: string) =>
+    request<{ url: string }>(`/projects/${projectId}/github/install-url`),
+  githubRepositories: (projectId: string, installationId: string) =>
+    request<RemoteRepoDto[]>(
+      `/projects/${projectId}/github/installations/${installationId}/repositories`,
+    ),
+  disconnectGithub: (projectId: string, installationId: string) =>
+    request<void>(`/projects/${projectId}/github/installations/${installationId}`, {
+      method: "DELETE",
     }),
 
   repos: (projectId: string) => request<RepoDto[]>(`/projects/${projectId}/repos`),

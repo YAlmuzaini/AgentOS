@@ -208,11 +208,18 @@ The shell is a fixed 240px rail beside a white working sheet that is inset from 
 desktop (`lg:m-2`, 10px radius, 1px border) — that inset is what makes the rail read as a frame
 rather than as a column. Below `lg` the rail becomes a drawer and the sheet goes edge to edge.
 
-Screens use one of three widths: full, `reading` (max 3xl, for Activity and Inbox), and `form`
-(max 2xl, for Settings). Page rhythm is a 20px stack; panels are 16px inside.
+Screens use one of two widths: full, and `reading` (max 3xl, centred, for Activity). A third,
+`form` (max 2xl), was removed — it did not centre, so the settings screens rendered as a 670px
+strip hard against the rail with half the sheet empty. Page rhythm is a 20px stack; panels are
+16px inside.
 
-Two-pane screens — Goals, Sessions, Files — are a 300–340px list beside a detail pane. That is
-the pattern whenever the operator moves between items without wanting to lose their place.
+Two-pane screens — Goals, Sessions, Files, Inbox — are a 300–340px list beside a detail pane. That
+is the pattern whenever the operator moves between items without wanting to lose their place.
+
+**Configuration screens are two columns**, not forms: the things you *set* run down a main column,
+and reference material — an inventory, an explanation, a connection state — sits in a ~360px rail
+beside them, sticky, so it can be read while the settings are being changed. Settings and Project
+settings both use `xl:grid-cols-[minmax(0,1fr)_360px]` and collapse to one column below `xl`.
 
 **The Phone Rule.** The Inbox is the only screen with a real mobile contract: fully usable at
 390px, every control at least 44px tall, no horizontal scroll. Every other screen degrades to a

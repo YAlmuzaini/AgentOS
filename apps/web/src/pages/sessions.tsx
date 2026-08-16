@@ -1,6 +1,7 @@
 import type { SessionDto, ToolCallLogEntry } from "@agentos/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
+import { useActiveProject } from "../hooks/use-project";
 import { useUrlSelection } from "../hooks/use-url-selection";
 import { useLiveSession } from "./use-live-session";
 import { ExternalLink, Terminal } from "lucide-react";
@@ -54,9 +55,15 @@ export function SessionsPage(): React.JSX.Element {
   // The URL is the selection; a click overrides it until the URL moves again.
   const { id: idFromUrl } = useSearch({ strict: false }) as { id?: string };
   const [selected, setSelected] = useUrlSelection(idFromUrl);
+  // Scoped to the project on screen — the spend total below sums this list, and
+  // a figure that quietly included another project's runs is the kind of number
+  // an operator makes a decision on.
+  const { project } = useActiveProject();
+  const projectId = project?.id;
   const sessions = useQuery({
-    queryKey: ["sessions"],
-    queryFn: api.sessions,
+    queryKey: ["sessions", projectId],
+    queryFn: () => api.sessions(projectId),
+    enabled: Boolean(projectId),
     refetchInterval: 4000,
   });
   const detail = useQuery({
