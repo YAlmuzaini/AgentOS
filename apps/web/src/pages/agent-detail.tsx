@@ -1,14 +1,18 @@
 import type { AgentDto } from "@agentos/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Blocks, Bot, FileText, FolderTree, GitBranch, Inbox, Pencil, Server, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { Blocks, Cpu, FileText, Fingerprint, FolderTree, GitBranch, Inbox, Pencil, Server, ShieldCheck, Sparkles, Terminal, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { DeleteAction } from "../components/ui/delete-action";
+import { IconTile, toneFor } from "../components/ui/icon-tile";
+import { Meta, MetaRow } from "../components/ui/meta";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { Dot, StatusPill } from "../components/ui/pill";
+import { agentIcon } from "./agent-icon";
 import { describeRunner, GrantRow, Section } from "./agent-detail-parts";
+import { reflow } from "../lib/prose";
 
 /**
  * Everything the control plane knows about one agent, on one screen.
@@ -24,6 +28,8 @@ export function AgentDetail(props: {
   agentId: string;
   /** Opens the editor on this agent — the grants below are what it edits. */
   onEdit?: () => void;
+  /** Returns to the index once the agent this screen is about is gone. */
+  onDeleted?: () => void;
 }): React.JSX.Element {
   const agent = useQuery({
     queryKey: ["agent", props.projectId, props.agentId],
@@ -70,15 +76,19 @@ export function AgentDetail(props: {
   const data = agent.data;
   const runs = (sessions.data ?? []).filter((session) => session.agentId === data.id);
   const environment = environments.data?.find((e) => e.id === data.environmentId);
+  const Glyph = agentIcon(data);
 
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
       <div className="min-w-0 space-y-4">
         <Panel>
           <div className="flex items-start gap-3 border-b border-edge p-4">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-control border border-edge bg-sunken text-ink-muted">
-              <Bot className="size-4" />
-            </span>
+            {/* The same glyph and the same tint the card in the index wore, so
+                arriving here reads as opening that card rather than as
+                landing on an unrelated screen. */}
+            <IconTile tone={toneFor(data.id)} size="lg">
+              <Glyph />
+            </IconTile>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="truncate text-[15px] font-semibold text-ink">{data.title}</h2>
@@ -88,23 +98,20 @@ export function AgentDetail(props: {
                   <StatusPill tone="neutral">no inbox</StatusPill>
                 )}
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
-                <span className="machine">{data.name}</span>
-                <span aria-hidden className="text-edge-strong">
-                  ·
-                </span>
-                <span className="machine">{data.model}</span>
-                <span aria-hidden className="text-edge-strong">
-                  ·
-                </span>
-                <span>
+              <MetaRow className="mt-1.5">
+                <Meta icon={<Fingerprint />} machine>
+                  {data.name}
+                </Meta>
+                <Meta icon={<Cpu />} machine>
+                  {data.model}
+                </Meta>
+                <Meta icon={<Terminal />}>
                   {runs.length} {runs.length === 1 ? "session" : "sessions"}
-                </span>
-                <span aria-hidden className="text-edge-strong">
-                  ·
-                </span>
-                <span>{describeRunner(data.runnerPreference, settings.data?.defaultRunner)}</span>
-              </div>
+                </Meta>
+                <Meta icon={<Server />}>
+                  {describeRunner(data.runnerPreference, settings.data?.defaultRunner)}
+                </Meta>
+              </MetaRow>
             </div>
             {/* The edit sits beside the grants it changes: this screen is where
                 an operator reads what an agent may reach, so it is where they
@@ -127,14 +134,17 @@ export function AgentDetail(props: {
                   unassigned rather than disappearing.
                 </>
               }
-              onDelete={() => api.deleteAgent(props.projectId, props.agentId)}
+              onDelete={async () => {
+                await api.deleteAgent(props.projectId, props.agentId);
+                props.onDeleted?.();
+              }}
               invalidate={[["agents", props.projectId], ["triggers", props.projectId]]}
             />
           </div>
 
           <Section title="Role" icon={<FileText />}>
             <Well className="text-[13px] leading-relaxed whitespace-pre-wrap text-ink">
-              {data.rolePrompt || "No role prompt set."}
+              {data.rolePrompt ? reflow(data.rolePrompt) : "No role prompt set."}
             </Well>
           </Section>
 
@@ -142,7 +152,7 @@ export function AgentDetail(props: {
             <Section title="Foundational prompt" icon={<FileText />}>
               <Well className="max-h-56 overflow-auto">
                 <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-ink-muted">
-                  {data.foundationalPrompt}
+                  {reflow(data.foundationalPrompt)}
                 </p>
               </Well>
             </Section>

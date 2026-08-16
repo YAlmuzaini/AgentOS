@@ -1,19 +1,22 @@
 import type { GoalDto } from "@agentos/shared";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Target } from "lucide-react";
+import { DollarSign, ListChecks, Plus, Repeat, Target } from "lucide-react";
 import { useSearch } from "@tanstack/react-router";
 import { useUrlSelection } from "../hooks/use-url-selection";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
-import { EmptyState } from "../components/ui/feedback";
+import { EmptyState, InlineError, Skeleton } from "../components/ui/feedback";
 import { CheckboxField, Field, FormActions, Input, Textarea } from "../components/ui/form";
+import { IconTile, toneFor } from "../components/ui/icon-tile";
+import { Meta, MetaRow } from "../components/ui/meta";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
-import { StatusPill } from "../components/ui/pill";
+import { CountChip, StatusPill } from "../components/ui/pill";
 import { useProjectGate } from "../hooks/use-project";
 import { GoalDetail } from "./goal-detail";
+import { errorText, goalState } from "./goal-detail-parts";
 import { NoProject, ProjectPending } from "./project-states";
 import { Time } from "../components/ui/time";
 
@@ -53,18 +56,26 @@ export function GoalsPage(): React.JSX.Element {
   const awaiting = list.filter((goal) => !goal.dodApproved).length;
 
   return (
-    <Page>
+    <Page fill>
       <PageHeader
         icon={<Target />}
         title="Goals"
+        meta={list.length > 0 ? <CountChip>{list.length}</CountChip> : undefined}
         actions={
           <>
             {awaiting > 0 ? (
-              <StatusPill tone="gate" dot>
+              <StatusPill
+                tone="gate"
+                dot
+                title="These goals cannot start until you approve their definition of done."
+              >
                 {awaiting} awaiting approval
               </StatusPill>
             ) : null}
-            <Button variant="solid" onClick={() => setCreating(true)}>
+            {/* Deliberately not the solid button. The one near-black surface on
+                this screen belongs to "Approve and start" — the action only the
+                operator can take, and the only one that spends money. */}
+            <Button onClick={() => setCreating(true)}>
               <Plus />
               New goal
             </Button>
@@ -72,46 +83,45 @@ export function GoalsPage(): React.JSX.Element {
         }
       />
 
-      <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
-        <Panel className="h-fit overflow-hidden">
-          {list.length === 0 ? (
+      <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[320px_1fr]">
+        {/* The list scrolls inside its own panel: a goal list grows without a
+            ceiling, and a list that grows the page takes the detail pane it is
+            meant to be driving off the bottom of the screen. */}
+        <Panel className="h-fit overflow-hidden lg:flex lg:h-auto lg:min-h-0 lg:flex-col">
+          {goals.isLoading ? (
+            <GoalRowSkeleton />
+          ) : goals.isError ? (
+            <div className="p-4">
+              <InlineError>{errorText(goals.error, "Unable to load goals.")}</InlineError>
+            </div>
+          ) : list.length === 0 ? (
             <EmptyState
               icon={<Target />}
               title="No goals yet"
-              hint="Create a goal to run agents against an approved definition of done."
+              hint="Create a goal to run agents against an approved completion checklist and operating limits."
+              action={
+                <Button variant="solid" onClick={() => setCreating(true)}>
+                  <Plus />
+                  New goal
+                </Button>
+              }
             />
           ) : (
-            <ul>
+            <ul className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               {list.map((goal) => (
                 <li key={goal.id} className="border-b border-edge last:border-0">
-                  <button
-                    type="button"
-                    className={`w-full px-3.5 py-3 text-left transition-colors ${
-                      selected === goal.id ? "bg-sunken" : "hover:bg-sunken/70"
-                    }`}
-                    onClick={() => setSelected(goal.id)}
-                    aria-current={selected === goal.id}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="truncate text-[13px] font-medium text-ink">
-                        {goal.title}
-                      </span>
-                      <GoalStatus goal={goal} />
-                    </div>
-                    <div className="tnum mt-1.5 text-xs text-ink-muted">
-                      ${goal.spendUsd.toFixed(2)} of{" "}
-                      {goal.spendCapUsd !== null ? `$${goal.spendCapUsd.toFixed(2)}` : "no cap"} ·{" "}
-                      {goal.iterations} iterations
-                    </div>
-                    <Time iso={goal.updatedAt} className="mt-1 block text-ink-faint" />
-                  </button>
+                  <GoalRow
+                    goal={goal}
+                    selected={selected === goal.id}
+                    onOpen={() => setSelected(goal.id)}
+                  />
                 </li>
               ))}
             </ul>
           )}
         </Panel>
 
-        <div>
+        <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto">
           {selected ? (
             <GoalDetail
               projectId={project.id}
@@ -119,10 +129,11 @@ export function GoalsPage(): React.JSX.Element {
               onChanged={() => queryClient.invalidateQueries({ queryKey: ["goals", projectId] })}
             />
           ) : (
-            <Panel>
+            <Panel className="h-full">
               <EmptyState
+                icon={<ListChecks />}
                 title="Select a goal"
-                hint="Select a goal to view its checklist, spend, and progress."
+                hint="Select a goal to review its checklist, spend, progress, and operating limits."
               />
             </Panel>
           )}
@@ -133,6 +144,7 @@ export function GoalsPage(): React.JSX.Element {
         open={creating}
         onOpenChange={setCreating}
         pending={create.isPending}
+        error={create.isError ? errorText(create.error, "The goal was not created.") : null}
         // `mutateAsync` so the form can wait, and so a rejection reaches it —
         // that is what stops the panel clearing input the server refused.
         onCreate={(body) => create.mutateAsync(body).then(() => undefined)}
@@ -141,36 +153,97 @@ export function GoalsPage(): React.JSX.Element {
   );
 }
 
-function GoalStatus(props: { goal: GoalDto }): React.JSX.Element {
-  if (!props.goal.dodApproved) {
-    return <StatusPill tone="gate">awaiting approval</StatusPill>;
-  }
-  if (props.goal.status === "active") {
-    return (
-      <StatusPill tone="live" dot pulse>
-        active
-      </StatusPill>
-    );
-  }
-  // A rail tripped: spend cap, max duration, or stuck-at-19. Each is a real
-  // stop the operator has to decide about, so all three read as danger.
-  if (props.goal.status.startsWith("stopped-")) {
-    return (
-      <StatusPill tone="danger" dot>
-        {props.goal.status.replace("stopped-", "stopped: ")}
-      </StatusPill>
-    );
-  }
-  if (props.goal.status === "completed") {
-    return <StatusPill tone="live">completed</StatusPill>;
-  }
-  return <StatusPill>{props.goal.status}</StatusPill>;
+/**
+ * One goal in the list, carrying enough state that the operator does not have
+ * to open it to know where it stands.
+ *
+ * The row used to be a title, a spend line, and a timestamp — so "which of
+ * these fourteen is parked on me" and "which one is nearly finished" both cost
+ * a click each. Status, the checklist ratio, and spend against cap all live
+ * here now, which is the whole point of a two-pane screen.
+ */
+function GoalRow({
+  goal,
+  selected,
+  onOpen,
+}: {
+  goal: GoalDto;
+  selected: boolean;
+  onOpen: () => void;
+}): React.JSX.Element {
+  const state = goalState(goal);
+  const checked = goal.definitionOfDone.filter((item) => item.done).length;
+  const total = goal.definitionOfDone.length;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-current={selected}
+      className="flex w-full items-start gap-2.5 px-3 py-3 text-left transition-colors hover:bg-sunken/70 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-solid aria-[current=true]:bg-sunken"
+    >
+      <IconTile tone={toneFor(goal.id)} size="sm">
+        <Target />
+      </IconTile>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          {/* Two lines, then a clamp. A goal title runs to 300 characters and
+              this column is 320px wide. */}
+          <span
+            className="line-clamp-2 text-[13px] leading-snug font-medium text-ink"
+            title={goal.title}
+          >
+            {goal.title}
+          </span>
+          <StatusPill tone={state.tone} dot pulse={state.pulse} title={state.title}>
+            {state.label}
+          </StatusPill>
+        </div>
+        <MetaRow className="mt-1.5">
+          <Meta icon={<DollarSign />} machine>
+            ${goal.spendUsd.toFixed(2)} of{" "}
+            {goal.spendCapUsd !== null ? `$${goal.spendCapUsd.toFixed(2)}` : "no cap"}
+          </Meta>
+          {/* The ratio is the progress, so it belongs where the operator is
+              choosing which goal to open. An unapproved goal has none yet. */}
+          {goal.dodApproved && total > 0 ? (
+            <Meta icon={<ListChecks />} className="tnum">
+              {checked}/{total} done
+            </Meta>
+          ) : null}
+          <Meta icon={<Repeat />} className="tnum">
+            {goal.iterations} {goal.iterations === 1 ? "iteration" : "iterations"}
+          </Meta>
+          <Time iso={goal.updatedAt} className="text-ink-faint" />
+        </MetaRow>
+      </div>
+    </button>
+  );
+}
+
+/** Shaped like the rows it stands in for: tile, title, two lines of meta. */
+function GoalRowSkeleton(): React.JSX.Element {
+  return (
+    <div>
+      {Array.from({ length: 5 }, (_, index) => (
+        <div key={index} className="flex items-start gap-2.5 border-b border-edge p-3 last:border-0">
+          <Skeleton className="size-7 shrink-0" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-3.5 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function CreateGoalDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pending: boolean;
+  /** What the server said when it refused the last attempt. */
+  error: string | null;
   onCreate: (body: {
     title: string;
     spec: string;
@@ -196,15 +269,21 @@ function CreateGoalDialog(props: {
             onSubmit={async (event) => {
               event.preventDefault();
               if (blocked) return;
-              // Awaited, so a rejected create leaves the spec the operator just
-              // wrote exactly where it is. Clearing on submit destroyed it.
-              await props.onCreate({
-                title,
-                spec,
-                spendCapUsd: noSpendCap ? null : Number(spendCapUsd),
-                acknowledgeNoSpendCap: noSpendCap,
-                maxDurationMinutes: maxDurationMinutes ? Number(maxDurationMinutes) : null,
-              });
+              try {
+                // Awaited, so a rejected create leaves the spec the operator
+                // just wrote exactly where it is. Clearing on submit destroyed
+                // it, and letting the rejection escape this handler turned a
+                // refusal the operator should read into an unhandled promise.
+                await props.onCreate({
+                  title,
+                  spec,
+                  spendCapUsd: noSpendCap ? null : Number(spendCapUsd),
+                  acknowledgeNoSpendCap: noSpendCap,
+                  maxDurationMinutes: maxDurationMinutes ? Number(maxDurationMinutes) : null,
+                });
+              } catch {
+                return;
+              }
               setTitle("");
               setSpec("");
               setSpendCapUsd("");
@@ -275,6 +354,7 @@ function CreateGoalDialog(props: {
                 checked={noSpendCap}
                 onCheckedChange={setNoSpendCap}
               />
+              {props.error ? <InlineError>{props.error}</InlineError> : null}
             </div>
 
             <div className="border-t border-edge px-5 py-3.5">

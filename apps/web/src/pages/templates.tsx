@@ -10,9 +10,10 @@ import { DeleteAction } from "../components/ui/delete-action";
 import { useConfirm } from "../components/ui/confirm";
 import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Field, FormActions, Input } from "../components/ui/form";
+import { IconTile, toneFor } from "../components/ui/icon-tile";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelTitle, Well } from "../components/ui/panel";
-import { StatusPill } from "../components/ui/pill";
+import { CountChip, StatusPill } from "../components/ui/pill";
 import { useProjectGate } from "../hooks/use-project";
 import { NoProject, ProjectPending } from "./project-states";
 import { InstantiateDialog } from "./instantiate-dialog";
@@ -73,7 +74,7 @@ export function TemplatesPage(): React.JSX.Element {
       <PageHeader
         icon={<FolderGit2 />}
         title="Templates"
-        meta={list.length > 0 ? `${list.length} available` : undefined}
+        meta={list.length > 0 ? <CountChip>{list.length}</CountChip> : undefined}
         actions={
           <Button onClick={() => confirmInstall()} disabled={installBuiltIns.isPending}>
             <Download />
@@ -83,7 +84,7 @@ export function TemplatesPage(): React.JSX.Element {
       />
 
       {installBuiltIns.isError ? (
-        <InlineError>Could not install the built-in templates.</InlineError>
+        <InlineError>Unable to install the built-in templates.</InlineError>
       ) : null}
 
       {templates.isLoading ? (
@@ -130,9 +131,17 @@ export function TemplatesPage(): React.JSX.Element {
 }
 
 /**
- * The reference's template card: a preview of the chain, then its name and the
- * line of metadata that tells you what running it would do. The preview is the
- * steps themselves rather than an illustration — the chain IS the content.
+ * A template card, in the order the operator reads it: what this is, what it
+ * does, then the chain itself, then what running it would cost them in
+ * attention.
+ *
+ * It used to open with the step list in a grey band and put the name
+ * underneath, which meant a wall of four cards led with four unlabelled
+ * numbered lists and the operator had to look *down* to find out which
+ * workflow each one was. Identity first; the chain is the evidence, not the
+ * headline. The actions also sat in two stacked rows — a lone bin icon
+ * floating above a full-width button — and are now one row, quiet action
+ * left, the thing you came to press right.
  */
 function TemplateCard(props: {
   template: TaskTemplateDto;
@@ -144,8 +153,23 @@ function TemplateCard(props: {
   const gates = template.steps.filter((step) => step.approvalGate).length;
 
   return (
-    <Panel className="flex flex-col overflow-hidden transition-colors hover:border-edge-strong">
-      <div className="bg-sunken p-4">
+    <Panel className="flex flex-col gap-3 p-4 transition-colors hover:border-edge-strong">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <IconTile tone={toneFor(template.id)}>
+          <FolderGit2 />
+        </IconTile>
+        <div className="min-w-0 flex-1">
+          <p className="machine truncate text-[13px] font-medium text-ink">{template.name}</p>
+          {template.description ? (
+            <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-ink-muted">
+              {template.description}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      {/* The chain is read-only reference material, so it sits in a well. */}
+      <Well className="px-3 py-2.5">
         <ol className="space-y-1.5">
           {template.steps.slice(0, 4).map((step, index) => (
             <li key={index} className="flex items-center gap-2 text-xs">
@@ -157,50 +181,44 @@ function TemplateCard(props: {
             </li>
           ))}
           {template.steps.length > 4 ? (
-            <li className="pl-6 text-xs text-ink-faint">
-              +{template.steps.length - 4} more
-            </li>
+            <li className="pl-6 text-xs text-ink-faint">+{template.steps.length - 4} more</li>
           ) : null}
         </ol>
+      </Well>
+
+      <div className="mt-auto flex flex-wrap items-center gap-1.5">
+        <StatusPill tone="neutral">
+          {template.steps.length} {template.steps.length === 1 ? "step" : "steps"}
+        </StatusPill>
+        {gates > 0 ? (
+          <StatusPill
+            tone="gate"
+            title="An agent cannot close these steps. Only you can."
+          >
+            {gates} {gates === 1 ? "gate" : "gates"}
+          </StatusPill>
+        ) : null}
+        {template.variables.length > 0 ? (
+          <StatusPill tone="idle">
+            {template.variables.length}{" "}
+            {template.variables.length === 1 ? "variable" : "variables"}
+          </StatusPill>
+        ) : null}
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 p-4">
-        <p className="machine text-[13px] font-medium text-ink">{template.name}</p>
-        {template.description ? (
-          <p className="line-clamp-2 text-xs text-ink-muted">{template.description}</p>
-        ) : null}
-
-        <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2">
-          <StatusPill tone="neutral">
-            {template.steps.length} {template.steps.length === 1 ? "step" : "steps"}
-          </StatusPill>
-          {gates > 0 ? (
-            <StatusPill tone="gate">
-              {gates} {gates === 1 ? "gate" : "gates"}
-            </StatusPill>
-          ) : null}
-          {template.variables.length > 0 ? (
-            <StatusPill tone="idle">
-              {template.variables.length}{" "}
-              {template.variables.length === 1 ? "variable" : "variables"}
-            </StatusPill>
-          ) : null}
-        </div>
-
-        <div className="mt-2 flex items-center gap-2">
-          <DeleteAction
-            what={template.name}
-            body={
-              <>
-                Existing task chains are not affected. You can restore built-in templates by
-                selecting Install built-ins.
-              </>
-            }
-            onDelete={props.onDeleted}
-            invalidate={[["templates", props.projectId]]}
-          />
-        </div>
-        <Button className="mt-2 w-full" onClick={props.onPreview}>
+      <div className="flex items-center justify-between gap-2 border-t border-edge pt-3">
+        <DeleteAction
+          what={template.name}
+          body={
+            <>
+              Existing task chains are not affected. You can restore built-in templates by
+              selecting Install built-ins.
+            </>
+          }
+          onDelete={props.onDeleted}
+          invalidate={[["templates", props.projectId]]}
+        />
+        <Button onClick={props.onPreview}>
           <Play />
           Use template
         </Button>

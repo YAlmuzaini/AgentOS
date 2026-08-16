@@ -1,6 +1,11 @@
-import type { CreateRepoInput, RepoDto } from "@agentos/shared";
+import type {
+  CreateRepoInput,
+  GithubInstallationDto,
+  RepoDto,
+  SecretRefDto,
+} from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitBranch, Plus } from "lucide-react";
+import { FolderGit2, GitBranch, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
@@ -8,9 +13,11 @@ import { CreatePanel } from "../components/ui/create-panel";
 import { DeleteAction } from "../components/ui/delete-action";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Field, Input } from "../components/ui/form";
+import { IconTile, toneFor } from "../components/ui/icon-tile";
+import { Meta, MetaRow } from "../components/ui/meta";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
-import { StatusPill } from "../components/ui/pill";
+import { CountChip, StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useProjectGate } from "../hooks/use-project";
 import { GithubPanel } from "./github-panel";
@@ -79,7 +86,7 @@ export function ReposPage(): React.JSX.Element {
       <PageHeader
         icon={<GitBranch />}
         title="Repositories"
-        meta={list.length > 0 ? `${list.length} mounted` : undefined}
+        meta={list.length > 0 ? <CountChip>{list.length}</CountChip> : undefined}
         actions={
           <Button variant="solid" onClick={() => setCreating(true)}>
             <Plus />
@@ -98,6 +105,7 @@ export function ReposPage(): React.JSX.Element {
         submitLabel="Create"
         pending={create.isPending}
         disabled={!name || !remoteUrl || !mountPath}
+        incomplete="A name, a remote URL and a mount path are required."
         error={create.isError ? "Repository creation failed." : null}
         onSubmit={async () => {
           await create.mutateAsync({
@@ -180,9 +188,9 @@ export function ReposPage(): React.JSX.Element {
           <EmptyState
             icon={<GitBranch />}
             title="No repositories yet"
-            hint="Add a repository and grant access to the required agents."
+            hint="Connect GitHub or add a remote repository, then grant access to the required agents."
             action={
-              <Button variant="solid" onClick={() => setCreating(true)}>
+              <Button variant="outline" onClick={() => setCreating(true)}>
                 <Plus />
                 New repository
               </Button>
@@ -194,8 +202,7 @@ export function ReposPage(): React.JSX.Element {
           <Table>
             <THead>
               <tr>
-                <TH>Name</TH>
-                <TH>Remote</TH>
+                <TH>Repository</TH>
                 <TH>Mount path</TH>
                 <TH>Branch</TH>
                 <TH>Auth</TH>
@@ -205,26 +212,42 @@ export function ReposPage(): React.JSX.Element {
             <tbody>
               {list.map((repo: RepoDto) => (
                 <TR key={repo.id}>
-                  <TD className="font-medium">{repo.name}</TD>
-                  <TD className="machine max-w-xs truncate text-xs text-ink-muted">
-                    {repo.remoteUrl}
+                  {/* The remote is the repo's real identity, so it sits under
+                      the name rather than in a column of its own where it
+                      truncated to the host and told the operator nothing. */}
+                  <TD className="max-w-[20rem]">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <IconTile tone={toneFor(repo.id)} size="sm">
+                        <FolderGit2 />
+                      </IconTile>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-ink">{repo.name}</p>
+                        <p
+                          className="machine truncate text-xs text-ink-muted"
+                          title={repo.remoteUrl}
+                        >
+                          {repo.remoteUrl}
+                        </p>
+                      </div>
+                    </div>
                   </TD>
-                  <TD className="machine text-xs text-ink-muted">{repo.mountPath}</TD>
+                  <TD className="machine max-w-[12rem] truncate text-xs text-ink-muted">
+                    {repo.mountPath}
+                  </TD>
+                  {/* A branch name is a machine value, not a status. */}
                   <TD>
-                    <StatusPill>{repo.defaultBranch}</StatusPill>
+                    <StatusPill tone="neutral" className="machine">
+                      {repo.defaultBranch}
+                    </StatusPill>
                   </TD>
-                  <TD className="text-xs text-ink-faint">
-                    {repo.githubInstallationId
-                      ? `GitHub · ${
-                          installations.find((i) => i.id === repo.githubInstallationId)
-                            ?.accountLogin ?? "app"
-                        }`
-                      : repo.credentialSecretId
-                        ? (secrets.data?.find((s) => s.id === repo.credentialSecretId)?.name ??
-                          repo.credentialSecretId)
-                        : "none"}
+                  <TD className="max-w-[14rem]">
+                    <RepoAuth
+                      repo={repo}
+                      installations={installations}
+                      secrets={secrets.data ?? []}
+                    />
                   </TD>
-                  <TD className="text-right">
+                  <TD className="w-0 text-right">
                     <DeleteAction
                       what={repo.name}
                       body={
@@ -234,7 +257,10 @@ export function ReposPage(): React.JSX.Element {
                         </>
                       }
                       onDelete={() => api.deleteRepo(project.id, repo.id)}
-                      invalidate={[["repos", project.id], ["agents", project.id]]}
+                      invalidate={[
+                        ["repos", project.id],
+                        ["agents", project.id],
+                      ]}
                     />
                   </TD>
                 </TR>
@@ -245,4 +271,48 @@ export function ReposPage(): React.JSX.Element {
       )}
     </Page>
   );
+}
+
+/**
+ * Which credential clones this repo, as one fact rather than a hand-built
+ * "GitHub · login" string. An installation and a stored token are different
+ * kinds of answer — one is short-lived and scoped, the other is not — so they
+ * get different glyphs, and an unresolved id falls back to the machine font
+ * because at that point the id is all the operator has to go on.
+ */
+function RepoAuth({
+  repo,
+  installations,
+  secrets,
+}: {
+  repo: RepoDto;
+  installations: GithubInstallationDto[];
+  secrets: SecretRefDto[];
+}): React.JSX.Element {
+  if (repo.githubInstallationId) {
+    const installation = installations.find((i) => i.id === repo.githubInstallationId);
+    return (
+      <MetaRow>
+        <Meta icon={<GitBranch />} title="Short-lived token from a GitHub App installation">
+          GitHub
+        </Meta>
+        <Meta machine={!installation?.accountLogin}>
+          {installation?.accountLogin ?? repo.githubInstallationId}
+        </Meta>
+      </MetaRow>
+    );
+  }
+
+  if (repo.credentialSecretId) {
+    const secret = secrets.find((s) => s.id === repo.credentialSecretId);
+    return (
+      <MetaRow>
+        <Meta icon={<KeyRound />} machine={!secret} title={repo.credentialSecretId}>
+          {secret?.name ?? repo.credentialSecretId}
+        </Meta>
+      </MetaRow>
+    );
+  }
+
+  return <span className="text-xs text-ink-faint">none</span>;
 }

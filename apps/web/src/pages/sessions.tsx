@@ -5,15 +5,15 @@ import { useActiveProject } from "../hooks/use-project";
 import { useUrlSelection } from "../hooks/use-url-selection";
 import { useLiveSession } from "./use-live-session";
 import { ExternalLink, Terminal } from "lucide-react";
-import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import { DeleteAction } from "../components/ui/delete-action";
 import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle, SectionLabel, Well } from "../components/ui/panel";
 import { exactTime, Time } from "../components/ui/time";
 import { SessionAccessPanel } from "./session-access";
-import { Dot, StatusPill } from "../components/ui/pill";
+import { CountChip, Dot, StatusPill } from "../components/ui/pill";
+import { truncate } from "./dashboard-figures";
 
 /**
  * Every session status gets a tone. `starting` and `committing` are in flight
@@ -52,6 +52,37 @@ function isInFlight(status: SessionDto["status"] | undefined): boolean {
   return status === "starting" || status === "running" || status === "committing";
 }
 
+/**
+ * The result state of one log entry, as a tone for its marker.
+ *
+ * The consumer writes three shapes an operator cares about (see
+ * `session-consumer.ts`): a `session.error`, a tool call that parked on the
+ * operator, and everything else. Reading the log as an undifferentiated column
+ * of grey text meant the one line that says why a run died sat between four
+ * hundred that say what it read.
+ */
+function entryTone(entry: ToolCallLogEntry): "danger" | "gate" | "neutral" {
+  if (entry.type === "session.error") {
+    return "danger";
+  }
+  if (entry.summary.startsWith("parked")) {
+    return "gate";
+  }
+  return "neutral";
+}
+
+/** The status word on a row, tinted only when the status is worth a colour. */
+function statusTextClass(tone: ReturnType<typeof toneFor>): string {
+  switch (tone) {
+    case "danger":
+      return "text-danger";
+    case "gate":
+      return "text-gate";
+    default:
+      return "text-ink-muted";
+  }
+}
+
 export function SessionsPage(): React.JSX.Element {
   // The URL is the selection; a click overrides it until the URL moves again.
   const { id: idFromUrl } = useSearch({ strict: false }) as { id?: string };
@@ -88,13 +119,23 @@ export function SessionsPage(): React.JSX.Element {
       <PageHeader
         icon={<Terminal />}
         title="Sessions"
-        meta={list.length > 0 ? `${list.length} total` : undefined}
+        meta={list.length > 0 ? <CountChip>{list.length}</CountChip> : undefined}
         actions={
           totalSpend > 0 ? (
-            <StatusPill tone="neutral">${totalSpend.toFixed(2)} spent</StatusPill>
+            <StatusPill tone="neutral" className="tnum">
+              ${totalSpend.toFixed(2)} spent
+            </StatusPill>
           ) : null
         }
       />
+
+      {/* A list that cannot be fetched is not an empty one, and "no sessions
+          yet" would tell the operator their runs are gone. */}
+      {sessions.isError ? (
+        <InlineError>
+          {sessions.error instanceof ApiError ? sessions.error.message : "Unable to load sessions."}
+        </InlineError>
+      ) : null}
 
       <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr]">
         {/* The list scrolls inside its own panel: a seeded database returns 32
@@ -104,53 +145,63 @@ export function SessionsPage(): React.JSX.Element {
           {sessions.isLoading ? (
             <SkeletonRows rows={5} />
           ) : list.length === 0 ? (
-            <EmptyState icon={<Terminal />} title="No sessions yet" hint="Run a task." />
+            <EmptyState
+              icon={<Terminal />}
+              title="No sessions yet"
+              hint="A session is the record of one agent run. Assign a task to an agent and one will appear here."
+            />
           ) : (
             <ul className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-              {list.map((session) => (
-                <li key={session.id} className="border-b border-edge last:border-0">
-                  <button
-                    type="button"
-                    className={`flex w-full items-center gap-2 px-3.5 py-2.5 text-left transition-colors ${
-                      selected === session.id ? "bg-sunken" : "hover:bg-sunken/70"
-                    }`}
-                    onClick={() => setSelected(session.id)}
-                    aria-current={selected === session.id}
-                  >
-                    <Dot
-                      tone={leftContainerBehind(session) ? "danger" : toneFor(session.status)}
-                      pulse={isInFlight(session.status)}
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="machine truncate text-xs text-ink">
-                        {session.agentName ?? session.id.slice(0, 8)}
-                      </span>
-                      {/* When, on the row: the list is how an operator finds
-                          the run they are thinking of, and "which one was
-                          this morning" is the question they arrive with. */}
-                      <Time iso={session.startedAt} className="text-ink-faint" />
-                    </span>
-                    {/* What the run cost, where the operator is choosing which
-                        run to open. It was recorded on every session and shown
-                        nowhere. */}
-                    {session.costUsd != null ? (
-                      <span className="tnum shrink-0 text-xs text-ink-faint">
-                        ${session.costUsd.toFixed(2)}
-                      </span>
-                    ) : null}
-                    <span
-                      className={
-                        leftContainerBehind(session)
-                          ? "shrink-0 text-xs text-danger"
-                          : "shrink-0 text-xs text-ink-muted"
-                      }
-                      title={leftContainerBehind(session) ? (session.error ?? undefined) : undefined}
+              {list.map((session) => {
+                const tone = leftContainerBehind(session) ? "danger" : toneFor(session.status);
+                return (
+                  <li key={session.id} className="border-b border-edge last:border-0">
+                    <button
+                      type="button"
+                      title={session.id}
+                      className={`flex w-full items-center gap-2 px-3.5 py-2.5 text-left transition-colors ${
+                        selected === session.id ? "bg-sunken" : "hover:bg-sunken/70"
+                      }`}
+                      onClick={() => setSelected(session.id)}
+                      aria-current={selected === session.id}
                     >
-                      {leftContainerBehind(session) ? "container active" : session.status}
-                    </span>
-                  </button>
-                </li>
-              ))}
+                      {/* The one repeating animation in the app, and it earns
+                          it: a run in flight is the difference between a live
+                          screen and a stale screenshot. Nothing finished, and
+                          nothing failed, pulses. */}
+                      <Dot tone={tone} pulse={isInFlight(session.status)} />
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="machine truncate text-xs text-ink">
+                          {session.agentName ?? session.id.slice(0, 8)}
+                        </span>
+                        {/* When, on the row: the list is how an operator finds
+                            the run they are thinking of, and "which one was
+                            this morning" is the question they arrive with. */}
+                        <Time iso={session.startedAt} className="text-ink-faint" />
+                      </span>
+                      {/* What the run cost, where the operator is choosing which
+                          run to open. It was recorded on every session and shown
+                          nowhere. A run with nothing recorded shows nothing
+                          rather than a $0.00 it did not earn. */}
+                      {session.costUsd != null ? (
+                        <span className="tnum shrink-0 text-xs text-ink-faint">
+                          ${session.costUsd.toFixed(2)}
+                        </span>
+                      ) : null}
+                      <span
+                        className={`shrink-0 text-xs ${
+                          leftContainerBehind(session) ? "text-danger" : statusTextClass(tone)
+                        }`}
+                        title={
+                          leftContainerBehind(session) ? (session.error ?? undefined) : undefined
+                        }
+                      >
+                        {leftContainerBehind(session) ? "container active" : session.status}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Panel>
@@ -160,10 +211,10 @@ export function SessionsPage(): React.JSX.Element {
             <PanelTitle accent="sky" icon={<Terminal />}>
               Tool calls
             </PanelTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {detail.data?.traceUrl ? (
                 <a
-                  className="inline-flex items-center gap-1 text-xs text-link hover:underline"
+                  className="inline-flex items-center gap-1 rounded-control text-xs text-link transition-colors hover:underline"
                   href={detail.data.traceUrl}
                   target="_blank"
                   rel="noreferrer"
@@ -172,8 +223,6 @@ export function SessionsPage(): React.JSX.Element {
                   <ExternalLink className="size-3" />
                 </a>
               ) : null}
-              {/* Cost, runner and commits for the open session: all recorded,
-                  none of it previously rendered anywhere. */}
               {/* Only once the run is over: the row is the only handle the
                   control plane has on a live container, and the server refuses
                   it anyway. */}
@@ -194,15 +243,22 @@ export function SessionsPage(): React.JSX.Element {
                   invalidate={[["sessions", projectId]]}
                 />
               ) : null}
+              {/* Cost, runner and commits for the open session: all recorded,
+                  none of it previously rendered anywhere. */}
               {detail.data?.costUsd != null ? (
-                <StatusPill tone="neutral">${detail.data.costUsd.toFixed(2)}</StatusPill>
+                <StatusPill tone="neutral" className="tnum" title="What this run cost">
+                  ${detail.data.costUsd.toFixed(2)}
+                </StatusPill>
               ) : null}
               {detail.data?.runner ? (
-                <StatusPill tone="neutral">{detail.data.runner}</StatusPill>
+                <StatusPill tone="neutral" title="The backend this session ran on">
+                  <span className="machine">{detail.data.runner}</span>
+                </StatusPill>
               ) : null}
               {(detail.data?.commitShas ?? []).length > 0 ? (
                 <StatusPill
                   tone="idle"
+                  className="tnum"
                   title={(detail.data?.commitShas ?? []).join("\n")}
                 >
                   {detail.data!.commitShas.length} commit
@@ -243,49 +299,77 @@ export function SessionsPage(): React.JSX.Element {
             </div>
           ) : null}
 
-          <div className="p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+          <div className="flex flex-col gap-3 p-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+            {/* A detail fetch that failed leaves the pane looking like a session
+                with nothing in it, which is the same picture as a run that did
+                nothing at all. */}
+            {selected && detail.isError ? (
+              <InlineError>
+                {detail.error instanceof ApiError
+                  ? detail.error.message
+                  : "Unable to load this session."}
+              </InlineError>
+            ) : null}
+
             {!selected ? (
               <EmptyState title="Select a session" hint="View its access details and tool-call log." />
             ) : entries.length === 0 ? (
-              <EmptyState title="No tool calls recorded" />
+              <EmptyState
+                title="No tool calls recorded"
+                hint="No control-plane tool calls were recorded. Check the runtime trace for additional activity."
+              />
             ) : (
-              <Well className="overflow-auto p-0">
-                <ol className="machine divide-y divide-edge text-xs">
-                  {entries.map((entry, index) => (
-                    <li
-                      key={`${entry.eventId ?? index}`}
-                      className="flex gap-2.5 px-3.5 py-1.5 leading-relaxed"
-                    >
-                      <span className="shrink-0 text-ink-faint" title={exactTime(entry.at)}>
-                        {entry.at.slice(11, 19)}
-                      </span>
-                      <span className="shrink-0 font-medium text-ink">
-                        {entry.name ?? entry.type}
-                      </span>
-                      <span className="min-w-0 text-ink-muted">{entry.summary}</span>
-                    </li>
-                  ))}
+              /*
+               * The audit trail of what the agent actually reached for. It has
+               * to stay readable at four hundred entries, so it scrolls inside
+               * this well rather than growing the pane: it is one column of
+               * fixed-width stamps, one of tool names, and a result that
+               * truncates. A single 20KB log line used to widen the sheet and
+               * put the session list off the side of the screen.
+               */
+              <Well className="max-h-[60vh] overflow-y-auto p-0 lg:max-h-none lg:min-h-0 lg:flex-1">
+                <ol className="divide-y divide-edge text-xs">
+                  {entries.map((entry, index) => {
+                    const tone = entryTone(entry);
+                    return (
+                      <li
+                        key={`${entry.eventId ?? index}`}
+                        className="flex items-baseline gap-2.5 px-3.5 py-1.5 leading-relaxed"
+                      >
+                        {/* The quiet marker: only an error and a park get one,
+                            so the eye lands on the two lines that matter. */}
+                        <Dot
+                          tone={tone}
+                          className={tone === "neutral" ? "opacity-0" : undefined}
+                        />
+                        <span
+                          className="machine tnum shrink-0 text-ink-faint"
+                          title={exactTime(entry.at)}
+                        >
+                          {entry.at.slice(11, 19)}
+                        </span>
+                        <span className="machine shrink-0 font-medium text-ink">
+                          {entry.name ?? entry.type}
+                        </span>
+                        <span
+                          className={`machine min-w-0 flex-1 truncate ${
+                            tone === "danger" ? "text-danger" : "text-ink-muted"
+                          }`}
+                          title={truncate(entry.summary, 400)}
+                        >
+                          {entry.summary}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ol>
               </Well>
             )}
 
-            {detail.data?.error ? (
-              <InlineError className="mt-3">{detail.data.error}</InlineError>
-            ) : null}
+            {detail.data?.error ? <InlineError>{detail.data.error}</InlineError> : null}
           </div>
         </Panel>
       </div>
     </Page>
   );
 }
-
-
-/**
- * Streams the live session viewer while a session is running.
- *
- * Uses fetch rather than EventSource on purpose: EventSource cannot send an
- * Authorization header, and putting the operator token in the URL would leak
- * it into server logs, browser history and referrers. If the stream fails the
- * component keeps its 2s poll, which is what makes this safe behind a proxy
- * that buffers server-sent events.
- */

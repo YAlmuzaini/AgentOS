@@ -78,12 +78,19 @@ export function RepoSourceField({
         <Field
           label="Repository"
           className="sm:col-span-2"
+          // A failed listing used to read in the same muted grey as "12
+          // available", so the one hint that means the field is broken looked
+          // like the one that means it is working.
           hint={
-            remote.isError
-              ? "Could not list repositories for that installation."
-              : remote.isLoading
-                ? "Loading authorized repositories…"
-                : `${(remote.data ?? []).length} available`
+            remote.isError ? (
+              <span className="text-danger">
+                Unable to load repositories for this installation.
+              </span>
+            ) : remote.isLoading ? (
+              "Loading authorized repositories…"
+            ) : (
+              `${(remote.data ?? []).length} available`
+            )
           }
         >
           {(id) => (

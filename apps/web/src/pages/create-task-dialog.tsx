@@ -2,12 +2,13 @@ import type { AgentDto, ScheduleKind } from "@agentos/shared";
 import { SCHEDULE_KINDS } from "@agentos/shared";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
-import { api } from "../api";
+import { useId, useState } from "react";
+import { api, ApiError } from "../api";
 import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ui/confirm";
+import { InlineError } from "../components/ui/feedback";
 import { CheckboxField, Field, FormActions, Input, Select, Textarea } from "../components/ui/form";
-import { MicroLabel } from "../components/ui/panel";
+import { cn } from "../lib/cn";
 import { AttachmentPicker, type PickedAttachment } from "./attachment-picker";
 
 const SCHEDULE_LABEL: Record<ScheduleKind, string> = {
@@ -28,6 +29,7 @@ export function CreateTaskDialog(props: {
   agents: Array<{ id: string; name: string }>;
   onCreated: () => void;
 }): React.JSX.Element {
+  const scheduleLabelId = useId();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [agentId, setAgentId] = useState("");
@@ -74,8 +76,12 @@ export function CreateTaskDialog(props: {
     <Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay" />
-        <Dialog.Content className="rise fixed top-1/2 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-panel border border-edge bg-panel shadow-pop outline-none">
+        {/* The form grows: a cron schedule and three attachments are taller
+            than a laptop lid open at 768px, so the dialog is capped and its
+            body scrolls while the title and the actions stay put. */}
+        <Dialog.Content className="rise fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-panel border border-edge bg-panel shadow-pop outline-none">
           <form
+            className="flex min-h-0 flex-1 flex-col"
             onSubmit={(event) => {
               event.preventDefault();
               if (!name || !agentId) {
@@ -103,18 +109,19 @@ export function CreateTaskDialog(props: {
               create.mutate();
             }}
           >
-            <div className="border-b border-edge px-5 py-4">
+            <div className="shrink-0 border-b border-edge px-5 py-4">
               <Dialog.Title className="text-[15px] font-semibold text-ink">New task</Dialog.Title>
               <Dialog.Description className="mt-1 text-[13px] text-ink-muted">
                 {describeSchedule(scheduleKind)}
               </Dialog.Description>
             </div>
 
-            <div className="space-y-4 px-5 py-4">
-              <Field label="Name">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+              <Field label="Name" required>
                 {(id) => (
                   <Input
                     id={id}
+                    required
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                     placeholder="Reconcile the Q2 invoice export"
@@ -122,7 +129,7 @@ export function CreateTaskDialog(props: {
                   />
                 )}
               </Field>
-              <Field label="Description">
+              <Field label="Description" hint="Read by the agent as its brief.">
                 {(id) => (
                   <Textarea
                     id={id}
@@ -133,10 +140,11 @@ export function CreateTaskDialog(props: {
                   />
                 )}
               </Field>
-              <Field label="Assign to">
+              <Field label="Assign to" required>
                 {(id) => (
                   <Select
                     id={id}
+                    required
                     value={agentId}
                     onChange={(event) => setAgentId(event.target.value)}
                   >
@@ -151,13 +159,19 @@ export function CreateTaskDialog(props: {
               </Field>
               {/* The API has supported at/cron scheduling all along; this form
                   used to hardcode "now", so the only way to schedule a task
-                  was to write an automation for it. */}
-              <div>
-                <MicroLabel className="mb-1.5">Run</MicroLabel>
+                  was to write an automation for it.
+
+                  The caption is the same 13px label every field above it wears
+                  — it used to be the 11px all-caps micro label, which made the
+                  one control that is not an input look like a table heading. */}
+              <div className="space-y-1.5">
+                <p id={scheduleLabelId} className="text-[13px] font-medium text-ink">
+                  Run
+                </p>
                 <div
                   role="radiogroup"
-                  aria-label="Schedule"
-                  className="inline-flex rounded-control border border-edge bg-sunken p-0.5"
+                  aria-labelledby={scheduleLabelId}
+                  className="inline-flex h-8.5 items-center rounded-control border border-edge bg-sunken p-0.5"
                 >
                   {SCHEDULE_CHOICES.map((choice) => (
                     <button
@@ -166,11 +180,12 @@ export function CreateTaskDialog(props: {
                       role="radio"
                       aria-checked={scheduleKind === choice.kind}
                       onClick={() => setScheduleKind(choice.kind)}
-                      className={`rounded-[6px] px-3 py-1 text-[13px] transition-colors ${
+                      className={cn(
+                        "h-full rounded-[6px] px-3 text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-solid",
                         scheduleKind === choice.kind
                           ? "bg-panel font-medium text-ink shadow-lift"
-                          : "text-ink-muted hover:text-ink"
-                      }`}
+                          : "text-ink-muted hover:text-ink",
+                      )}
                     >
                       {choice.label}
                     </button>
@@ -179,10 +194,11 @@ export function CreateTaskDialog(props: {
               </div>
 
               {scheduleKind === "at" ? (
-                <Field label="Run at">
+                <Field label="Run at" required hint="In this browser's timezone.">
                   {(id) => (
                     <Input
                       id={id}
+                      required
                       type="datetime-local"
                       value={runAt}
                       onChange={(event) => setRunAt(event.target.value)}
@@ -193,10 +209,11 @@ export function CreateTaskDialog(props: {
 
               {scheduleKind === "cron" ? (
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Cron" hint="Five fields, e.g. 0 9 * * *">
+                  <Field label="Cron" required hint="Five fields, e.g. 0 9 * * *">
                     {(id) => (
                       <Input
                         id={id}
+                        required
                         className="machine"
                         placeholder="0 9 * * *"
                         value={cron}
@@ -204,10 +221,12 @@ export function CreateTaskDialog(props: {
                       />
                     )}
                   </Field>
-                  <Field label="Timezone">
+                  <Field label="Timezone" required>
                     {(id) => (
                       <Input
                         id={id}
+                        required
+                        className="machine"
                         value={timezone}
                         onChange={(event) => setTimezone(event.target.value)}
                       />
@@ -222,20 +241,38 @@ export function CreateTaskDialog(props: {
                 onChange={setAttachments}
               />
 
-              <CheckboxField
-                label="Require my approval before this can be marked done"
-                checked={approvalGate}
-                onCheckedChange={setApprovalGate}
-                tone={approvalGate ? "gate" : "default"}
-              />
+              {/* The gate is the product's promise in one checkbox, so it gets
+                  its own surface and turns amber when it is armed rather than
+                  sitting as the last unremarkable line of the form. */}
+              <div
+                className={cn(
+                  "rounded-control border px-3 py-2.5 transition-colors",
+                  approvalGate ? "border-gate-line bg-gate-soft" : "border-edge",
+                )}
+              >
+                <CheckboxField
+                  label="Require my approval before this can be marked done"
+                  checked={approvalGate}
+                  onCheckedChange={setApprovalGate}
+                  tone={approvalGate ? "gate" : "default"}
+                />
+              </div>
+
+              {/* The failure surface. It used to be three words in the action
+                  bar — "Task creation failed." — which told an operator whose
+                  cron expression the server rejected nothing they could act
+                  on. */}
+              {create.isError ? (
+                <InlineError>
+                  {create.error instanceof ApiError
+                    ? create.error.message
+                    : "Unable to create the task."}
+                </InlineError>
+              ) : null}
             </div>
 
-            <div className="border-t border-edge px-5 py-3.5">
-              <FormActions
-                message={
-                  create.isError ? <span className="text-danger">Task creation failed.</span> : null
-                }
-              >
+            <div className="shrink-0 border-t border-edge px-5 py-3.5">
+              <FormActions>
                 <Dialog.Close asChild>
                   <Button variant="ghost">Cancel</Button>
                 </Dialog.Close>
@@ -259,16 +296,7 @@ export function CreateTaskDialog(props: {
   );
 }
 
-/** Shared by every project-scoped screen, so the wording stays identical. */
-/**
- * Shown while the project list has not answered yet — or has failed.
- *
- * Deliberately says nothing about the cause. "No project yet, seed one" was
- * rendered in exactly this state and sent the operator to fix a database that
- * was fine; the shell reports the real failure for this same query, so the
- * page's job is to not guess.
- */
-
+/** The dialog's own subtitle: what pressing the button is about to commit to. */
 function describeSchedule(kind: ScheduleKind): string {
   switch (kind) {
     case "now":

@@ -65,24 +65,27 @@ export function TaskAttachments(props: {
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <PanelTitle>Attachments</PanelTitle>
-        <>
-          <input
-            ref={picker}
-            type="file"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                add.mutate(file);
-              }
-              event.target.value = "";
-            }}
-          />
-          <Button size="sm" variant="ghost" onClick={() => picker.current?.click()} disabled={add.isPending}>
-            <Plus />
-            {add.isPending ? "Attaching…" : "Attach"}
-          </Button>
-        </>
+        <input
+          ref={picker}
+          type="file"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              add.mutate(file);
+            }
+            event.target.value = "";
+          }}
+        />
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => picker.current?.click()}
+          disabled={add.isPending}
+        >
+          <Plus />
+          {add.isPending ? "Attaching…" : "Attach"}
+        </Button>
       </div>
 
       {add.isError ? (
@@ -91,17 +94,28 @@ export function TaskAttachments(props: {
         </InlineError>
       ) : null}
 
+      {/* Detaching failed silently before: the row stayed on screen and the
+          operator had no way to tell whether the file was still on the card. */}
+      {detach.isError ? (
+        <InlineError>
+          {detach.error instanceof ApiError ? detach.error.message : "Unable to detach the file."}
+        </InlineError>
+      ) : null}
+
       {entries.length === 0 ? (
         <Well>
           <p className="text-[13px] text-ink-faint">
-            No attachments. Added files are available to subsequent chain steps and collaborating agents.
+            No attachments. Added files are available to later tasks and authorized agents.
           </p>
         </Well>
       ) : (
         <ul className="divide-y divide-edge rounded-control border border-edge">
           {entries.map((entry) => (
-            <li key={entry.path} className="flex items-center gap-3 px-3 py-2">
-              <Paperclip className="size-3.5 shrink-0 text-ink-faint" />
+            <li
+              key={entry.path}
+              className="flex items-center gap-2 px-3 py-2 transition-colors first:rounded-t-control last:rounded-b-control hover:bg-sunken"
+            >
+              <Paperclip aria-hidden className="size-3.5 shrink-0 text-ink-faint" />
               <span className="machine min-w-0 flex-1 truncate text-xs text-ink" title={entry.path}>
                 {entry.path}
               </span>
@@ -110,6 +124,7 @@ export function TaskAttachments(props: {
               <Button
                 size="sm"
                 variant="ghost"
+                title={`Detach ${entry.path}`}
                 onClick={() => detach.mutate(entry.path)}
                 disabled={detach.isPending}
               >

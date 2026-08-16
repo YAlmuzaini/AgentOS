@@ -9,8 +9,10 @@ import { FilesPage } from "./pages/files";
 import { GoalsPage } from "./pages/goals";
 import { InboxPage } from "./pages/inbox";
 import { McpsPage } from "./pages/mcps";
+import { NotFoundPage } from "./pages/not-found";
 import { ProjectSettingsPage } from "./pages/project-settings";
 import { ReposPage } from "./pages/repos";
+import { RouteErrorPage } from "./pages/route-error";
 import { SecretsPage } from "./pages/secrets";
 import { SessionsPage } from "./pages/sessions";
 import { SettingsPage } from "./pages/settings";
@@ -19,7 +21,16 @@ import { TasksPage } from "./pages/tasks";
 import { TemplatesPage } from "./pages/templates";
 import { TriggersPage } from "./pages/triggers";
 
-const rootRoute = createRootRoute({ component: Layout });
+// The 404 hangs off the root route so it renders *inside* the shell: an
+// operator who mistypes a path should still have the rail, the top bar and a
+// way out, not a bare sheet with two words on it.
+const rootRoute = createRootRoute({
+  component: Layout,
+  notFoundComponent: NotFoundPage,
+  // Without this, a screen that throws while rendering leaves a blank white
+  // sheet and a console warning nobody operating the product is reading.
+  errorComponent: ({ error }) => <RouteErrorPage error={error} />,
+});
 
 // Routes are declared one by one rather than through a helper: TanStack infers
 // the literal path of each route, and that inference is what makes <Link to>

@@ -3,11 +3,13 @@ import { Link } from "@tanstack/react-router";
 import { Bot, CheckCircle2, GitBranch, ListChecks, Send, Target } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../components/ui/button";
+import { InlineError } from "../components/ui/feedback";
 import { Input } from "../components/ui/form";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 import { Time } from "../components/ui/time";
 import { EarlierInThread } from "./inbox-thread";
+import { reflow } from "../lib/prose";
 
 /**
  * One inbox message, with everything needed to answer it without leaving.
@@ -15,10 +17,17 @@ import { EarlierInThread } from "./inbox-thread";
  * The old card showed a body and some buttons: no agent, no card, no clock. At
  * 23:00 that is a question from nobody about nothing, and the operator has to
  * open two other screens before they can answer a yes/no.
+ *
+ * The question itself is set at the title step rather than at body size. This
+ * is the only channel an agent has to reach a human, so the sentence the whole
+ * screen exists to answer should be the largest thing on it.
  */
 export function MessageCard(props: {
   message: InboxMessageDto;
   pending: boolean;
+  /** The reply that came back rejected. Answering is the one mutation on this
+   *  screen, so a silent failure reads as "sent" and the session keeps waiting. */
+  error?: Error | null;
   onReply: (payload: {
     body?: string;
     selectedChoiceId?: string;
@@ -34,7 +43,9 @@ export function MessageCard(props: {
       <PanelHeader className="flex-wrap gap-y-2 border-b border-edge">
         <PanelTitle icon={<Bot />}>
           <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <span className="machine text-xs text-ink">{message.agentName ?? "an agent"}</span>
+            <span className="machine min-w-0 truncate text-xs text-ink">
+              {message.agentName ?? "an agent"}
+            </span>
             {questions.length > 1 ? (
               <span className="text-[13px] text-ink-muted">
                 needs {questions.length} decisions
@@ -49,7 +60,13 @@ export function MessageCard(props: {
         <div className="flex flex-wrap items-center gap-2">
           <Time iso={message.createdAt} className="text-ink-faint" />
           {open ? (
-            <StatusPill tone="gate">response required</StatusPill>
+            <StatusPill
+              tone="gate"
+              dot
+              title="This session is holding its container until you answer."
+            >
+              response required
+            </StatusPill>
           ) : (
             <StatusPill tone="neutral">{message.status}</StatusPill>
           )}
@@ -60,12 +77,12 @@ export function MessageCard(props: {
       {message.subject ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-edge px-4 py-2 text-xs text-ink-muted">
           {message.subject.kind === "goal" ? (
-            <Target className="size-3.5 text-ink-faint" />
+            <Target className="size-3.5 shrink-0 text-ink-faint" />
           ) : (
-            <GitBranch className="size-3.5 text-ink-faint" />
+            <GitBranch className="size-3.5 shrink-0 text-ink-faint" />
           )}
           <Link
-            className="-my-1 inline-flex min-h-11 items-center truncate py-1 text-link hover:underline sm:min-h-0"
+            className="-my-1 inline-flex min-h-11 max-w-full items-center truncate py-1 text-link transition-colors hover:underline sm:min-h-0"
             to={message.subject.kind === "goal" ? "/goals" : "/tasks"}
             search={{ id: message.subject.id }}
           >
@@ -73,9 +90,11 @@ export function MessageCard(props: {
           </Link>
           {message.sessionId ? (
             <>
-              <span className="text-ink-faint">·</span>
+              <span aria-hidden className="text-ink-faint">
+                ·
+              </span>
               <Link
-                className="machine -my-1 inline-flex min-h-11 items-center py-1 text-link hover:underline sm:min-h-0"
+                className="machine -my-1 inline-flex min-h-11 items-center py-1 text-link transition-colors hover:underline sm:min-h-0"
                 to="/sessions"
                 search={{ id: message.sessionId }}
               >
@@ -88,7 +107,9 @@ export function MessageCard(props: {
 
       <div className="p-4">
         {questions.length === 0 ? (
-          <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-ink">{message.body}</p>
+          <p className="text-[13px] leading-relaxed break-words whitespace-pre-wrap text-ink">
+            {reflow(message.body)}
+          </p>
         ) : null}
 
         {questions.length > 0 ? (
@@ -107,7 +128,13 @@ export function MessageCard(props: {
               <Button
                 key={choice.id}
                 disabled={props.pending}
-                className="min-h-11 w-full justify-start"
+                // A choice label is a sentence an agent wrote, not a control
+                // label we chose: at 390px the button's default no-wrap pushed
+                // a long one off the side of the screen.
+                // `h-auto` matters as much as the wrapping: the button's fixed
+                // height would otherwise hold at 34px and let the second line
+                // spill out of its own border.
+                className="h-auto min-h-11 w-full justify-start py-2 text-left leading-snug whitespace-normal"
                 onClick={() => props.onReply({ selectedChoiceId: choice.id })}
               >
                 {choice.label}
@@ -117,6 +144,13 @@ export function MessageCard(props: {
         ) : null}
 
         {open && message.kind === "text" ? <TextReply {...props} /> : null}
+
+        {props.error ? (
+          <InlineError className="mt-3">
+            Unable to send your response: {props.error.message}. The session remains paused; try
+            again.
+          </InlineError>
+        ) : null}
 
         {!open ? (
           <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-faint">
@@ -174,15 +208,17 @@ function QuestionForm(props: {
       {props.questions.map((question, index) => {
         const given = props.answers.find((answer) => answer.questionId === question.id);
         return (
-          <fieldset key={question.id} className="space-y-2">
-            <legend className="flex items-baseline gap-2 text-[13px] font-medium text-ink">
+          <fieldset key={question.id} className="space-y-2.5">
+            <legend className="flex items-baseline gap-2 text-[15px] leading-snug font-semibold tracking-[-0.01em] break-words text-ink">
               {props.questions.length > 1 ? (
-                <span className="tnum text-xs text-ink-faint">{index + 1}</span>
+                <span className="tnum text-xs font-medium text-ink-faint">{index + 1}</span>
               ) : null}
               {question.question}
             </legend>
             {question.detail ? (
-              <p className="text-xs leading-relaxed text-ink-muted">{question.detail}</p>
+              <p className="text-[13px] leading-relaxed break-words text-ink-muted">
+                {question.detail}
+              </p>
             ) : null}
 
             {props.open ? (
@@ -190,7 +226,7 @@ function QuestionForm(props: {
                 {question.choices.map((choice) => (
                   <label
                     key={choice.id}
-                    className={`flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-control border px-3 text-[13px] transition-colors ${
+                    className={`flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-control border px-3 py-2 text-[13px] leading-snug break-words transition-colors ${
                       picked[question.id] === choice.id
                         ? "border-edge-strong bg-sunken text-ink"
                         : "border-edge bg-panel text-ink hover:border-edge-strong hover:bg-sunken"
@@ -204,7 +240,7 @@ function QuestionForm(props: {
                       onChange={() =>
                         setPicked((current) => ({ ...current, [question.id]: choice.id }))
                       }
-                      className="size-4 accent-solid"
+                      className="size-4 shrink-0 accent-solid"
                     />
                     {choice.label}
                   </label>
@@ -222,7 +258,7 @@ function QuestionForm(props: {
                 ) : null}
               </div>
             ) : (
-              <Well className="text-[13px] text-ink">
+              <Well className="text-[13px] break-words text-ink">
                 {[
                   question.choices.find((choice) => choice.id === given?.choiceId)?.label,
                   given?.text,
@@ -236,14 +272,22 @@ function QuestionForm(props: {
       })}
 
       {props.open ? (
-        <div className="flex items-center gap-3">
+        // Answering is what this screen is for, so it wears the one solid
+        // button, and on a phone it is a full-width bar rather than a target to
+        // aim at with a thumb.
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <Button
             type="submit"
-            className="min-h-11 sm:min-h-0"
+            variant="solid"
+            className="min-h-11 w-full sm:min-h-0 sm:w-auto"
             disabled={!complete || props.pending}
           >
             <ListChecks />
-            {props.questions.length > 1 ? "Send all answers" : "Send answer"}
+            {props.pending
+              ? "Sending…"
+              : props.questions.length > 1
+                ? "Send all answers"
+                : "Send answer"}
           </Button>
           {!complete ? (
             <span className="text-xs text-ink-faint">
@@ -283,11 +327,12 @@ function TextReply(props: {
       />
       <Button
         type="submit"
+        variant="solid"
         disabled={!text.trim() || props.pending}
-        className="min-h-11 sm:min-h-0"
+        className="min-h-11 w-full sm:min-h-0 sm:w-auto"
       >
         <Send />
-        Send
+        {props.pending ? "Sending…" : "Send"}
       </Button>
     </form>
   );

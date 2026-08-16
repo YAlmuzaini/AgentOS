@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Check, ChevronsUpDown, Plus, Settings2 } from "lucide-react";
 import { useState } from "react";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "../../components/ui/menu";
+import { cn } from "../../lib/cn";
 import { CreateProjectDialog } from "../../pages/create-project-dialog";
 import { selectProject, useProjects } from "../../hooks/use-project";
 
@@ -20,6 +21,9 @@ import { selectProject, useProjects } from "../../hooks/use-project";
  * intents, and burying the first inside the second is what made an operator
  * unsure which of the two they were about to do.
  */
+const GEAR =
+  "flex shrink-0 items-center justify-center rounded-control border border-edge bg-panel shadow-lift transition-colors";
+
 export function ProjectSwitcher({
   onNavigate,
 }: {
@@ -28,6 +32,9 @@ export function ProjectSwitcher({
 }): React.JSX.Element | null {
   const { projects, active } = useProjects();
   const [creating, setCreating] = useState(false);
+  // Only the mobile drawer passes `onNavigate`, so it is also what tells this
+  // control it is being operated by a thumb rather than a pointer.
+  const touch = Boolean(onNavigate);
 
   if (!active) {
     return null;
@@ -40,17 +47,24 @@ export function ProjectSwitcher({
           <MenuTrigger asChild>
             <button
               type="button"
-              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-panel border border-edge bg-panel p-2 text-left shadow-lift transition-colors hover:border-edge-strong"
-              aria-label={`Project: ${active.name}. Switch project`}
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-2 rounded-control border border-edge bg-panel px-2 text-left shadow-lift transition-colors hover:border-edge-strong",
+                touch ? "min-h-11" : "h-9",
+              )}
+              aria-label={`Project: ${active.name} (${active.slug}). Switch project`}
             >
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-sunken text-[11px] font-semibold text-ink-muted uppercase">
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-sunken text-[11px] leading-none font-semibold text-ink-muted uppercase">
                 {active.name.slice(0, 2)}
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium text-ink">
-                  {active.name}
-                </span>
-                <span className="machine block truncate text-[11px] text-ink-faint">
+              {/* Name and slug on one line rather than stacked. Two lines plus
+                  padding made this 54px tall in a rail whose every other row is
+                  30px, so the first thing the eye landed on was the one control
+                  the operator touches least. The slug stays — it is how the CLI
+                  addresses the project — but it is a trailing detail, not a
+                  second line of heading. */}
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
+                {active.name}
+                <span className="machine ml-1.5 text-[11px] font-normal text-ink-faint">
                   {active.slug}
                 </span>
               </span>
@@ -94,12 +108,12 @@ export function ProjectSwitcher({
           onClick={onNavigate}
           aria-label={`Settings for ${active.name}`}
           title={`Settings for ${active.name}`}
-          // 44px wide: in the mobile drawer this is a thumb target, and it was
-          // the narrowest control in the rail at 36.
-          className="flex w-11 shrink-0 items-center justify-center rounded-panel border border-edge bg-panel text-ink-faint shadow-lift transition-colors hover:border-edge-strong hover:text-ink"
+          // 44px in the drawer, where it is a thumb target. On the desk rail it
+          // matches the switcher beside it instead — a 44px square next to a
+          // 36px row made the pair read as two unrelated controls.
+          className={cn(GEAR, "text-ink-faint hover:border-edge-strong hover:text-ink", touch ? "size-11" : "size-9")}
           activeProps={{
-            className:
-              "flex w-11 shrink-0 items-center justify-center rounded-panel border border-edge bg-panel text-ink shadow-lift",
+            className: cn(GEAR, "text-ink", touch ? "size-11" : "size-9"),
           }}
         >
           <Settings2 className="size-4" />

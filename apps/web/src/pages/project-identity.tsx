@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
 import { Button } from "../components/ui/button";
-import { Field, Input } from "../components/ui/form";
+import { Field, FormActions, Input } from "../components/ui/form";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 
 /**
@@ -33,8 +33,20 @@ export function ProjectIdentity({ project }: { project: ProjectDto }): React.JSX
   });
 
   const changed = name.trim() !== project.name || slug.trim() !== project.slug;
-  const valid =
-    name.trim().length > 0 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug.trim());
+
+  // Said out loud on the field rather than only expressed as a dead button. An
+  // operator who pasted "Todo App" into the slug was previously left with a
+  // greyed-out Rename and nothing telling them which of the two fields it was
+  // waiting on. Only complained about once the operator has typed something,
+  // so an empty field is not scolded before it has been used.
+  const nameError = name.trim().length === 0 ? "Project name is required." : null;
+  const slugError =
+    slug.trim().length === 0
+      ? "Project slug is required for CLI commands."
+      : /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug.trim())
+        ? null
+        : "Lowercase letters, digits and single hyphens only.";
+  const valid = !nameError && !slugError;
 
   return (
     <Panel>
@@ -49,17 +61,19 @@ export function ProjectIdentity({ project }: { project: ProjectDto }): React.JSX
         }}
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Name">
+          <Field label="Name" required error={nameError}>
             {(id) => (
               <Input id={id} value={name} onChange={(event) => setName(event.target.value)} />
             )}
           </Field>
-          <Field label="Slug">
+          <Field label="Slug" required error={slugError}>
             {(id) => (
               <Input
                 id={id}
                 className="machine"
                 value={slug}
+                autoComplete="off"
+                spellCheck={false}
                 onChange={(event) => setSlug(event.target.value)}
               />
             )}
@@ -73,19 +87,28 @@ export function ProjectIdentity({ project }: { project: ProjectDto }): React.JSX
           <p className="machine text-xs text-ink">agentos pull --project {slug.trim() || "…"}</p>
         </Well>
 
-        <div className="flex items-center gap-3">
+        <FormActions
+          message={
+            save.isError ? (
+              <span className="text-danger">
+                {save.error instanceof ApiError
+                  ? save.error.message
+                  : "Unable to save project details."}
+              </span>
+            ) : changed ? (
+              // Dirty is worth saying: this panel sits above two more panels and
+              // an operator who edits it and scrolls past has no other cue that
+              // the rename has not happened yet.
+              <span className="text-ink-muted">Unsaved changes.</span>
+            ) : save.isSuccess ? (
+              <span className="text-ink-faint">Saved.</span>
+            ) : null
+          }
+        >
           <Button type="submit" variant="outline" disabled={!changed || !valid || save.isPending}>
             {save.isPending ? "Saving…" : "Rename"}
           </Button>
-          {save.isError ? (
-            <span className="text-[13px] text-danger">
-              {save.error instanceof ApiError ? save.error.message : "Unable to save project details."}
-            </span>
-          ) : null}
-          {save.isSuccess && !changed ? (
-            <span className="text-[13px] text-ink-faint">Saved.</span>
-          ) : null}
-        </div>
+        </FormActions>
       </form>
     </Panel>
   );

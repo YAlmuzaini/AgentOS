@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Settings } from "lucide-react";
 import { api, BASE } from "../api";
+import { InlineError, Skeleton } from "../components/ui/feedback";
 import { StatusPill } from "../components/ui/pill";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
@@ -45,7 +46,7 @@ export function SettingsPage(): React.JSX.Element {
                   {local.healthy
                     ? "worker up"
                     : local.configured
-                      ? "not answering"
+                      ? "unavailable"
                       : "not configured"}
                 </StatusPill>
               ) : null}
@@ -56,20 +57,43 @@ export function SettingsPage(): React.JSX.Element {
                 in each project's settings.
               </p>
 
-              <dl className="grid gap-px overflow-hidden rounded-control border border-edge bg-edge">
-                <div className="flex items-baseline justify-between gap-3 bg-panel px-3 py-2.5">
-                  <dt className="text-[13px] text-ink">Anthropic managed</dt>
-                  <dd className="text-[13px] text-ink-faint">
-                    {runners.data?.cloud.configured ? "configured" : "no API key"}
-                  </dd>
+              {/* The skeleton is the same two-row hairline grid, so the panel
+                  does not change height when the answer arrives. */}
+              {runners.isPending ? (
+                <div className="grid gap-px overflow-hidden rounded-control border border-edge bg-edge">
+                  <Skeleton className="h-10 rounded-none" />
+                  <Skeleton className="h-10 rounded-none" />
                 </div>
-                <div className="flex items-baseline justify-between gap-3 bg-panel px-3 py-2.5">
-                  <dt className="shrink-0 text-[13px] text-ink">Local worker</dt>
-                  <dd className="machine truncate text-xs text-ink-faint">
-                    {local?.url || "LOCAL_RUNNER_URL unset"}
-                  </dd>
-                </div>
-              </dl>
+              ) : (
+                <dl className="grid gap-px overflow-hidden rounded-control border border-edge bg-edge">
+                  <div className="flex items-baseline justify-between gap-3 bg-panel px-3 py-2.5">
+                    <dt className="text-[13px] text-ink">Anthropic managed</dt>
+                    <dd className="text-[13px] text-ink-faint">
+                      {runners.data?.cloud.configured ? "configured" : "no API key"}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3 bg-panel px-3 py-2.5">
+                    <dt className="shrink-0 text-[13px] text-ink">Local worker</dt>
+                    <dd className="min-w-0 truncate text-xs text-ink-faint">
+                      {/* An address is machine voice; "unset" is prose about an
+                          env key, so only the key wears the mono face. */}
+                      {local?.url ? (
+                        <span className="machine">{local.url}</span>
+                      ) : (
+                        <>
+                          <span className="machine">LOCAL_RUNNER_URL</span> unset
+                        </>
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+              )}
+
+              {runners.isError ? (
+                <InlineError>
+                  Unable to load runner availability. Confirm that the control plane is reachable.
+                </InlineError>
+              ) : null}
 
               <p className="text-[13px] leading-relaxed text-ink-muted">
                 Each session receives an isolated temporary directory and only the resources granted

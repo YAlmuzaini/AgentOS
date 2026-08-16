@@ -3,7 +3,7 @@ import { Paperclip, Plus, X } from "lucide-react";
 import { useRef } from "react";
 import { api, ApiError } from "../api";
 import { Button } from "../components/ui/button";
-import { MicroLabel } from "../components/ui/panel";
+import { InlineError } from "../components/ui/feedback";
 
 export interface PickedAttachment {
   id: string;
@@ -36,8 +36,10 @@ export function AttachmentPicker(props: {
   });
 
   return (
-    <div>
-      <MicroLabel className="mb-1.5">Attachments</MicroLabel>
+    <div className="space-y-1.5">
+      {/* The same 13px label the fields above it wear. It was the 11px all-caps
+          micro label, which read as a table heading in the middle of a form. */}
+      <p className="text-[13px] font-medium text-ink">Attachments</p>
       <input
         ref={picker}
         type="file"
@@ -52,14 +54,17 @@ export function AttachmentPicker(props: {
       />
 
       {props.value.length > 0 ? (
-        <ul className="mb-2 space-y-1">
+        <ul className="space-y-1">
           {props.value.map((attachment) => (
             <li
               key={attachment.id}
-              className="flex items-center gap-2 rounded-control border border-edge px-2.5 py-1.5"
+              className="flex items-center gap-2 rounded-control border border-edge px-2.5 py-1.5 transition-colors hover:border-edge-strong"
             >
-              <Paperclip className="size-3.5 shrink-0 text-ink-faint" />
-              <span className="machine min-w-0 flex-1 truncate text-xs text-ink">
+              <Paperclip aria-hidden className="size-3.5 shrink-0 text-ink-faint" />
+              <span
+                className="machine min-w-0 flex-1 truncate text-xs text-ink"
+                title={attachment.path}
+              >
                 {attachment.path}
               </span>
               <Button
@@ -67,6 +72,7 @@ export function AttachmentPicker(props: {
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`Remove ${attachment.path}`}
+                title={`Remove ${attachment.path}`}
                 onClick={() =>
                   props.onChange(props.value.filter((entry) => entry.id !== attachment.id))
                 }
@@ -78,7 +84,13 @@ export function AttachmentPicker(props: {
         </ul>
       ) : null}
 
-      <div className="flex items-center gap-2">
+      {add.isError ? (
+        <InlineError>
+          {add.error instanceof ApiError ? add.error.message : "Unable to upload the file."}
+        </InlineError>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <Button
           type="button"
           size="sm"
@@ -89,15 +101,9 @@ export function AttachmentPicker(props: {
           <Plus />
           {add.isPending ? "Uploading…" : "Add a file"}
         </Button>
-        {add.isError ? (
-          <span className="text-[13px] text-danger">
-            {add.error instanceof ApiError ? add.error.message : "Unable to upload the file."}
-          </span>
-        ) : (
-          <span className="text-xs text-ink-faint">
-            Text files the agent can read; every step after it inherits them.
-          </span>
-        )}
+        <span className="min-w-0 text-xs text-ink-muted">
+          Text files the agent can read; every step after it inherits them.
+        </span>
       </div>
     </div>
   );

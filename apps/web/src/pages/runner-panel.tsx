@@ -1,6 +1,7 @@
 import type { DefaultRunner, RunnerStatusDto } from "@agentos/shared";
+import { InlineError } from "../components/ui/feedback";
 import { StatusPill } from "../components/ui/pill";
-import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
+import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 
 /**
  * The money switch.
@@ -46,52 +47,63 @@ export function RunnerPanel({
         </p>
 
         <div className="space-y-2">
-          {OPTIONS.map((option) => (
-            <label
-              key={option.value}
-              className="flex cursor-pointer items-start gap-3 rounded-md border border-edge p-3 hover:bg-sunken"
-            >
-              <input
-                type="radio"
-                name="defaultRunner"
-                className="mt-0.5"
-                checked={value === option.value}
-                onChange={() => onChange(option.value)}
-              />
-              <span className="space-y-1">
-                <span className="block text-[13px] font-medium text-ink">{option.label}</span>
-                <span className="block text-xs leading-relaxed text-ink-faint">{option.hint}</span>
-              </span>
-            </label>
-          ))}
+          {OPTIONS.map((option) => {
+            const chosen = value === option.value;
+            return (
+              <label
+                key={option.value}
+                // Selection reads as the row the operator is standing on — the
+                // fill and the darker hairline, never a colour. Choosing where
+                // sessions run is not a status.
+                className={`flex cursor-pointer items-start gap-3 rounded-control border p-3 transition-colors ${
+                  chosen ? "border-edge-strong bg-sunken" : "border-edge hover:bg-sunken/70"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="defaultRunner"
+                  className="mt-0.5"
+                  checked={chosen}
+                  onChange={() => onChange(option.value)}
+                />
+                <span className="min-w-0 space-y-1">
+                  <span className="block text-[13px] font-medium text-ink">{option.label}</span>
+                  <span className="block text-xs leading-relaxed text-ink-faint">{option.hint}</span>
+                </span>
+              </label>
+            );
+          })}
         </div>
 
         {/* The two ways this choice silently does nothing. Both are worth more
             than a passing mention: the operator's next bill is the alternative
-            way of finding out. */}
+            way of finding out. Both wear the danger surface the rest of the app
+            uses for a real fault, rather than a hand-rolled red box that read as
+            muted prose inside a red border. */}
         {value !== "cloud" && !localConfigured ? (
-          <p className="rounded-md border border-danger-line bg-danger-soft p-3 text-xs leading-relaxed text-ink-muted">
+          <InlineError className="leading-relaxed">
             No local worker is configured. Sessions will use the cloud runner. Set{" "}
-            <span className="machine text-ink-muted">LOCAL_RUNNER_URL</span> in{" "}
-            <span className="machine text-ink-muted">.env</span> and start{" "}
-            <span className="machine text-ink-muted">apps/local-runner</span>, then restart the API.
-          </p>
+            <span className="machine">LOCAL_RUNNER_URL</span> in <span className="machine">.env</span>{" "}
+            and start <span className="machine">apps/local-runner</span>, then restart the API.
+          </InlineError>
         ) : null}
 
         {value !== "cloud" && localConfigured && !localReachable ? (
-          <p className="rounded-md border border-danger-line bg-danger-soft p-3 text-xs leading-relaxed text-ink-muted">
+          <InlineError className="leading-relaxed">
             A local worker is configured at{" "}
-            <span className="machine text-ink-muted">{status?.local.url}</span> but is unavailable.
+            {/* A URL is copyable, and this is the one an operator is about to go
+                and check, so it never wraps mid-host. */}
+            <span className="machine break-all">{status?.local.url}</span> but is unavailable.
             Sessions will use the cloud runner and consume API credits.
-          </p>
+          </InlineError>
         ) : null}
 
         {value !== "cloud" && localReachable ? (
-          <p className="rounded-md border border-edge bg-sunken p-3 text-xs leading-relaxed text-ink-muted">
+          <Well className="text-xs leading-relaxed text-ink-muted">
             The local worker cannot enforce restricted network policies. Agents with restricted
-            egress will use the cloud runner. Assign an <span className="machine text-ink-muted">open</span>{" "}
-            environment to run them locally.
-          </p>
+            egress will use the cloud runner. Assign an{" "}
+            <span className="machine text-ink">open</span> environment to run them locally.
+          </Well>
         ) : null}
       </div>
     </Panel>

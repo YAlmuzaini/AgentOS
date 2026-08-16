@@ -3,19 +3,25 @@ import { Copy, KeyRound } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../components/ui/button";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
-import { Dot, StatusPill } from "../components/ui/pill";
+import { Dot } from "../components/ui/pill";
 
 /** Delivery history, and the one-time reveal of a signing key. */
 export function FireRow(props: { fire: TriggerFireDto }): React.JSX.Element {
   const { fire } = props;
   return (
-    <li className="flex items-center gap-2.5 px-3.5 py-1.5">
+    <li className="flex min-w-0 items-center gap-2.5 px-3.5 py-1.5">
       <Dot tone={fire.accepted ? "live" : "danger"} />
-      <span className="shrink-0 text-ink-faint">{fire.createdAt.slice(0, 19)}</span>
+      <span className="shrink-0 text-ink-faint" title={fire.createdAt}>
+        {fire.createdAt.slice(0, 19)}
+      </span>
       {fire.accepted ? (
         <span className="text-live">accepted</span>
       ) : (
-        <span className="text-danger">rejected{fire.reason ? `: ${fire.reason}` : ""}</span>
+        // A rejection reason comes from the signature check and can be a
+        // sentence, which used to push the row wider than the panel.
+        <span className="min-w-0 truncate text-danger" title={fire.reason ?? "rejected"}>
+          rejected{fire.reason ? `: ${fire.reason}` : ""}
+        </span>
       )}
     </li>
   );
@@ -37,16 +43,18 @@ export function SigningKeyPanel(props: {
       <PanelHeader className="border-b border-gate-line bg-gate-soft">
         <PanelTitle icon={<KeyRound />}>
           <span className="text-gate">
-            Signing key for {props.trigger.name} — shown once, never again
+            Signing key for <span className="machine">{props.trigger.name}</span> — shown once,
+            never again
           </span>
         </PanelTitle>
       </PanelHeader>
       <div className="space-y-3 p-4">
         <Well>
-          <code className="block break-all text-xs text-ink">{props.trigger.signingKey}</code>
+          <code className="machine block break-all text-ink">{props.trigger.signingKey}</code>
         </Well>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
+            title="Copy the signing key to the clipboard"
             onClick={() => {
               void navigator.clipboard.writeText(props.trigger.signingKey);
               setCopied(true);

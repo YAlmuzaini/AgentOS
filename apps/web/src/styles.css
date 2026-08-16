@@ -63,15 +63,33 @@
   --color-link-line: oklch(0.8626 0.0665 253.4);
 
   /* ---- Data ---------------------------------------------------------------
-   * Chart and meter hues only. Never used to carry status.
+   * Chart, meter and category hues only. Never used to carry status.
    *
    * These four are the reference's own published palette, taken verbatim from
    * its spec sheet (design-refs/agents/05.jpg) rather than matched by eye.
+   *
+   * Each carries two companions, for the same reason every signal hue does:
+   *   -soft  a 12% tint, the fill behind a category icon tile
+   *   -ink   a darkened glyph tone, because the published hue on its own tint
+   *          is 1.9:1 for sky and fails as a glyph. The -ink tones clear 3:1.
+   * The published hue itself stays the chart/meter/dot colour and is never
+   * asked to be legible against its own tint.
    */
   --color-data-violet: #6155f5;
+  --color-data-violet-soft: #efeefe;
+  --color-data-violet-ink: #4b3fd6;
+
   --color-data-sky: #47c2ff;
+  --color-data-sky-soft: #ecf8ff;
+  --color-data-sky-ink: #0b7fbf;
+
   --color-data-amber: #f6b51e;
+  --color-data-amber-soft: #fef7e8;
+  --color-data-amber-ink: #a9760a;
+
   --color-data-emerald: #1fc16b;
+  --color-data-emerald-soft: #eaf9f1;
+  --color-data-emerald-ink: #0f8b4a;
 
   /* ---- Shape --------------------------------------------------------------
    * Controls 8px, panels 10px, pills full. No third radius.
@@ -125,12 +143,22 @@ pre,
 /*
  * Focus is never removed: this app is used keyboard-first at a desk and
  * one-handed on a phone.
+ *
+ * This lives in `@layer base` on purpose. Unlayered it beat every Tailwind
+ * utility, including `outline-none`, so a component could not opt out even
+ * when the ring was wrong for it — the ⌘K palette's full-bleed input drew a
+ * 2px near-black rectangle that its `overflow-hidden` dialog then sliced the
+ * top off, which read as a stray border rather than as focus. Layered, the
+ * default still applies everywhere and `focus-visible:outline-none` works for
+ * the handful of places that own their own focus treatment.
  */
-:focus-visible {
-  /* No radius here on purpose: `outline` already follows the element's own
-     border-radius, so the ring inherits the shape it is wrapping. */
-  outline: 2px solid var(--color-solid);
-  outline-offset: 1px;
+@layer base {
+  :focus-visible {
+    /* No radius here on purpose: `outline` already follows the element's own
+       border-radius, so the ring inherits the shape it is wrapping. */
+    outline: 2px solid var(--color-solid);
+    outline-offset: 1px;
+  }
 }
 
 /* Native controls inherit the system accent so checkboxes read as ours. */

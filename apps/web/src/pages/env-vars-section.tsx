@@ -1,10 +1,17 @@
-import type { CreateEnvBindingInput, EnvBindingDto, EnvironmentDto, SecretRefDto } from "@agentos/shared";
-import { Plus } from "lucide-react";
-import { useState } from "react";
+import type {
+  CreateEnvBindingInput,
+  EnvBindingDto,
+  EnvironmentDto,
+  SecretRefDto,
+} from "@agentos/shared";
+import { Globe, KeyRound, Plus, Variable } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { Button } from "../components/ui/button";
 import { CreatePanel } from "../components/ui/create-panel";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Field, Input, Select } from "../components/ui/form";
+import { IconTile, toneFor } from "../components/ui/icon-tile";
+import { Meta, MetaRow } from "../components/ui/meta";
 import { Panel, PanelTitle } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
@@ -26,6 +33,8 @@ export function EnvVarsSection(props: {
   onCreatingChange: (open: boolean) => void;
   onCreate: (body: CreateEnvBindingInput) => void | Promise<void>;
   pending: boolean;
+  /** The server's refusal. The drawer covers the page, so it has to show here. */
+  error?: ReactNode;
 }): React.JSX.Element {
   // The form's own state lives here now, with the form.
   const [environmentId, setEnvironmentId] = useState("");
@@ -33,134 +42,158 @@ export function EnvVarsSection(props: {
   const [secretId, setSecretId] = useState("");
   const [bindingHosts, setBindingHosts] = useState("");
 
-  const secrets = { data: props.secrets };
-  const envList = props.environments;
-  const bindingList = props.bindings;
-  // The page owns the fetch; this only renders what it was handed.
-  const bindings = { isLoading: props.loading };
-  const creatingBinding = props.creating;
-  const setCreatingBinding = props.onCreatingChange;
-  const createBinding = { isPending: props.pending, mutate: props.onCreate };
+  const { secrets, environments: envList, bindings: bindingList } = props;
 
   return (
-    <>
-      <section className="space-y-3">
-        <Panel className="flex items-center justify-between gap-3 border-0 bg-transparent p-0">
-          <PanelTitle accent="violet">Environment variables</PanelTitle>
-          <Button onClick={() => setCreatingBinding(true)}>
-            <Plus />
-            New variable
-          </Button>
+    <section className="space-y-3">
+      {/* A section heading, not a panel with its border and fill switched off,
+          which is what this used to be. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PanelTitle accent="violet">Environment variables</PanelTitle>
+        <Button variant="outline" onClick={() => props.onCreatingChange(true)}>
+          <Plus />
+          New variable
+        </Button>
+      </div>
+
+      <CreatePanel
+        open={props.creating}
+        onClose={() => props.onCreatingChange(false)}
+        title="New environment variable"
+        description="Bind a secret to an environment variable for authorized sessions."
+        submitLabel="Create"
+        pending={props.pending}
+        error={props.error}
+        disabled={!key || !secretId || !environmentId}
+        incomplete="A key, a secret and an environment are required."
+        onSubmit={async () => {
+          // Awaited: a rejected binding keeps the key and hosts as typed.
+          await props.onCreate({
+            environmentId,
+            key,
+            secretId,
+            allowedHosts: bindingHosts
+              .split(",")
+              .map((host) => host.trim())
+              .filter(Boolean),
+          });
+          setKey("");
+          setBindingHosts("");
+        }}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* Deliberately not defaulted — see the description above. */}
+          <Field label="Environment">
+            {(id) => (
+              <Select
+                id={id}
+                value={environmentId}
+                onChange={(event) => setEnvironmentId(event.target.value)}
+              >
+                <option value="">Select an environment</option>
+                {envList.map((environment) => (
+                  <option key={environment.id} value={environment.id}>
+                    {environment.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label="Key">
+            {(id) => (
+              <Input
+                id={id}
+                className="machine"
+                placeholder="KEY_NAME"
+                value={key}
+                onChange={(event) => setKey(event.target.value.toUpperCase())}
+              />
+            )}
+          </Field>
+          <Field label="Secret">
+            {(id) => (
+              <Select
+                id={id}
+                value={secretId}
+                onChange={(event) => setSecretId(event.target.value)}
+              >
+                <option value="">Select a secret</option>
+                {secrets.map((secret) => (
+                  <option key={secret.id} value={secret.id}>
+                    {secret.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label="Allowed hosts" hint="Enter comma-separated hostnames.">
+            {(id) => (
+              <Input
+                id={id}
+                className="machine"
+                value={bindingHosts}
+                onChange={(event) => setBindingHosts(event.target.value)}
+              />
+            )}
+          </Field>
+        </div>
+      </CreatePanel>
+
+      {props.loading ? (
+        <Panel>
+          <SkeletonRows rows={2} />
         </Panel>
-
-        <CreatePanel
-          open={creatingBinding}
-          onClose={() => setCreatingBinding(false)}
-          title="New environment variable"
-          description="Bind a secret to an environment variable for authorized sessions."
-          submitLabel="Create"
-          pending={createBinding.isPending}
-          disabled={!key || !secretId || !environmentId}
-          onSubmit={async () => {
-            // Awaited: a rejected binding keeps the key and hosts as typed.
-            await createBinding.mutate({
-              environmentId,
-              key,
-              secretId,
-              allowedHosts: bindingHosts
-                .split(",")
-                .map((host) => host.trim())
-                .filter(Boolean),
-            });
-            setKey("");
-            setBindingHosts("");
-          }}
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            {/* Deliberately not defaulted — see the description above. */}
-            <Field label="Environment">
-              {(id) => (
-                <Select
-                  id={id}
-                  value={environmentId}
-                  onChange={(event) => setEnvironmentId(event.target.value)}
-                >
-                  <option value="">Select an environment</option>
-                  {envList.map((environment) => (
-                    <option key={environment.id} value={environment.id}>
-                      {environment.name}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-            <Field label="Key">
-              {(id) => (
-                <Input
-                  id={id}
-                  className="machine"
-                  placeholder="KEY_NAME"
-                  value={key}
-                  onChange={(event) => setKey(event.target.value.toUpperCase())}
-                />
-              )}
-            </Field>
-            <Field label="Secret">
-              {(id) => (
-                <Select
-                  id={id}
-                  value={secretId}
-                  onChange={(event) => setSecretId(event.target.value)}
-                >
-                  <option value="">Select a secret</option>
-                  {(secrets.data ?? []).map((secret) => (
-                    <option key={secret.id} value={secret.id}>
-                      {secret.name}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-            <Field label="Allowed hosts" hint="Enter comma-separated hostnames.">
-              {(id) => (
-                <Input
-                  id={id}
-                  className="machine"
-                  value={bindingHosts}
-                  onChange={(event) => setBindingHosts(event.target.value)}
-                />
-              )}
-            </Field>
-          </div>
-        </CreatePanel>
-
-        {bindings.isLoading ? (
-          <Panel>
-            <SkeletonRows rows={2} />
-          </Panel>
-        ) : bindingList.length === 0 ? (
-          <Panel>
-            <EmptyState
-              title="No environment variables yet"
-              hint="Bind a secret to make it available to authorized sessions."
-            />
-          </Panel>
-        ) : (
-          <TableCard>
-            <Table>
-              <THead>
-                <tr>
-                  <TH>Key</TH>
-                  <TH>Environment</TH>
-                  <TH>Secret</TH>
-                  <TH>Allowed hosts</TH>
-                </tr>
-              </THead>
-              <tbody>
-                {bindingList.map((binding: EnvBindingDto) => (
+      ) : bindingList.length === 0 ? (
+        <Panel>
+          <EmptyState
+            icon={<Variable />}
+            title="No environment variables yet"
+            hint="Bind a secret to an environment variable for authorized sessions."
+            action={
+              <Button
+                variant="outline"
+                disabled={envList.length === 0}
+                title={
+                  envList.length === 0
+                    ? "Create an environment before adding a variable."
+                    : undefined
+                }
+                onClick={() => props.onCreatingChange(true)}
+              >
+                <Plus />
+                New variable
+              </Button>
+            }
+          />
+        </Panel>
+      ) : (
+        <TableCard>
+          <Table>
+            <THead>
+              <tr>
+                <TH>Variable</TH>
+                <TH>Environment</TH>
+                <TH>Secret</TH>
+                <TH>Allowed hosts</TH>
+              </tr>
+            </THead>
+            <tbody>
+              {bindingList.map((binding: EnvBindingDto) => {
+                const environment = envList.find((e) => e.id === binding.environmentId);
+                const secret = secrets.find((s) => s.id === binding.secretId);
+                return (
                   <TR key={binding.id}>
-                    <TD className="machine text-xs font-medium">{binding.key}</TD>
-                    <TD>
+                    <TD className="max-w-[18rem]">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <IconTile tone={toneFor(binding.id)} size="sm">
+                          <Variable />
+                        </IconTile>
+                        <p className="machine truncate text-xs font-medium text-ink">
+                          {binding.key}
+                        </p>
+                      </div>
+                    </TD>
+                    <TD className="max-w-[14rem]">
                       {binding.environmentId === null ? (
                         // Written before bindings were environment-scoped. It
                         // reaches no session until it is assigned one.
@@ -168,26 +201,46 @@ export function EnvVarsSection(props: {
                           not assigned
                         </StatusPill>
                       ) : (
-                        <span className="text-ink-muted">
-                          {envList.find((e) => e.id === binding.environmentId)?.name ??
-                            binding.environmentId}
+                        <span
+                          className={`block truncate text-ink-muted ${
+                            environment ? "" : "machine text-xs"
+                          }`}
+                        >
+                          {environment?.name ?? binding.environmentId}
                         </span>
                       )}
                     </TD>
-                    <TD className="text-ink-muted">
-                      {secrets.data?.find((s) => s.id === binding.secretId)?.name ??
-                        binding.secretId}
+                    <TD className="max-w-[14rem]">
+                      <MetaRow>
+                        <Meta icon={<KeyRound />} machine={!secret} title={binding.secretId}>
+                          {secret?.name ?? binding.secretId}
+                        </Meta>
+                      </MetaRow>
                     </TD>
-                    <TD className="machine text-xs text-ink-muted">
-                      {binding.allowedHosts.join(", ") || "—"}
+                    <TD className="max-w-[18rem]">
+                      {binding.allowedHosts.length > 0 ? (
+                        <span
+                          className="machine block truncate text-xs text-ink-muted"
+                          title={binding.allowedHosts.join(", ")}
+                        >
+                          {binding.allowedHosts.join(", ")}
+                        </span>
+                      ) : (
+                        // No restriction of its own: the variable travels
+                        // wherever its environment's policy already allows.
+                        <span className="flex items-center gap-1.5 text-xs text-ink-faint">
+                          <Globe className="size-3.5 shrink-0" aria-hidden />
+                          no restriction
+                        </span>
+                      )}
                     </TD>
                   </TR>
-                ))}
-              </tbody>
-            </Table>
-          </TableCard>
-        )}
-      </section>
-    </>
+                );
+              })}
+            </tbody>
+          </Table>
+        </TableCard>
+      )}
+    </section>
   );
 }

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
+import { IconTile } from "./icon-tile";
 
 /**
  * An empty state says what would put something here, and gives the control that
@@ -22,17 +23,22 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-2 px-6 py-12 text-center",
+        // `flex-1` is what stops an empty state from hugging the top of a
+        // full-height panel with 500px of white under it — Sessions, Files and
+        // the agent rail are all flex columns, so it claims the space and the
+        // `justify-center` below finally has something to centre inside. In a
+        // block parent it is inert, so every other call site is unaffected.
+        "flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center",
         className,
       )}
     >
       {icon ? (
-        <span className="mb-1 flex size-9 items-center justify-center rounded-control border border-edge bg-sunken text-ink-faint [&_svg]:size-4">
+        <IconTile size="lg" className="mb-1 text-ink-faint">
           {icon}
-        </span>
+        </IconTile>
       ) : null}
       <p className="text-[13px] font-medium text-ink">{title}</p>
-      {hint ? <p className="max-w-sm text-[13px] text-ink-muted">{hint}</p> : null}
+      {hint ? <p className="max-w-sm text-[13px] leading-relaxed text-ink-muted">{hint}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
   );

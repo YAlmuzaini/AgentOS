@@ -1,8 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Unlink } from "lucide-react";
+import { Building2, GitFork, Link2, Unlink } from "lucide-react";
 import { api, ApiError } from "../api";
 import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ui/confirm";
+import { InlineError } from "../components/ui/feedback";
+import { IconTile, toneFor } from "../components/ui/icon-tile";
+import { Meta, MetaRow } from "../components/ui/meta";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 
@@ -69,7 +72,12 @@ export function GithubPanel({ projectId }: { projectId: string }): React.JSX.Ele
       </PanelHeader>
 
       <div className="space-y-3 p-4">
-        {!configured ? (
+        {/* A failed status read used to fall through to `configured: false`,
+            which told the operator to go and create a GitHub App they may
+            already have. */}
+        {status.isError ? (
+          <InlineError>Unable to load the GitHub connection status.</InlineError>
+        ) : !configured ? (
           <>
             <p className="text-[13px] leading-relaxed text-ink-muted">
               Connect a GitHub App to grant repository-specific access with short-lived tokens.
@@ -101,17 +109,29 @@ export function GithubPanel({ projectId }: { projectId: string }): React.JSX.Ele
               {installations.map((installation) => (
                 <li
                   key={installation.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-edge px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-edge px-3 py-2 transition-colors hover:border-edge-strong"
                 >
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium text-ink">
-                      {installation.accountLogin || "an account"}
-                    </span>
-                    <span className="block text-xs text-ink-faint">
-                      {installation.repositorySelection === "all"
-                        ? "every repository"
-                        : "selected repositories"}
-                      {installation.accountType ? ` · ${installation.accountType}` : ""}
+                  {/* Identity opens the row, then the two facts that decide
+                      whether this installation can reach what a repo needs.
+                      The separator used to be a hand-typed middle dot. */}
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <IconTile tone={toneFor(installation.id)} size="sm">
+                      <GitFork />
+                    </IconTile>
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-medium text-ink">
+                        {installation.accountLogin || "an account"}
+                      </span>
+                      <MetaRow>
+                        <Meta>
+                          {installation.repositorySelection === "all"
+                            ? "every repository"
+                            : "selected repositories"}
+                        </Meta>
+                        {installation.accountType ? (
+                          <Meta icon={<Building2 />}>{installation.accountType}</Meta>
+                        ) : null}
+                      </MetaRow>
                     </span>
                   </span>
                   <Button
@@ -146,9 +166,21 @@ export function GithubPanel({ projectId }: { projectId: string }): React.JSX.Ele
         )}
 
         {connect.isError ? (
-          <p className="text-[13px] text-danger">
-            {connect.error instanceof ApiError ? connect.error.message : "Unable to start GitHub authorization."}
-          </p>
+          <InlineError>
+            {connect.error instanceof ApiError
+              ? connect.error.message
+              : "Unable to start GitHub authorization."}
+          </InlineError>
+        ) : null}
+
+        {/* Disconnecting failed in silence: the dialog closed, the row stayed,
+            and nothing said why. */}
+        {disconnect.isError ? (
+          <InlineError>
+            {disconnect.error instanceof ApiError
+              ? disconnect.error.message
+              : "Unable to disconnect the GitHub installation."}
+          </InlineError>
         ) : null}
       </div>
     </Panel>

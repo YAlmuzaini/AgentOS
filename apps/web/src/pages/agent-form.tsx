@@ -1,12 +1,15 @@
 import type { AgentDto, CreateAgentInput } from "@agentos/shared";
 import { RUNNER_PREFERENCES } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Blocks, FolderTree, GitBranch, Server } from "lucide-react";
+import type { ReactNode } from "react";
+import { useId, useState } from "react";
 import { api, ApiError } from "../api";
 import { CreatePanel } from "../components/ui/create-panel";
 import { CheckboxField, Field, Input, Select, Textarea } from "../components/ui/form";
+import { IconTile } from "../components/ui/icon-tile";
 import { MicroLabel } from "../components/ui/panel";
-import { FilesystemGrantField, IdListField, RepoAccessField } from "./agent-grant-fields";
+import { DenyNote, FilesystemGrantField, IdListField, RepoAccessField } from "./agent-grant-fields";
 
 /**
  * Creating and editing an agent (SPEC §18.1).
@@ -20,6 +23,13 @@ import { FilesystemGrantField, IdListField, RepoAccessField } from "./agent-gran
  * The name is absent on purpose — `updateAgentSchema` omits it, because other
  * agents refer to this one by name in their collaboration lists and the
  * prompts already name it.
+ *
+ * It is the longest form in the product, and it used to be one undifferentiated
+ * column of fourteen controls: the four walls PRODUCT.md calls non-negotiable —
+ * MCP grant, network allowlist, filesystem ACL, repo access — sat between a
+ * model box and a checkbox list of skills with nothing to say they were the
+ * security boundary. They now read as four deliberate sections under one
+ * heading that states the rule they enforce.
  */
 export function AgentForm(props: {
   projectId: string;
@@ -47,6 +57,13 @@ export function AgentForm(props: {
   const [collaborationList, setCollaboration] = useState<string[]>(
     props.agent?.collaborationList ?? [],
   );
+  // Which of the three required fields the operator has already been in. A
+  // drawer that opens with everything already red is scolding them for not
+  // having typed yet; a submit that is dead with no reason given is worse.
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const touch = (field: string): void => setTouched((prior) => ({ ...prior, [field]: true }));
+  // The network wall holds one control, so its heading is that control's label.
+  const environmentFieldId = useId();
 
   const repos = useQuery({
     queryKey: ["repos", props.projectId],
@@ -104,6 +121,18 @@ export function AgentForm(props: {
     },
   });
 
+  const nameError =
+    touched.name && !editing && name.trim().length === 0
+      ? "Agent name is required."
+      : null;
+  const titleError = touched.title && title.trim().length === 0 ? "Agent title is required." : null;
+  const rolePromptError =
+    touched.rolePrompt && rolePrompt.trim().length === 0
+      ? "Role prompt is required."
+      : null;
+
+  const environment = environments.data?.find((candidate) => candidate.id === environmentId);
+
   return (
     <CreatePanel
       open={props.open}
@@ -116,111 +145,293 @@ export function AgentForm(props: {
       }
       submitLabel={editing ? "Save" : "Create agent"}
       pending={save.isPending}
-      disabled={!title || !rolePrompt || (!editing && !name)}
+      disabled={!title.trim() || !rolePrompt.trim() || (!editing && !name.trim())}
       error={save.isError ? (save.error instanceof ApiError ? save.error.message : "Unable to save the agent.") : null}
       onSubmit={() => save.mutateAsync().then(() => undefined)}
     >
-      {!editing ? (
-        <Field label="Name" hint="Permanent lowercase identifier used by other agents.">
+      <FormSection title="Identity">
+        {!editing ? (
+          <Field
+            label="Name"
+            required
+            error={nameError}
+            hint="Permanent lowercase identifier used by other agents."
+          >
+            {(id) => (
+              <Input
+                id={id}
+                className="machine"
+                value={name}
+                placeholder="release-notes"
+                autoComplete="off"
+                spellCheck={false}
+                onBlur={() => touch("name")}
+                onChange={(event) => {
+                  touch("name");
+                  setName(event.target.value);
+                }}
+              />
+            )}
+          </Field>
+        ) : null}
+
+        <Field label="Title" required error={titleError} hint="Enter a short display title.">
           {(id) => (
             <Input
               id={id}
-              className="machine"
-              value={name}
-              placeholder="release-notes"
-              onChange={(event) => setName(event.target.value)}
+              value={title}
+              placeholder="Release notes writer"
+              onBlur={() => touch("title")}
+              onChange={(event) => {
+                touch("title");
+                setTitle(event.target.value);
+              }}
             />
           )}
         </Field>
-      ) : null}
 
-      <Field label="Title">
-        {(id) => <Input id={id} value={title} onChange={(e) => setTitle(e.target.value)} />}
-      </Field>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Model">
-          {(id) => <Input id={id} className="machine" value={model} onChange={(e) => setModel(e.target.value)} />}
-        </Field>
-        <Field label="Runner" hint="Inherit uses the project's default runner.">
+        <Field
+          label="Role prompt"
+          required
+          error={rolePromptError}
+          hint="Define the agent's responsibilities and operating instructions."
+        >
           {(id) => (
-            <Select
+            <Textarea
               id={id}
-              value={runnerPreference}
-              onChange={(e) =>
-                setRunnerPreference(e.target.value as CreateAgentInput["runnerPreference"])
-              }
-            >
-              {RUNNER_PREFERENCES.map((preference) => (
-                <option key={preference} value={preference}>
-                  {preference}
-                </option>
-              ))}
-            </Select>
+              rows={8}
+              value={rolePrompt}
+              onBlur={() => touch("rolePrompt")}
+              onChange={(event) => {
+                touch("rolePrompt");
+                setRolePrompt(event.target.value);
+              }}
+            />
           )}
         </Field>
-      </div>
+      </FormSection>
 
-      <Field
-        label="Network environment"
-        hint="Controls which hosts the agent may access. None denies all network access."
+      <FormSection title="Runtime" hint="Select the model and execution environment.">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Model">
+            {(id) => (
+              <Input
+                id={id}
+                className="machine"
+                value={model}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => setModel(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field label="Runner" hint="Inherit uses the project's default runner.">
+            {(id) => (
+              <Select
+                id={id}
+                value={runnerPreference}
+                onChange={(event) =>
+                  setRunnerPreference(event.target.value as CreateAgentInput["runnerPreference"])
+                }
+              >
+                {RUNNER_PREFERENCES.map((preference) => (
+                  <option key={preference} value={preference}>
+                    {preference}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        </div>
+      </FormSection>
+
+      {/*
+        The four walls from PRODUCT.md, in the order a session hits them. Each
+        one says what it refuses when it is empty, because default-deny holding
+        is the state worth reading — a blank box only says the form is unfinished.
+      */}
+      <FormSection
+        title="Access"
+        hint="Only access explicitly granted below is permitted."
       >
-        {(id) => (
-          <Select id={id} value={environmentId} onChange={(e) => setEnvironmentId(e.target.value)}>
+        <Wall
+          icon={<Server />}
+          title="Network"
+          labelFor={environmentFieldId}
+          hint="Select the network policy applied to this agent."
+        >
+          <Select
+            id={environmentFieldId}
+            value={environmentId}
+            onChange={(event) => setEnvironmentId(event.target.value)}
+          >
             <option value="">None — no network access</option>
-            {(environments.data ?? []).map((environment) => (
-              <option key={environment.id} value={environment.id}>
-                {environment.name} ({environment.networking})
+            {(environments.data ?? []).map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {candidate.name} ({candidate.networking})
               </option>
             ))}
           </Select>
+          {environment ? (
+            <p className="text-xs leading-relaxed text-ink-muted">
+              {environment.allowedHosts.length > 0 ? (
+                <>
+                  Reachable:{" "}
+                  <span className="machine text-ink">{environment.allowedHosts.join(", ")}</span>
+                </>
+              ) : (
+                <>
+                  <span className="machine text-ink">{environment.networking}</span> networking with
+                  no host list.
+                </>
+              )}
+            </p>
+          ) : (
+            <DenyNote>
+              No environment assigned. Network access is disabled.
+            </DenyNote>
+          )}
+        </Wall>
+
+        <Wall
+          icon={<Blocks />}
+          title="MCP tools"
+          hint="Select the MCP connections available to this agent."
+        >
+          <IdListField
+            label="MCP servers"
+            options={(mcps.data ?? []).map((mcp) => ({ id: mcp.id, label: mcp.name }))}
+            value={mcpConnectionIds}
+            onChange={setMcpIds}
+            none="No MCP connections assigned."
+            empty="No MCP connections are available. Create one before assigning it to this agent."
+          />
+        </Wall>
+
+        <Wall
+          icon={<GitBranch />}
+          title="Repositories"
+          hint="Select repositories, mount paths, and Git permissions."
+        >
+          <RepoAccessField value={repoAccess} repos={repos.data ?? []} onChange={setRepoAccess} />
+        </Wall>
+
+        <Wall
+          icon={<FolderTree />}
+          title="Filesystem"
+          hint="Grant read, write, and delete access to AgentOS filesystem paths."
+        >
+          <FilesystemGrantField value={filesystemGrants} onChange={setGrants} />
+        </Wall>
+      </FormSection>
+
+      <FormSection
+        title="Capabilities"
+        hint="Assign skills, collaboration permissions, and inbox access."
+      >
+        <div className="space-y-2">
+          <MicroLabel>Skills</MicroLabel>
+          <IdListField
+            label="Skills"
+            options={(skills.data ?? []).map((skill) => ({ id: skill.id, label: skill.name }))}
+            value={skillIds}
+            onChange={setSkillIds}
+            none="No skills assigned."
+            empty="No skills are available. Create one before assigning it to this agent."
+          />
+        </div>
+
+        <div className="space-y-2">
+          <MicroLabel>May spawn</MicroLabel>
+          <IdListField
+            label="May spawn"
+            options={(agents.data ?? [])
+              .filter((candidate) => candidate.id !== props.agent?.id)
+              .map((candidate) => ({ id: candidate.name, label: candidate.name }))}
+            value={collaborationList}
+            onChange={setCollaboration}
+            none="Cannot start other agents."
+            empty="No other agents are available in this project."
+          />
+        </div>
+
+        <CheckboxField
+          label="Allow this agent to request operator input through the inbox"
+          checked={inboxAccess}
+          onCheckedChange={setInboxAccess}
+        />
+        {inboxAccess ? null : (
+          <DenyNote>
+            Inbox access is disabled. The agent cannot request operator input.
+          </DenyNote>
         )}
-      </Field>
-
-      <Field label="Role prompt" hint="Define the agent's responsibilities and operating instructions.">
-        {(id) => (
-          <Textarea id={id} rows={8} value={rolePrompt} onChange={(e) => setRolePrompt(e.target.value)} />
-        )}
-      </Field>
-
-      <div className="space-y-2">
-        <MicroLabel>Repositories</MicroLabel>
-        <RepoAccessField value={repoAccess} repos={repos.data ?? []} onChange={setRepoAccess} />
-      </div>
-
-      <div className="space-y-2">
-        <MicroLabel>Filesystem</MicroLabel>
-        <FilesystemGrantField value={filesystemGrants} onChange={setGrants} />
-      </div>
-
-      <IdListField
-        label="MCP servers"
-        options={(mcps.data ?? []).map((mcp) => ({ id: mcp.id, label: mcp.name }))}
-        value={mcpConnectionIds}
-        onChange={setMcpIds}
-      />
-
-      <IdListField
-        label="Skills"
-        options={(skills.data ?? []).map((skill) => ({ id: skill.id, label: skill.name }))}
-        value={skillIds}
-        onChange={setSkillIds}
-      />
-
-      <IdListField
-        label="May spawn"
-        options={(agents.data ?? [])
-          .filter((candidate) => candidate.id !== props.agent?.id)
-          .map((candidate) => ({ id: candidate.name, label: candidate.name }))}
-        value={collaborationList}
-        onChange={setCollaboration}
-      />
-
-      <CheckboxField
-        label="Allow this agent to request operator input through the inbox"
-        checked={inboxAccess}
-        onCheckedChange={setInboxAccess}
-      />
+      </FormSection>
     </CreatePanel>
+  );
+}
+
+/**
+ * One labelled group of fields, separated from the one above it by a hairline.
+ * The first section carries no rule because there is nothing above it to divide
+ * it from.
+ */
+function FormSection({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: ReactNode;
+  children: ReactNode;
+}): React.JSX.Element {
+  return (
+    <section className="space-y-3 border-t border-edge pt-5 first:border-0 first:pt-0">
+      <div className="space-y-1">
+        <MicroLabel>{title}</MicroLabel>
+        {hint ? <p className="text-xs leading-relaxed text-ink-muted">{hint}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * One of the four walls. It is boxed rather than run inline with the rest of the
+ * form because a grant is not a preference: the operator should be able to see
+ * where one boundary stops and the next begins without reading the labels.
+ */
+function Wall({
+  icon,
+  title,
+  hint,
+  labelFor,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  hint: string;
+  /**
+   * The id of the single control this wall holds, if it holds one. The heading
+   * then *is* that control's `<label>` — the walls that hold a list of rows
+   * label their own controls instead, and a second caption above them would
+   * only say "Filesystem" twice.
+   */
+  labelFor?: string;
+  children: ReactNode;
+}): React.JSX.Element {
+  const Heading = labelFor ? "label" : "p";
+  return (
+    <div className="space-y-3 rounded-panel border border-edge p-3">
+      <div className="flex items-start gap-2.5">
+        <IconTile size="sm">{icon}</IconTile>
+        <div className="min-w-0">
+          <Heading htmlFor={labelFor} className="block text-[13px] font-medium text-ink">
+            {title}
+          </Heading>
+          <p className="text-xs leading-relaxed text-ink-muted">{hint}</p>
+        </div>
+      </div>
+      {children}
+    </div>
   );
 }

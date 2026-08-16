@@ -7,11 +7,12 @@ import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ui/confirm";
 import { CreatePanel } from "../components/ui/create-panel";
-import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Field, Input, Select } from "../components/ui/form";
+import { IconTile, toneFor } from "../components/ui/icon-tile";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
-import { StatusPill } from "../components/ui/pill";
+import { CountChip, StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useProjectGate } from "../hooks/use-project";
 import { NoProject, ProjectPending } from "./project-states";
@@ -70,8 +71,12 @@ export function SecretsPage(): React.JSX.Element {
       <PageHeader
         icon={<KeyRound />}
         title="Secrets"
+        meta={list.length > 0 ? <CountChip>{list.length}</CountChip> : undefined}
         actions={
           <>
+            {/* The one fact worth interrupting the operator with: a reference
+                the deployment cannot resolve is a credential that will fail
+                inside a container nobody is watching. */}
             {missing > 0 ? (
               <StatusPill tone="danger" dot>
                 {missing} missing
@@ -86,8 +91,11 @@ export function SecretsPage(): React.JSX.Element {
       />
 
       <p className="text-[13px] text-ink-muted">
-        AgentOS stores secret references only. Secret values are never displayed or returned by the API.
+        AgentOS stores secret references only. Secret values are never displayed or returned by the
+        API.
       </p>
+
+      {remove.isError ? <InlineError>Unable to delete the secret reference.</InlineError> : null}
 
       <CreatePanel
         open={creating}
@@ -149,9 +157,9 @@ export function SecretsPage(): React.JSX.Element {
           <EmptyState
             icon={<KeyRound />}
             title="No secrets yet"
-            hint="Add a secret reference for agent authentication and environment variables."
+            hint="Add a secret reference for repository, MCP, or environment-variable credentials."
             action={
-              <Button variant="solid" onClick={() => setCreating(true)}>
+              <Button variant="outline" onClick={() => setCreating(true)}>
                 <Plus />
                 New secret
               </Button>
@@ -163,8 +171,7 @@ export function SecretsPage(): React.JSX.Element {
           <Table>
             <THead>
               <tr>
-                <TH>Name</TH>
-                <TH>Provider ref</TH>
+                <TH>Secret</TH>
                 <TH>Purpose</TH>
                 <TH>Status</TH>
                 <TH className="w-0" />
@@ -173,9 +180,29 @@ export function SecretsPage(): React.JSX.Element {
             <tbody>
               {list.map((secret: SecretRefDto) => (
                 <TR key={secret.id}>
-                  <TD className="font-medium">{secret.name}</TD>
-                  <TD className="machine text-xs text-ink-muted">{secret.providerRef}</TD>
-                  <TD className="text-ink-muted">{secret.purpose}</TD>
+                  {/* The provider reference is the copyable half of a secret's
+                      identity, so it belongs under the name rather than in a
+                      column the eye reaches before it knows what it is reading. */}
+                  <TD className="max-w-[20rem]">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <IconTile tone={toneFor(secret.id)} size="sm">
+                        <KeyRound />
+                      </IconTile>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-ink">{secret.name}</p>
+                        <p
+                          className="machine truncate text-xs text-ink-muted"
+                          title={secret.providerRef}
+                        >
+                          {secret.providerRef}
+                        </p>
+                      </div>
+                    </div>
+                  </TD>
+                  {/* A purpose is a category. It gets the neutral pill. */}
+                  <TD>
+                    <StatusPill tone="neutral">{secret.purpose}</StatusPill>
+                  </TD>
                   <TD>
                     {secret.resolvable ? (
                       <StatusPill tone="live">resolved</StatusPill>
@@ -185,12 +212,13 @@ export function SecretsPage(): React.JSX.Element {
                       </StatusPill>
                     )}
                   </TD>
-                  <TD>
+                  <TD className="w-0 text-right">
                     <Button
                       variant="ghost"
                       size="icon-sm"
                       aria-label={`Delete ${secret.name}`}
-                      className="text-ink-faint hover:bg-danger-soft hover:text-danger"
+                      title={`Delete ${secret.name}`}
+                      className="text-ink-faint transition-colors hover:bg-danger-soft hover:text-danger"
                       onClick={() =>
                         confirm({
                           kind: "destroy",

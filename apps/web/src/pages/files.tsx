@@ -15,6 +15,11 @@ import { Breadcrumb } from "./file-breadcrumb";
 import { DownloadButton, entryName, FileBody, formatSize } from "./file-viewer";
 import { NoProject, ProjectPending } from "./project-states";
 
+/** The server's own words when it has them, and a plain sentence when it does not. */
+function failureText(cause: unknown, fallback: string): string {
+  return cause instanceof ApiError ? cause.message : fallback;
+}
+
 function parentPath(path: string): string {
   if (path === "/") return "/";
   const trimmed = path.replace(/\/$/, "");
@@ -92,7 +97,10 @@ export function FilesPage(): React.JSX.Element {
       <PageHeader
         icon={<Folder />}
         title="Files"
-        meta={<Breadcrumb path={path} onNavigate={setPath} />}
+        // At the root there is no trail, and the header slot is left empty
+        // rather than handed a breadcrumb with nothing in it — that rendered as
+        // "Files /", a slash hanging off the title with no crumb after it.
+        meta={path === "/" ? undefined : <Breadcrumb path={path} onNavigate={setPath} />}
         actions={
           <>
             <input
@@ -121,24 +129,43 @@ export function FilesPage(): React.JSX.Element {
       />
 
       {uploadFile.isError ? (
-        <InlineError>
-          {uploadFile.error instanceof ApiError
-            ? uploadFile.error.message
-            : "Unable to upload the file."}
-        </InlineError>
+        <InlineError>{failureText(uploadFile.error, "Unable to upload the file.")}</InlineError>
       ) : null}
 
       <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr]">
         <Panel className="h-fit overflow-hidden lg:flex lg:h-auto lg:min-h-0 lg:flex-col">
           {entries.isLoading ? (
             <SkeletonRows rows={5} />
+          ) : entries.isError ? (
+            // A listing that failed is not an empty folder, and saying "no files
+            // yet" here would send the operator looking for a file they have.
+            <div className="p-4">
+              <InlineError>
+                {entries.error instanceof ApiError
+                  ? entries.error.message
+                  : "Unable to list this folder."}
+              </InlineError>
+            </div>
+          ) : list.length === 0 && path === "/" ? (
+            <EmptyState
+              icon={<Folder />}
+              title="No files yet"
+              hint="Upload a file or allow an agent to create one through its filesystem tools."
+              action={
+                <Button onClick={() => picker.current?.click()} disabled={uploadFile.isPending}>
+                  <Upload />
+                  {uploadFile.isPending ? "Uploading…" : "Upload a file"}
+                </Button>
+              }
+            />
           ) : (
             <ul className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               {path !== "/" ? (
                 <li className="border-b border-edge">
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-ink-muted transition-colors hover:bg-sunken"
+                    title={parentPath(path)}
+                    className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-ink-muted transition-colors hover:bg-sunken hover:text-ink"
                     onClick={() => setPath(parentPath(path))}
                   >
                     <CornerLeftUp className="size-4 shrink-0 text-ink-faint" />
@@ -151,6 +178,7 @@ export function FilesPage(): React.JSX.Element {
                 <li key={entry.path} className="border-b border-edge last:border-0">
                   <button
                     type="button"
+                    title={entry.path}
                     className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-left transition-colors ${
                       selected === entry.path ? "bg-sunken" : "hover:bg-sunken/70"
                     }`}
@@ -168,7 +196,9 @@ export function FilesPage(): React.JSX.Element {
                     ) : (
                       <File className="size-4 shrink-0 text-ink-faint" />
                     )}
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                    {/* A filename is a path segment, so it is set in the machine
+                        font — it is the half of this row an operator copies. */}
+                    <span className="machine min-w-0 flex-1 truncate text-xs text-ink">
                       {entryName(entry.path)}
                     </span>
                     {entry.kind === "file" ? (
@@ -188,15 +218,19 @@ export function FilesPage(): React.JSX.Element {
               ))}
 
               {list.length === 0 ? (
-                <EmptyState
-                  icon={<Folder />}
-                  title={path === "/" ? "No files yet" : "This folder is empty"}
-                  hint={
-                    path === "/"
-                      ? "Upload a file or allow an agent to create one through its filesystem tools."
-                      : "Upload a file or allow an agent to create one in this folder."
-                  }
-                />
+                <li>
+                  <EmptyState
+                    icon={<Folder />}
+                    title="This folder is empty"
+                    hint="Upload a file or allow an agent to create one in this folder."
+                    action={
+                      <Button onClick={() => picker.current?.click()} disabled={uploadFile.isPending}>
+                        <Upload />
+                        {uploadFile.isPending ? "Uploading…" : "Upload a file"}
+                      </Button>
+                    }
+                  />
+                </li>
               ) : null}
             </ul>
           )}
@@ -207,9 +241,14 @@ export function FilesPage(): React.JSX.Element {
             <>
               <PanelHeader className="shrink-0 border-b border-edge">
                 <PanelTitle icon={<File />}>
-                  <span className="machine text-xs">{selected}</span>
+                  {/* A 300-character path truncates inside the title rather
+                      than pushing the actions off the panel; the whole of it is
+                      on hover. */}
+                  <span className="machine text-xs" title={selected}>
+                    {selected}
+                  </span>
                 </PanelTitle>
-                <div className="flex gap-2">
+                <div className="flex shrink-0 gap-2">
                   {editable ? (
                     <Button
                       size="sm"
@@ -247,6 +286,21 @@ export function FilesPage(): React.JSX.Element {
                   </Button>
                 </div>
               </PanelHeader>
+
+              {/* A write or a delete that the server refused has to say so on
+                  the pane it was attempted from. Both used to fail in silence,
+                  which reads as a save that worked. */}
+              {save.isError || remove.isError ? (
+                <div className="shrink-0 border-b border-edge p-4">
+                  <InlineError>
+                    {failureText(
+                      save.isError ? save.error : remove.error,
+                      save.isError ? "Unable to save this file." : "Unable to delete this file.",
+                    )}
+                  </InlineError>
+                </div>
+              ) : null}
+
               <FileBody
                 projectId={project.id}
                 path={selected}

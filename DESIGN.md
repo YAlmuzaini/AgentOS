@@ -172,13 +172,24 @@ signal hue. It gets a neutral pill with a data-hue dot.
 ### Data — never status
 
 `data-violet` `#6155F5`, `data-sky` `#47C2FF`, `data-amber` `#F6B51E`, `data-emerald` `#1FC16B`.
-These are for meter segments, panel accent marks, and category dots. A data hue must never be the
-thing that tells an operator something is wrong.
+These are for meter segments, panel accent marks, category dots, and icon tiles. A data hue must
+never be the thing that tells an operator something is wrong.
 
 **These four are not approximations.** They are the reference's own published palette, read off its
 spec sheet at `design-refs/agents/05.jpg`, which also names the typeface as **Inter Tight**. An
 earlier pass matched both by eye and got both slightly wrong; when a reference states its tokens,
 use the stated values.
+
+Each carries two companions, mirroring the signal hues: `-soft` is a 12% tint, the fill behind an
+icon tile; `-ink` is a darkened glyph tone. The `-ink` step is not decoration — the published hue on
+its own tint is 1.9:1 for sky and fails outright as a glyph, while the four `-ink` values clear 3:1.
+The published hue itself stays the chart, meter and dot colour and is never asked to be legible
+against its own tint.
+
+**Category tone is derived, not stored.** A thing with no colour of its own — an agent, a template —
+takes `toneFor(id)`, a hash of its id. Two neighbours therefore differ, and the same thing keeps its
+colour between renders and between screens, which is what makes a row findable again. Nothing about
+that value is meaningful; it is an index, not a status.
 
 **The Rationing Rule.** On a resting screen, signal hues stay under about 5% of the surface. A
 screen showing three colours is telling you three things are happening.
@@ -271,6 +282,39 @@ Everything else is a colour transition. `prefers-reduced-motion` collapses all o
 1px `edge`, 10px radius, white. A `PanelHeader` carries a `PanelTitle`, which may wear **either**
 a 3px accent mark **or** an icon — never both; they say the same thing twice.
 
+### Icon tiles
+`IconTile` — a rounded square (8px, the control radius) holding one Lucide glyph on a `-soft` fill.
+It is the reference's signature object: every agent card in `design-refs/agents/07.jpg` opens with
+one, and it is most of why a grid of twelve stays scannable, because the eye finds the shape before
+it reads the name.
+
+Three sizes: 28px in a row, 36px on a card, 44px on a detail header and in an empty state. **A tile
+carries a category, never a status** — it appears whether or not anything is happening, so a `live`
+or `danger` tile would break The One Meaning Rule on every quiet screen in the app. Neutral, or one
+of the four data tones.
+
+The glyph itself is derived, like the tone: an agent's icon is read off the slug the operator
+already chose (`agent-icon.ts`), because a stored icon field is a thing to maintain and to get
+wrong, and the built-ins are named after what they do.
+
+### Meta rows
+`MetaRow` / `Meta` — a run of small facts, each an optional glyph beside a value, hairline-dot
+separated: "claude-opus-5 · 24 sessions · 8m ago". It is the card footer and the detail sub-header
+throughout the app. The separator is drawn by the component, never typed as a character, so it is
+neither selectable nor read aloud.
+
+### Cards
+`CardButton` — a panel that is also a target. The **whole surface** opens the thing, because a card
+240px wide that is only clickable on one line of text is a card the operator has to aim at. Hover
+raises the hairline and warms the fill exactly as a table row does; it does not lift and it does not
+scale. The focus ring sits outside the border so a focused card does not change size against its
+neighbours. There is deliberately no selected state: a card grid in this app navigates, and a
+selected-card style with no screen to use it is a rule waiting to be applied inconsistently.
+
+An index is a card grid when the operator is *choosing* between things and needs to know what each
+one is (Agents, Templates). It stays a list beside a detail when the operator is *moving through*
+things without wanting to lose their place (Goals, Sessions, Files, Inbox).
+
 ### Status pills
 6px radius, label type, `-soft` fill with `-line` border and saturated text. An optional leading
 dot, which pulses only for a genuinely running thing. The canonical one is the gate badge: amber,
@@ -289,7 +333,20 @@ in the machine font.
 ### Fields
 White fill with a hairline — not a grey well, because the working surface is already white and a
 grey input would read as disabled. Every field has a real `<label>` tied to it; a placeholder is
-not a label. Focus darkens the border and adds the 2px `solid` ring. Focus is never removed.
+not a label. Focus darkens the border and adds the 2px `solid` ring.
+
+**A field that is refusing turns red, not just its message.** `Field` takes an `error` and sets
+`data-invalid` on the wrapper, which reddens whatever control is inside it — there are fields in
+this app holding an `Input`, a `Select`, a `Textarea` and a hand-rolled combo, and asking each call
+site to remember an invalid flag is how three of the four end up not doing it.
+
+**Focus is never removed, and the ring is opt-out, not opt-in.** The rule lives in `@layer base`, so
+it applies everywhere by default and a component that owns its own focus treatment can override it
+with `focus-visible:outline-none`. Unlayered, it beat every Tailwind utility including
+`outline-none`: the ⌘K palette's full-bleed input drew a 2px near-black rectangle that its
+`overflow-hidden` dialog then sliced the top off, and it read as a stray border rather than as
+focus. Exactly one kind of element takes the opt-out — a field that *is* the surface it sits in, and
+whose surface already announces the focus.
 
 ### Create surfaces
 Two shapes, chosen by whether the operator needs what is underneath:

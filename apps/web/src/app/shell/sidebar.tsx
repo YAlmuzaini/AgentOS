@@ -11,6 +11,17 @@ const ROW =
   "flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-[13px] transition-colors [&_svg]:size-4 [&_svg]:shrink-0";
 
 /**
+ * The same rows, sized for a thumb.
+ *
+ * The rail and the mobile drawer render one component, so the drawer inherited
+ * the desk's 30px rows — under the 44px this app promises anywhere it is used
+ * one-handed. The drawer is the only caller that passes `onCollapse`, so that
+ * is what distinguishes the two without adding a prop whose only job is to be
+ * remembered at two call sites.
+ */
+const ROW_TOUCH = `${ROW} min-h-11 py-2.5`;
+
+/**
  * The permanent left rail. It is the warm chrome step: everything in here sits
  * one tone behind the working surface, so the white canvas reads as the thing
  * you are actually operating on.
@@ -28,6 +39,7 @@ export function Sidebar({
   onOpenSearch: () => void;
 }): React.JSX.Element {
   const confirm = useConfirm();
+  const row = onCollapse ? ROW_TOUCH : ROW;
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 bg-chrome p-3">
       <div className="flex items-center justify-between gap-2 px-1 pt-1">
@@ -54,7 +66,10 @@ export function Sidebar({
       <button
         type="button"
         onClick={onOpenSearch}
-        className="flex items-center gap-2 rounded-control border border-edge bg-panel px-2.5 py-1.5 text-[13px] text-ink-faint shadow-lift transition-colors hover:border-edge-strong hover:text-ink-muted"
+        className={cn(
+          "flex items-center gap-2 rounded-control border border-edge bg-panel px-2.5 py-1.5 text-[13px] text-ink-faint shadow-lift transition-colors hover:border-edge-strong hover:text-ink-muted",
+          onCollapse ? "min-h-11" : null,
+        )}
       >
         <Search className="size-3.5 shrink-0" />
         <span className="flex-1 text-left">Search…</span>
@@ -81,10 +96,10 @@ export function Sidebar({
                 key={item.to}
                 to={item.to}
                 onClick={onNavigate}
-                className={cn(ROW, "text-ink-muted hover:bg-sunken hover:text-ink")}
+                className={cn(row, "text-ink-muted hover:bg-sunken hover:text-ink")}
                 activeProps={{
                   className: cn(
-                    ROW,
+                    row,
                     "border border-edge bg-panel font-medium text-ink shadow-lift",
                     // The active row grows a border, so it would otherwise jump
                     // 1px against its unbordered neighbours.
@@ -107,9 +122,9 @@ export function Sidebar({
         <Link
           to="/settings"
           onClick={onNavigate}
-          className={cn(ROW, "text-ink-muted hover:bg-sunken hover:text-ink")}
+          className={cn(row, "text-ink-muted hover:bg-sunken hover:text-ink")}
           activeProps={{
-            className: cn(ROW, "border border-edge bg-panel font-medium text-ink shadow-lift -mx-px"),
+            className: cn(row, "border border-edge bg-panel font-medium text-ink shadow-lift -mx-px"),
           }}
         >
           <Settings />

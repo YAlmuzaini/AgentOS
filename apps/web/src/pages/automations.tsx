@@ -1,15 +1,17 @@
 import type { AgentDto, AutomationDto, TaskTemplateDto } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Pause, Play, Plus } from "lucide-react";
+import { Bot, CalendarClock, FolderGit2, Globe, Pause, Play, Plus } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { DeleteAction } from "../components/ui/delete-action";
 import { useConfirm } from "../components/ui/confirm";
-import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
+import { IconTile, toneFor } from "../components/ui/icon-tile";
+import { Meta, MetaRow } from "../components/ui/meta";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
-import { StatusPill } from "../components/ui/pill";
+import { CountChip, StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useProjectGate } from "../hooks/use-project";
 import { relativeTime } from "../lib/time";
@@ -79,9 +81,16 @@ export function AutomationsPage(): React.JSX.Element {
       <PageHeader
         icon={<CalendarClock />}
         title="Automations"
+        meta={list.length > 0 ? <CountChip>{list.length}</CountChip> : undefined}
         actions={
           <>
-            {enabled > 0 ? <StatusPill tone="live" dot>{enabled} scheduled</StatusPill> : null}
+            {/* How many of them are armed — the only one of these facts that
+                will spend money without the operator touching anything. */}
+            {enabled > 0 ? (
+              <StatusPill tone="live" dot>
+                {enabled} scheduled
+              </StatusPill>
+            ) : null}
             <Button variant="solid" onClick={() => setCreating(true)}>
               <Plus />
               New automation
@@ -90,10 +99,18 @@ export function AutomationsPage(): React.JSX.Element {
         }
       />
 
+      {/* Arming, disarming and firing a schedule all used to fail in silence:
+          the row simply did not change. */}
+      {enable.isError || disable.isError ? (
+        <InlineError>Unable to update the automation status.</InlineError>
+      ) : null}
+      {run.isError ? <InlineError>Unable to run the automation.</InlineError> : null}
+
       <CreateAutomationForm
         open={creating}
         onClose={() => setCreating(false)}
         pending={create.isPending}
+        error={create.isError ? "Automation creation failed." : null}
         agents={agents.data ?? []}
         templates={templates.data ?? []}
         // `mutateAsync` so the form can wait, and so a rejection reaches it —
@@ -110,9 +127,9 @@ export function AutomationsPage(): React.JSX.Element {
           <EmptyState
             icon={<CalendarClock />}
             title="No automations yet"
-            hint="Create a recurring task schedule."
+            hint="Create an automation to schedule recurring tasks for an agent."
             action={
-              <Button variant="solid" onClick={() => setCreating(true)}>
+              <Button variant="outline" onClick={() => setCreating(true)}>
                 <Plus />
                 New automation
               </Button>
@@ -124,9 +141,7 @@ export function AutomationsPage(): React.JSX.Element {
           <Table>
             <THead>
               <tr>
-                <TH>Name</TH>
-                <TH>Cron</TH>
-                <TH>Timezone</TH>
+                <TH>Automation</TH>
                 <TH>Target</TH>
                 <TH>State</TH>
                 <TH>Last fired</TH>
@@ -147,8 +162,8 @@ export function AutomationsPage(): React.JSX.Element {
                       body: (
                         <>
                           This enables the schedule{" "}
-                          <span className="machine">{automation.cron}</span> ({automation.timezone}).
-                          Each occurrence starts an agent session and consumes API credits.
+                          <span className="machine">{automation.cron}</span> ({automation.timezone}
+                          ). Each occurrence starts an agent session and consumes API credits.
                         </>
                       ),
                       confirmLabel: "Enable",
@@ -164,8 +179,8 @@ export function AutomationsPage(): React.JSX.Element {
                       title: `Run “${automation.name}” now?`,
                       body: (
                         <>
-                          This runs the automation outside its schedule, creates its task, and starts
-                          an agent session that consumes API credits.
+                          This runs the automation outside its schedule, creates its task, and
+                          starts an agent session that consumes API credits.
                         </>
                       ),
                       confirmLabel: "Run now",
@@ -193,20 +208,55 @@ function AutomationRow(props: {
   projectId: string;
 }): React.JSX.Element {
   const { automation } = props;
-  const target = automation.taskTemplateId
-    ? (props.templates.find((t) => t.id === automation.taskTemplateId)?.name ??
-      automation.taskTemplateId)
-    : (props.agents.find((a) => a.id === automation.agentId)?.name ?? automation.agentId);
+  const template = automation.taskTemplateId
+    ? props.templates.find((t) => t.id === automation.taskTemplateId)
+    : undefined;
+  const agent = automation.taskTemplateId
+    ? undefined
+    : props.agents.find((a) => a.id === automation.agentId);
+  const targetName = automation.taskTemplateId
+    ? (template?.name ?? automation.taskTemplateId)
+    : (agent?.name ?? automation.agentId);
 
   return (
     <TR>
-      <TD className="font-medium">{automation.name}</TD>
-      <TD className="machine text-xs text-ink-muted">{automation.cron}</TD>
-      <TD className="text-ink-muted">{automation.timezone}</TD>
-      <TD className="text-ink-muted">{target}</TD>
+      {/* The schedule is what an automation *is*, so the cron expression and
+          its timezone ride under the name instead of holding two columns of
+          their own. Both are machine values. */}
+      <TD className="max-w-[22rem]">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <IconTile tone={toneFor(automation.id)} size="sm">
+            <CalendarClock />
+          </IconTile>
+          <div className="min-w-0">
+            <p className="truncate font-medium text-ink">{automation.name}</p>
+            <MetaRow>
+              <Meta machine title={automation.cron}>
+                {automation.cron}
+              </Meta>
+              <Meta icon={<Globe />} machine title={automation.timezone}>
+                {automation.timezone}
+              </Meta>
+            </MetaRow>
+          </div>
+        </div>
+      </TD>
+      <TD className="max-w-[14rem]">
+        <MetaRow>
+          <Meta
+            icon={automation.taskTemplateId ? <FolderGit2 /> : <Bot />}
+            machine={automation.taskTemplateId ? !template : !agent}
+            title={automation.taskTemplateId ? "Task template" : "Agent"}
+          >
+            {targetName}
+          </Meta>
+        </MetaRow>
+      </TD>
       <TD>
         {automation.enabled ? (
-          <StatusPill tone="live">enabled</StatusPill>
+          <StatusPill tone="live" dot>
+            enabled
+          </StatusPill>
         ) : (
           <StatusPill tone="neutral">disabled</StatusPill>
         )}
@@ -218,11 +268,16 @@ function AutomationRow(props: {
           <span className="text-ink-faint">never</span>
         )}
       </TD>
-      <TD>
-        <div className="flex justify-end gap-1.5">
+      <TD className="w-0">
+        <div className="flex items-center justify-end gap-1.5">
           <Button
             size="sm"
             variant="ghost"
+            title={
+              automation.enabled
+                ? `Disable the schedule for ${automation.name}`
+                : `Arm the schedule for ${automation.name}`
+            }
             onClick={automation.enabled ? props.onDisable : props.onEnable}
           >
             {automation.enabled ? <Pause /> : <Play />}
@@ -230,15 +285,15 @@ function AutomationRow(props: {
           </Button>
           <DeleteAction
             what={automation.name}
-            body={
-              <>
-                The schedule will be deleted. Existing tasks are not affected.
-              </>
-            }
+            body={<>The schedule will be deleted. Existing tasks are not affected.</>}
             onDelete={props.onDeleted}
             invalidate={[["automations", props.projectId]]}
           />
-          <Button size="sm" onClick={props.onRunConfirmed}>
+          <Button
+            size="sm"
+            title={`Run ${automation.name} now, outside its schedule`}
+            onClick={props.onRunConfirmed}
+          >
             Run now
           </Button>
         </div>

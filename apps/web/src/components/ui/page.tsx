@@ -11,12 +11,20 @@ export function PageHeader({
   icon,
   title,
   meta,
+  parent,
   actions,
   className,
 }: {
   icon?: ReactNode;
   title: ReactNode;
   meta?: ReactNode;
+  /**
+   * The screen this one opened from, rendered as the first crumb. The
+   * reference titles a detail screen "AI Agent / Revenue Intelligence Agent"
+   * (design-refs/agents/04.jpg) — the crumb is the way back, so a detail view
+   * never has to borrow the browser's.
+   */
+  parent?: { label: string; onClick: () => void };
   actions?: ReactNode;
   className?: string;
 }): React.JSX.Element {
@@ -24,6 +32,20 @@ export function PageHeader({
     <header className={cn("flex flex-wrap items-center justify-between gap-3", className)}>
       <div className="flex min-w-0 items-center gap-2">
         {icon ? <span className="shrink-0 text-ink-faint [&_svg]:size-4">{icon}</span> : null}
+        {parent ? (
+          <>
+            <button
+              type="button"
+              onClick={parent.onClick}
+              className="shrink-0 rounded-control text-[15px] font-medium text-ink-muted transition-colors hover:text-ink"
+            >
+              {parent.label}
+            </button>
+            <span aria-hidden className="shrink-0 text-[15px] text-edge-strong">
+              /
+            </span>
+          </>
+        ) : null}
         <h1 className="truncate text-[15px] font-semibold text-ink">{title}</h1>
         {meta ? <span className="truncate text-[13px] text-ink-faint">{meta}</span> : null}
       </div>

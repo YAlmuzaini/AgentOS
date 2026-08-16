@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
 import { Button } from "../components/ui/button";
-import { SkeletonRows } from "../components/ui/feedback";
-import { Input, Switch } from "../components/ui/form";
+import { Skeleton } from "../components/ui/feedback";
+import { Field, FormActions, Input, Switch } from "../components/ui/form";
 import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
 import { RunnerPanel } from "./runner-panel";
 
@@ -58,13 +58,49 @@ export function ProjectPolicy({ projectId }: { projectId: string }): React.JSX.E
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings", projectId] }),
   });
 
+  // Shaped like what it is standing in for — three panels, not one panel of
+  // four grey bars, which was a different silhouette from the settled screen
+  // and made the page jump when the answer arrived.
   if (!form) {
     return (
-      <Panel>
-        <SkeletonRows rows={4} />
-      </Panel>
+      <div className="space-y-5">
+        {[0, 1, 2].map((index) => (
+          <Panel key={index}>
+            <div className="border-b border-edge px-4 py-3">
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <div className="space-y-3 p-4">
+              <Skeleton className="h-3.5 w-full" />
+              <Skeleton className="h-3.5 w-4/5" />
+              <Skeleton className="h-8.5 w-28" />
+            </div>
+          </Panel>
+        ))}
+      </div>
     );
   }
+
+  // The API rejects both of these, and a `min`/`max` on a number input is only
+  // enforced by the spinner — typing 99999 walked straight into a 400 with the
+  // reason on the server rather than on the field. Clearing the box is the same
+  // problem in reverse: `Number("")` is NaN, which serialises to null.
+  const outOfRange = (minutes: number, low: number, high: number): boolean =>
+    Number.isNaN(minutes) || minutes < low || minutes > high;
+  const timeoutError = outOfRange(form.parkedSessionTimeoutMinutes, 0, 20160)
+    ? "Between 0 and 20160 minutes (14 days). 0 means no timeout."
+    : null;
+  const intervalError =
+    form.orphanSweepEnabled && outOfRange(form.orphanSweepIntervalMinutes, 5, 1440)
+      ? "Between 5 and 1440 minutes."
+      : null;
+
+  const saved = settings.data;
+  const changed =
+    !saved ||
+    form.parkedSessionTimeoutMinutes !== saved.parkedSessionTimeoutMinutes ||
+    form.orphanSweepEnabled !== saved.orphanSweepEnabled ||
+    form.orphanSweepIntervalMinutes !== saved.orphanSweepIntervalMinutes ||
+    form.defaultRunner !== saved.defaultRunner;
 
   return (
     <form
@@ -89,23 +125,31 @@ export function ProjectPolicy({ projectId }: { projectId: string }): React.JSX.E
             Set how long a session keeps its container while awaiting your response. After the
             timeout, the container is released and the inbox message remains available.
           </p>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              max={20160}
-              value={form.parkedSessionTimeoutMinutes}
-              onChange={(event) =>
-                setForm({ ...form, parkedSessionTimeoutMinutes: Number(event.target.value) })
-              }
-              className="tnum w-28"
-              aria-label="Minutes before a waiting session releases its container"
-            />
-            <span className="text-[13px] text-ink-muted">minutes</span>
-          </div>
-          <p className="text-xs text-ink-faint">
-            {describeTimeout(form.parkedSessionTimeoutMinutes)}
-          </p>
+          {/* A real <label>, not an aria-label: the sentence under the number is
+              the whole point of the setting and a screen reader was the only
+              thing being told what the box was for. */}
+          <Field
+            label="Wait before releasing the container"
+            hint={describeTimeout(form.parkedSessionTimeoutMinutes)}
+            error={timeoutError}
+          >
+            {(id) => (
+              <div className="flex items-center gap-2">
+                <Input
+                  id={id}
+                  type="number"
+                  min={0}
+                  max={20160}
+                  value={form.parkedSessionTimeoutMinutes}
+                  onChange={(event) =>
+                    setForm({ ...form, parkedSessionTimeoutMinutes: Number(event.target.value) })
+                  }
+                  className="tnum w-28"
+                />
+                <span className="text-[13px] text-ink-muted">minutes</span>
+              </div>
+            )}
+          </Field>
         </div>
       </Panel>
 
@@ -115,7 +159,8 @@ export function ProjectPolicy({ projectId }: { projectId: string }): React.JSX.E
           <Switch
             checked={form.orphanSweepEnabled}
             onCheckedChange={(checked) => setForm({ ...form, orphanSweepEnabled: checked })}
-            aria-label="Reconcile automatically"
+            aria-label="Reconcile orphaned containers automatically"
+            title="Reconcile orphaned containers automatically"
           />
         </PanelHeader>
         <div className="space-y-4 p-4">
@@ -123,37 +168,62 @@ export function ProjectPolicy({ projectId }: { projectId: string }): React.JSX.E
             Compare active runtime containers with AgentOS session records and archive unmatched
             containers. Containers less than ten minutes old are excluded.
           </p>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={5}
-              max={1440}
-              disabled={!form.orphanSweepEnabled}
-              value={form.orphanSweepIntervalMinutes}
-              onChange={(event) =>
-                setForm({ ...form, orphanSweepIntervalMinutes: Number(event.target.value) })
-              }
-              className="tnum w-28"
-              aria-label="Minutes between reconciliation checks"
-            />
-            <span className="text-[13px] text-ink-muted">minutes between checks</span>
-          </div>
+          <Field
+            label="Time between reconciliation checks"
+            hint={
+              form.orphanSweepEnabled
+                ? undefined
+                : "Reconciliation is disabled. Unmatched containers remain active until stopped manually."
+            }
+            error={intervalError}
+          >
+            {(id) => (
+              <div className="flex items-center gap-2">
+                <Input
+                  id={id}
+                  type="number"
+                  min={5}
+                  max={1440}
+                  disabled={!form.orphanSweepEnabled}
+                  value={form.orphanSweepIntervalMinutes}
+                  onChange={(event) =>
+                    setForm({ ...form, orphanSweepIntervalMinutes: Number(event.target.value) })
+                  }
+                  className="tnum w-28"
+                />
+                <span className="text-[13px] text-ink-muted">minutes between checks</span>
+              </div>
+            )}
+          </Field>
         </div>
       </Panel>
 
-      <div className="flex items-center gap-3">
-        <Button type="submit" variant="solid" disabled={save.isPending}>
-          {save.isPending ? "Saving…" : "Save"}
+      {/* Three panels of policy end in one bar, so "did that save?" is answered
+          in the same place every time: what is outstanding on the left, the one
+          solid button on the screen on the right. */}
+      <FormActions
+        message={
+          save.isError ? (
+            <span className="text-danger">
+              {save.error instanceof ApiError
+                ? save.error.message
+                : "Unable to save project settings."}
+            </span>
+          ) : changed ? (
+            <span className="text-ink-muted">Unsaved changes.</span>
+          ) : save.isSuccess ? (
+            <span className="text-ink-faint">Settings saved.</span>
+          ) : null
+        }
+      >
+        <Button
+          type="submit"
+          variant="solid"
+          disabled={save.isPending || Boolean(timeoutError) || Boolean(intervalError)}
+        >
+          {save.isPending ? "Saving…" : "Save settings"}
         </Button>
-        {save.isError ? (
-          <span className="text-[13px] text-danger">
-            {save.error instanceof ApiError ? save.error.message : "Unable to save project settings."}
-          </span>
-        ) : null}
-        {save.isSuccess && !save.isPending ? (
-          <span className="text-[13px] text-ink-faint">Settings saved.</span>
-        ) : null}
-      </div>
+      </FormActions>
     </form>
   );
 }

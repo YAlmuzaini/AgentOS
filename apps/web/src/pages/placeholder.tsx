@@ -11,8 +11,8 @@ export function Placeholder(props: { title: string; phase: string }): React.JSX.
       <Panel>
         <EmptyState
           icon={<Construction />}
-          title={`${props.title} lands in ${props.phase}`}
-          hint="The route exists so the navigation is complete; the screen is not built yet."
+          title={`${props.title} is not available yet`}
+          hint={`This feature is planned for ${props.phase}.`}
         />
       </Panel>
     </Page>

@@ -35,7 +35,7 @@ function describe(error: unknown): { message: string; detail?: string } {
     if (error.status >= 500) {
       return {
         message: "Control plane error",
-        detail: "The server could not complete the request. Nothing was saved.",
+        detail: "The server was unable to complete the request. Review the current state before retrying.",
       };
     }
     return { message: "Request failed", detail: error.message };

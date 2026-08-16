@@ -22,6 +22,9 @@ export function InstantiateDialog(props: {
   const confirm = useConfirm();
   const [values, setValues] = useState<Record<string, string>>({});
   const [titlePrefix, setTitlePrefix] = useState("");
+  // Which variables the operator has already been in. A dialog that opens with
+  // every field already red is telling them off for not having typed yet.
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   const instantiate = useMutation({
     mutationFn: () =>
@@ -69,18 +72,38 @@ export function InstantiateDialog(props: {
             </div>
 
             {props.template.variables.length > 0 ? (
-              <div className="space-y-3">
+              <div className="space-y-3 border-t border-edge pt-4">
                 <PanelTitle>Variables</PanelTitle>
+                <p className="text-xs leading-relaxed text-ink-muted">
+                  Every declared variable is substituted into the step prompts. A blank one would
+                  reach the agent as literal text, so all of them are required.
+                </p>
                 {props.template.variables.map((name) => (
-                  <Field key={name} label={name}>
+                  <Field
+                    key={name}
+                    label={name}
+                    required
+                    hint={
+                      <>
+                        Replaces <span className="machine">{`{{${name}}}`}</span> in every step.
+                      </>
+                    }
+                    error={
+                      touched[name] && !values[name]?.trim() ? "Value is required." : undefined
+                    }
+                  >
                     {(id) => (
                       <Input
                         id={id}
                         className="machine"
                         value={values[name] ?? ""}
-                        onChange={(event) =>
-                          setValues({ ...values, [name]: event.target.value })
-                        }
+                        autoComplete="off"
+                        spellCheck={false}
+                        onBlur={() => setTouched({ ...touched, [name]: true })}
+                        onChange={(event) => {
+                          setTouched({ ...touched, [name]: true });
+                          setValues({ ...values, [name]: event.target.value });
+                        }}
                       />
                     )}
                   </Field>
@@ -88,7 +111,11 @@ export function InstantiateDialog(props: {
               </div>
             ) : null}
 
-            <Field label="Title prefix" hint="Optional. Makes the chain identifiable on the board.">
+            <Field
+              label="Title prefix"
+              hint="Optional. Makes the chain identifiable on the board."
+              className="border-t border-edge pt-4"
+            >
               {(id) => (
                 <Input
                   id={id}
@@ -103,7 +130,7 @@ export function InstantiateDialog(props: {
             <FormActions
               message={
                 instantiate.isError ? (
-                  <span className="text-danger">Could not create the chain.</span>
+                  <span className="text-danger">Unable to create the task chain.</span>
                 ) : missing.length > 0 ? (
                   <span className="text-ink-muted">
                     {missing.length} variable{missing.length === 1 ? "" : "s"} still needed

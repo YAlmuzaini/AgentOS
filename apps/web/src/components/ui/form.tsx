@@ -53,26 +53,57 @@ export function Select({
 /**
  * A labelled field. The label is always rendered and always tied to the control
  * — a placeholder is not a label, and this app is used one-handed at 23:00.
+ *
+ * `error` turns the whole field red rather than only printing a sentence under
+ * it. It does that from the wrapper, with `data-invalid` and a descendant
+ * selector, so a call site does not have to thread an invalid flag down into
+ * whichever control it rendered — there are fields in this app holding an
+ * `Input`, a `Select`, a `Textarea` and a hand-rolled combo, and asking each of
+ * them to remember is how three of the four end up not doing it.
  */
 export function Field({
   label,
   hint,
+  error,
+  required,
   children,
   className,
 }: {
   label: string;
   hint?: ReactNode;
+  /** The reason this field is refusing. Renders red and announces itself. */
+  error?: ReactNode;
+  /** Marks the label. Only worth setting where the form actually enforces it. */
+  required?: boolean;
   children: (id: string) => ReactNode;
   className?: string;
 }): React.JSX.Element {
   const id = useId();
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div
+      data-invalid={error ? "" : undefined}
+      className={cn(
+        "space-y-1.5",
+        "data-invalid:[&_input]:border-danger-line data-invalid:[&_select]:border-danger-line data-invalid:[&_textarea]:border-danger-line",
+        className,
+      )}
+    >
       <label htmlFor={id} className="block text-[13px] font-medium text-ink">
         {label}
+        {required ? (
+          <span aria-hidden className="ml-1 text-danger">
+            *
+          </span>
+        ) : null}
       </label>
       {children(id)}
-      {hint ? <p className="text-xs text-ink-muted">{hint}</p> : null}
+      {error ? (
+        <p role="alert" className="text-xs text-danger">
+          {error}
+        </p>
+      ) : hint ? (
+        <p className="text-xs text-ink-muted">{hint}</p>
+      ) : null}
     </div>
   );
 }
@@ -135,7 +166,12 @@ export function Switch({
   return (
     <SwitchPrimitive.Root
       className={cn(
-        "inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent bg-edge-strong transition-colors data-[state=checked]:bg-solid",
+        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent bg-edge-strong transition-colors data-[state=checked]:bg-solid",
+        // The track is 36x20 because that is the size it should *look*; the
+        // thing you hit is 44x40. Without this the only toggle in the app is
+        // the smallest target in it, and it arms an automatic sweep that
+        // deletes containers — an easy control to miss and a bad one to miss.
+        "before:absolute before:-inset-x-1 before:-inset-y-2.5 before:content-['']",
         className,
       )}
       {...props}

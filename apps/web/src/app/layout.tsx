@@ -138,7 +138,7 @@ function Unreachable(props: {
             ? "The token does not match AGENTOS_OPERATOR_TOKEN on the server."
             : offline
               ? "Start the API with `pnpm --filter @agentos/api dev`, then try again."
-              : "The server could not complete the request."}
+              : "The server was unable to complete the request. Try again."}
         </p>
         <InlineError className="machine mt-4 break-words">{props.error.message}</InlineError>
         <div className="mt-5 flex gap-2">

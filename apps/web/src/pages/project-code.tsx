@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import { api } from "../api";
+import { Button } from "../components/ui/button";
+import { InlineError, Skeleton } from "../components/ui/feedback";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 
@@ -48,16 +51,27 @@ export function ProjectCode({ projectId }: { projectId: string }): React.JSX.Ele
           <li>3. The directory is deleted when the session ends; only pushed commits remain.</li>
         </ol>
 
-        {repos.isSuccess && list.length === 0 ? (
-          <Well className="space-y-1">
+        {/* The skeleton is two name/branch rows, the shape the list settles
+            into, so the rail does not resize under the panel below it. */}
+        {repos.isPending ? (
+          <div className="space-y-1.5" aria-hidden>
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-4/5" />
+          </div>
+        ) : repos.isError ? (
+          <InlineError>Unable to load this project's repositories.</InlineError>
+        ) : list.length === 0 ? (
+          <Well className="space-y-2.5">
             <p className="text-xs leading-relaxed text-ink-muted">
               No repository is configured. Agents start with an empty workspace and can write only
-              to the AgentOS filesystem. Add a repository under{" "}
-              <Link to="/repos" className="text-link hover:underline">
-                Repositories
-              </Link>
-              , then grant it to an agent.
+              to the AgentOS filesystem.
             </p>
+            <Button size="sm" asChild>
+              <Link to="/repos">
+                <Plus />
+                Add a repository
+              </Link>
+            </Button>
           </Well>
         ) : (
           <ul className="space-y-1">

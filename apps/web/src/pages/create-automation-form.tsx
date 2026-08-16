@@ -1,6 +1,6 @@
 import type { AgentDto, TaskTemplateDto } from "@agentos/shared";
 import { Plus, X } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "../components/ui/button";
 import { CreatePanel } from "../components/ui/create-panel";
 import { CheckboxField, Field, Input, Select, Textarea } from "../components/ui/form";
@@ -10,6 +10,8 @@ export function CreateAutomationForm(props: {
   open: boolean;
   onClose: () => void;
   pending: boolean;
+  /** The server's refusal, shown beside the submit button rather than nowhere. */
+  error?: ReactNode;
   agents: AgentDto[];
   templates: TaskTemplateDto[];
   onCreate: (body: {
@@ -45,7 +47,9 @@ export function CreateAutomationForm(props: {
       description="Create tasks automatically on a cron schedule."
       submitLabel="Create"
       pending={props.pending}
+      error={props.error}
       disabled={!name || !cron}
+      incomplete="A name and a cron expression are required."
       onSubmit={async () => {
         const templateVariables = Object.fromEntries(
           variableRows.filter((row) => row.key.trim()).map((row) => [row.key, row.value]),
@@ -74,6 +78,7 @@ export function CreateAutomationForm(props: {
           {(id) => (
             <Input
               id={id}
+              className="machine"
               placeholder="kebab-case"
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -91,10 +96,14 @@ export function CreateAutomationForm(props: {
             />
           )}
         </Field>
+        {/* An IANA identifier is a machine value, and it is typed by hand — it
+            has to be readable character by character to be checked. */}
         <Field label="Timezone">
           {(id) => (
             <Input
               id={id}
+              className="machine"
+              placeholder="UTC"
               value={timezone}
               onChange={(event) => setTimezone(event.target.value)}
             />
@@ -195,6 +204,15 @@ export function CreateAutomationForm(props: {
 
           <div className="space-y-2">
             <MicroLabel>Template variables</MicroLabel>
+            {/* An empty list said nothing about what it wanted, and a template
+                that interpolates an unsupplied name reaches the agent with the
+                literal `{{name}}` still in the prompt. */}
+            {variableRows.length === 0 ? (
+              <p className="text-xs text-ink-muted">
+                One row for each name the template declares. Anything left unset stays in the prompt
+                as literal text.
+              </p>
+            ) : null}
             {variableRows.map((row, index) => (
               <div key={index} className="flex gap-2">
                 <Input
@@ -222,7 +240,8 @@ export function CreateAutomationForm(props: {
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label="Remove variable"
+                  aria-label={`Remove variable ${index + 1}`}
+                  title={`Remove variable ${index + 1}`}
                   onClick={() => setVariableRows(variableRows.filter((_, i) => i !== index))}
                 >
                   <X />

@@ -32,7 +32,9 @@ export function SessionAccessPanel(props: {
             <Row label="Model">
               <span className="machine text-xs">{access?.model || "—"}</span>
             </Row>
-            <Row label="Backend">{props.session.runner}</Row>
+            <Row label="Backend">
+              <span className="machine text-xs">{props.session.runner}</span>
+            </Row>
             {/* The id is what correlates this run with a provider console, a
                 log line, or a bill, so it belongs where it can be copied. */}
             <Row label="Session">
@@ -63,7 +65,7 @@ export function SessionAccessPanel(props: {
         </Well>
 
         <Well className="space-y-1.5">
-          <SectionLabel>Could reach</SectionLabel>
+          <SectionLabel>Access granted</SectionLabel>
           {access ? (
             <dl className="space-y-1 text-[13px]">
               <Row label="Network" icon={<Network />}>
@@ -72,24 +74,35 @@ export function SessionAccessPanel(props: {
                 ) : access.allowedHosts.length > 0 ? (
                   <span className="machine text-xs">{access.allowedHosts.join(", ")}</span>
                 ) : (
-                  <span className="text-ink-muted">nothing</span>
+                  <span className="text-ink-muted">None</span>
                 )}
               </Row>
               <Row label="MCP" icon={<Plug />}>
-                {access.mcpServers.length > 0
-                  ? access.mcpServers
+                {/* A connection name and the operations it grants are both
+                    things an operator matches against a config file, so both
+                    are machine values. */}
+                {access.mcpServers.length > 0 ? (
+                  <span className="machine text-xs">
+                    {access.mcpServers
                       .map((server) =>
                         server.allowedOperations.length > 0
                           ? `${server.name} (${server.allowedOperations.join(", ")})`
                           : server.name,
                       )
-                      .join(", ")
-                  : none()}
+                      .join(", ")}
+                  </span>
+                ) : (
+                  none()
+                )}
               </Row>
               <Row label="Repositories" icon={<GitBranch />}>
-                {access.repos.length > 0
-                  ? access.repos.map((repo) => `${repo.name} · ${repo.permissions}`).join(", ")
-                  : none()}
+                {access.repos.length > 0 ? (
+                  <span className="machine text-xs">
+                    {access.repos.map((repo) => `${repo.name} · ${repo.permissions}`).join(", ")}
+                  </span>
+                ) : (
+                  none()
+                )}
               </Row>
               <Row label="Env vars" icon={<KeyRound />}>
                 {/* Keys only — a value here would be a credential on a screen. */}
@@ -107,7 +120,12 @@ export function SessionAccessPanel(props: {
                 )}
               </Row>
               <Row label="May spawn" icon={<Boxes />}>
-                {access.collaborators.length > 0 ? access.collaborators.join(", ") : none()}
+                {/* Agent slugs, the same way the agent screen sets them. */}
+                {access.collaborators.length > 0 ? (
+                  <span className="machine text-xs">{access.collaborators.join(", ")}</span>
+                ) : (
+                  none()
+                )}
               </Row>
             </dl>
           ) : (
@@ -148,7 +166,7 @@ export function SessionAccessPanel(props: {
         {used.other.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {used.other.map(([name, count]) => (
-              <StatusPill key={name} tone="neutral" title="the runtime's own toolset">
+              <StatusPill key={name} tone="neutral" title="Provided by the runtime">
                 <span className="machine">{name}</span>
                 <span className="tnum"> ×{count}</span>
               </StatusPill>

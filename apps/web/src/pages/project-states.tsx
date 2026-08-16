@@ -1,14 +1,25 @@
 import { Plus, SquareKanban } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../components/ui/button";
-import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { EmptyState, Skeleton, SkeletonRows } from "../components/ui/feedback";
 import { Page } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { CreateProjectDialog } from "./create-project-dialog";
 
+/**
+ * What every screen shows while the active project is still being resolved.
+ *
+ * Shaped like a page — a header line with its action, then a panel of rows —
+ * because every screen that renders this one opens that way, and a bare stack
+ * of grey bars made the header appear a beat later and shove the body down.
+ */
 export function ProjectPending(): React.JSX.Element {
   return (
     <Page>
+      <div className="flex items-center justify-between gap-3">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8.5 w-28" />
+      </div>
       <Panel>
         <SkeletonRows rows={5} />
       </Panel>
@@ -42,11 +53,3 @@ export function NoProject(): React.JSX.Element {
     </Page>
   );
 }
-
-/**
- * What creating this task will actually do.
- *
- * The dialog used to say "run immediately once created" whatever the schedule
- * was, which is wrong for two of the three kinds and misleading about the one
- * thing an operator wants to be sure of: whether this spends money now.
- */

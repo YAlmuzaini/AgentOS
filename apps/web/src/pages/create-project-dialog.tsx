@@ -26,6 +26,9 @@ export function CreateProjectDialog(props: {
   // keystroke.
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
+  // Whether the operator has typed anything at all yet, which is what decides
+  // when the fields are allowed to complain.
+  const [touched, setTouched] = useState(false);
   const queryClient = useQueryClient();
 
   const effectiveSlug = slugTouched ? slug : slugify(name);
@@ -47,9 +50,18 @@ export function CreateProjectDialog(props: {
     setName("");
     setSlug("");
     setSlugTouched(false);
+    setTouched(false);
     create.reset();
   }
 
+  // Only complained about once the field has been touched — a dialog that opens
+  // already scolding both of its empty fields reads as broken. Until then the
+  // submit is simply not armed, and the hints say what it is waiting for.
+  const nameError = touched && name.trim().length === 0 ? "Project name is required." : null;
+  const slugError =
+    touched && effectiveSlug.length > 0 && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(effectiveSlug)
+      ? "Lowercase letters, digits and single hyphens only."
+      : null;
   const valid = name.trim().length > 0 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(effectiveSlug);
 
   return (
@@ -81,12 +93,15 @@ export function CreateProjectDialog(props: {
             </div>
 
             <div className="space-y-4 px-5 py-4">
-              <Field label="Name">
+              <Field label="Name" required error={nameError}>
                 {(id) => (
                   <Input
                     id={id}
                     value={name}
-                    onChange={(event) => setName(event.target.value)}
+                    onChange={(event) => {
+                      setTouched(true);
+                      setName(event.target.value);
+                    }}
                     placeholder="Todo App"
                     autoFocus
                   />
@@ -95,6 +110,8 @@ export function CreateProjectDialog(props: {
 
               <Field
                 label="Slug"
+                required
+                error={slugError}
                 hint={
                   <>
                     How the CLI addresses it:{" "}
@@ -107,7 +124,10 @@ export function CreateProjectDialog(props: {
                     id={id}
                     className="machine"
                     value={effectiveSlug}
+                    autoComplete="off"
+                    spellCheck={false}
                     onChange={(event) => {
+                      setTouched(true);
                       setSlugTouched(true);
                       setSlug(event.target.value);
                     }}

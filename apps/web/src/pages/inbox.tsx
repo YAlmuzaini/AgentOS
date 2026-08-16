@@ -5,7 +5,7 @@ import { ChevronLeft, Inbox } from "lucide-react";
 import { useEffect } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
-import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { EmptyState, InlineError, Skeleton } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
@@ -26,7 +26,9 @@ import { MessageCard } from "./inbox-message";
  *
  * This is the one screen with a real mobile contract — it is read one-handed
  * at 23:00 — so below `lg` it is one pane at a time: the list, or the message,
- * with a way back. Every control clears 44px.
+ * with a way back. Every control clears 44px, and nothing an agent wrote — a
+ * 300-character question, a paragraph-long choice — is allowed to push the page
+ * sideways at 390px.
  */
 export function InboxPage(): React.JSX.Element {
   const queryClient = useQueryClient();
@@ -100,12 +102,16 @@ export function InboxPage(): React.JSX.Element {
         }
       />
 
+      {messages.isError ? (
+        <InlineError>
+          Unable to load the inbox. Pending agent requests are not currently available.
+        </InlineError>
+      ) : null}
+
       {messages.isLoading ? (
-        <Panel>
-          <SkeletonRows rows={4} />
-        </Panel>
+        <InboxSkeleton />
       ) : list.length === 0 ? (
-        <Panel>
+        <Panel className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
           <EmptyState
             icon={<Inbox />}
             title="No messages require your attention"
@@ -124,7 +130,11 @@ export function InboxPage(): React.JSX.Element {
             <InboxList messages={list} selectedId={selected} onSelect={setSelected} />
           </Panel>
 
-          <div className={`min-w-0 space-y-3 ${active ? "" : "hidden lg:block"}`}>
+          <div
+            className={`min-w-0 space-y-3 lg:min-h-0 lg:overflow-y-auto ${
+              active ? "" : "hidden lg:block"
+            }`}
+          >
             {active ? (
               <>
                 <Button
@@ -138,11 +148,12 @@ export function InboxPage(): React.JSX.Element {
                 <MessageCard
                   message={active}
                   pending={reply.isPending}
+                  error={reply.error}
                   onReply={(payload) => reply.mutate({ id: active.id, ...payload })}
                 />
               </>
             ) : (
-              <Panel className="hidden lg:block">
+              <Panel className="hidden lg:flex lg:min-h-0 lg:flex-col">
                 <EmptyState
                   icon={<Inbox />}
                   title="Select a message"
@@ -154,5 +165,31 @@ export function InboxPage(): React.JSX.Element {
         </div>
       )}
     </Page>
+  );
+}
+
+/**
+ * The two panes, at the size they will be. A single stack of grey bars told the
+ * operator nothing about which half of the screen was about to appear.
+ */
+function InboxSkeleton(): React.JSX.Element {
+  return (
+    <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[340px_1fr]">
+      <Panel className="divide-y divide-edge overflow-hidden">
+        {Array.from({ length: 5 }, (_, index) => (
+          <div key={index} className="space-y-2 px-3.5 py-3">
+            <Skeleton className="h-3.5 w-4/5" />
+            <Skeleton className="h-3 w-2/5" />
+          </div>
+        ))}
+      </Panel>
+      <Panel className="hidden space-y-4 p-4 lg:block">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-5 w-3/4" />
+        <Skeleton className="h-11" />
+        <Skeleton className="h-11" />
+        <Skeleton className="h-8.5 w-32" />
+      </Panel>
+    </div>
   );
 }

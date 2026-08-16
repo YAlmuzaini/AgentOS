@@ -1,12 +1,22 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { CornerDownLeft, Search } from "lucide-react";
+import {
+  ArrowRight,
+  Bot,
+  CornerDownLeft,
+  FolderGit2,
+  Search,
+  SquareKanban,
+  Target,
+  Terminal,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { NAV } from "../../app/nav";
 import { useActiveProject } from "../../hooks/use-project";
 import { cn } from "../../lib/cn";
+import { Kbd } from "./menu";
 import { StatusPill } from "./pill";
 
 /**
@@ -150,6 +160,16 @@ export function CommandPalette(props: {
 
   useEffect(() => setCursor(0), [query]);
 
+  // `listRef` was captured and never read, so arrowing past the sixth result
+  // moved a highlight the operator could no longer see. The list scrolls to
+  // follow the cursor now — `nearest` rather than `center` so a short move
+  // does not throw the whole list around under the pointer.
+  useEffect(() => {
+    listRef.current
+      ?.querySelector('[data-active="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [cursor]);
+
   useEffect(() => {
     if (!props.open) {
       setQuery("");
@@ -191,11 +211,17 @@ export function CommandPalette(props: {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search tasks, agents, goals, templates, sessions…"
-              className="h-12 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
+              /*
+                The palette itself is the focus indicator: it is modal, it
+                opened because the operator asked for it, and this input is
+                autofocused. A ring around a full-bleed field inside an
+                `overflow-hidden` dialog only ever renders as a clipped box.
+              */
+              className="h-12 flex-1 bg-transparent text-[13px] text-ink outline-none focus-visible:outline-none placeholder:text-ink-faint"
             />
           </div>
 
-          <div ref={listRef} className="max-h-[50vh] overflow-y-auto p-1.5">
+          <div ref={listRef} className="max-h-[50vh] min-h-40 overflow-y-auto p-1.5">
             {hits.length === 0 ? (
               <p className="px-3 py-8 text-center text-[13px] text-ink-faint">
                 No results for “{query}”.
@@ -212,31 +238,89 @@ export function CommandPalette(props: {
                     ) : null}
                     <button
                       type="button"
+                      data-active={index === cursor}
                       onMouseEnter={() => setCursor(index)}
                       onClick={() => go(hit)}
                       className={cn(
-                        "flex w-full items-center gap-2 rounded-control px-2.5 py-2 text-left text-[13px]",
+                        "flex w-full items-center gap-2 rounded-control px-2.5 py-2 text-left text-[13px] transition-colors",
+                        // The palette owns its own highlight and drives it from
+                        // the keyboard, so a second ring on the row the arrow
+                        // keys are already pointing at is noise.
+                        "focus-visible:outline-none",
                         index === cursor ? "bg-sunken text-ink" : "text-ink-muted",
                       )}
                     >
+                      {/* A glyph per group, so the eye separates a task from a
+                          destination before it reads either of them. */}
+                      <span
+                        aria-hidden
+                        className="shrink-0 text-ink-faint [&_svg]:size-3.5 [&_svg]:shrink-0"
+                      >
+                        <GroupIcon group={hit.group} />
+                      </span>
                       <span className="min-w-0 flex-1 truncate">{hit.label}</span>
                       {hit.hint ? (
                         <span className="machine shrink-0 text-xs text-ink-faint">{hit.hint}</span>
                       ) : null}
                       {hit.badge ? <StatusPill tone="neutral">{hit.badge}</StatusPill> : null}
-                      {index === cursor ? (
-                        <CornerDownLeft className="size-3.5 shrink-0 text-ink-faint" />
-                      ) : null}
+                      <CornerDownLeft
+                        aria-hidden
+                        className={cn(
+                          "size-3.5 shrink-0 text-ink-faint",
+                          index === cursor ? "visible" : "invisible",
+                        )}
+                      />
                     </button>
                   </div>
                 );
               })
             )}
           </div>
+
+          {/* The keys the palette actually listens for. It is driven entirely
+              from the keyboard and, until this row existed, said so nowhere. */}
+          <div className="flex items-center gap-3 border-t border-edge bg-chrome px-3 py-2 text-[11px] text-ink-faint">
+            <span className="flex items-center gap-1.5">
+              <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd>
+              navigate
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Kbd>↵</Kbd>
+              open
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Kbd>esc</Kbd>
+              close
+            </span>
+            {hits.length > 0 ? (
+              <span className="tnum ml-auto">
+                {hits.length} {hits.length === 1 ? "result" : "results"}
+              </span>
+            ) : null}
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+/** One glyph per result group. Decoration for a label that already reads. */
+function GroupIcon({ group }: { group: string }): React.JSX.Element {
+  switch (group) {
+    case "Tasks":
+      return <SquareKanban />;
+    case "Agents":
+      return <Bot />;
+    case "Goals":
+      return <Target />;
+    case "Templates":
+      return <FolderGit2 />;
+    case "Sessions":
+      return <Terminal />;
+    default:
+      return <ArrowRight />;
+  }
 }
 
 /** Binds ⌘K / Ctrl+K anywhere in the app. */

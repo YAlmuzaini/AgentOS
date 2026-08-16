@@ -12,7 +12,11 @@ export function EnableNotifications(): React.JSX.Element {
     mutationFn: async () => {
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
-        return;
+        // Returning quietly here left the mutation successful, so the button
+        // said "Notifications on" while nothing was subscribed — the one lie
+        // this control can tell, on the one channel an agent has to reach a
+        // human away from their desk.
+        throw new Error("The browser refused permission to send notifications.");
       }
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.subscribe({
@@ -38,6 +42,24 @@ export function EnableNotifications(): React.JSX.Element {
     );
   }
 
+  // A failed opt-in stays on the button and stays clickable: the operator has
+  // to be able to see that it did not take, and to grant permission and press
+  // it again without reloading.
+  if (subscribe.isError) {
+    return (
+      <Button
+        size="sm"
+        variant="danger"
+        className="min-h-11 sm:min-h-0"
+        title={subscribe.error.message}
+        onClick={() => subscribe.mutate()}
+      >
+        <BellOff />
+        Not enabled — retry
+      </Button>
+    );
+  }
+
   return (
     <Button
       size="sm"
@@ -45,10 +67,19 @@ export function EnableNotifications(): React.JSX.Element {
       // one-handed, so it clears 44px there and stays compact elsewhere.
       className="min-h-11 sm:min-h-0"
       disabled={subscribe.isPending || subscribe.isSuccess}
+      title={
+        subscribe.isSuccess
+          ? "This device will receive notifications for new agent questions."
+          : "Notify this device when an agent requests input."
+      }
       onClick={() => subscribe.mutate()}
     >
       {subscribe.isSuccess ? <Check /> : <Bell />}
-      {subscribe.isSuccess ? "Notifications on" : "Enable notifications"}
+      {subscribe.isPending
+        ? "Enabling…"
+        : subscribe.isSuccess
+          ? "Notifications on"
+          : "Enable notifications"}
     </Button>
   );
 }

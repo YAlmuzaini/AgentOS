@@ -75,11 +75,18 @@ export function ConfirmProvider(props: { children: ReactNode }): React.JSX.Eleme
 
                 <div className="flex justify-end gap-2 border-t border-edge px-5 py-3.5">
                   <Dialog.Close asChild>
-                    <Button variant="ghost">Cancel</Button>
+                    <Button variant="ghost" autoFocus={request.kind === "destroy"}>
+                      Cancel
+                    </Button>
                   </Dialog.Close>
                   <Button
                     variant={request.kind === "destroy" ? "danger" : "solid"}
-                    autoFocus
+                    // Everything but a delete opens with its action focused, so
+                    // Enter confirms. A delete does not: the dialog exists to
+                    // put a beat between the intent and the loss, and a
+                    // pre-focused destructive button hands that beat back to
+                    // whoever was already holding Enter down.
+                    autoFocus={request.kind !== "destroy"}
                     onClick={() => {
                       request.onConfirm();
                       setRequest(null);

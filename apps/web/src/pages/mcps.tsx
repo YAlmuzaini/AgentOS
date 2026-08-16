@@ -1,6 +1,6 @@
 import type { CreateMcpConnectionInput, McpConnectionDto } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, Plus } from "lucide-react";
+import { Blocks, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
@@ -8,9 +8,11 @@ import { CreatePanel } from "../components/ui/create-panel";
 import { DeleteAction } from "../components/ui/delete-action";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Field, Input, Select } from "../components/ui/form";
+import { IconTile, toneFor } from "../components/ui/icon-tile";
+import { Meta, MetaRow } from "../components/ui/meta";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
-import { StatusPill } from "../components/ui/pill";
+import { CountChip, StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useProjectGate } from "../hooks/use-project";
 import { NoProject, ProjectPending } from "./project-states";
@@ -60,7 +62,7 @@ export function McpsPage(): React.JSX.Element {
       <PageHeader
         icon={<Blocks />}
         title="MCP connections"
-        meta={list.length > 0 ? `${list.length} connected` : undefined}
+        meta={list.length > 0 ? <CountChip>{list.length}</CountChip> : undefined}
         actions={
           <Button variant="solid" onClick={() => setCreating(true)}>
             <Plus />
@@ -77,6 +79,7 @@ export function McpsPage(): React.JSX.Element {
         submitLabel="Create"
         pending={create.isPending}
         disabled={!name || !url}
+        incomplete="A name and a server URL are required."
         error={create.isError ? "MCP connection creation failed." : null}
         onSubmit={async () => {
           await create.mutateAsync({
@@ -95,7 +98,7 @@ export function McpsPage(): React.JSX.Element {
         }}
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Name">
+          <Field label="Name" required>
             {(id) => (
               <Input id={id} value={name} onChange={(event) => setName(event.target.value)} />
             )}
@@ -111,7 +114,10 @@ export function McpsPage(): React.JSX.Element {
               />
             )}
           </Field>
-          <Field label="Allowed operations" hint="Enter comma-separated operation names. Leave blank to deny all operations.">
+          <Field
+            label="Allowed operations"
+            hint="Enter comma-separated operation names. Leave blank to deny all operations."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -149,9 +155,9 @@ export function McpsPage(): React.JSX.Element {
           <EmptyState
             icon={<Blocks />}
             title="No MCP connections yet"
-            hint="Add a connection, then grant it to the required agents."
+            hint="Add an MCP server, then grant specific operations to the required agents."
             action={
-              <Button variant="solid" onClick={() => setCreating(true)}>
+              <Button variant="outline" onClick={() => setCreating(true)}>
                 <Plus />
                 New connection
               </Button>
@@ -163,54 +169,89 @@ export function McpsPage(): React.JSX.Element {
           <Table>
             <THead>
               <tr>
-                <TH>Name</TH>
-                <TH>URL</TH>
+                <TH>Connection</TH>
                 <TH>Allowed operations</TH>
                 <TH>Credential</TH>
                 <TH aria-label="Actions" />
               </tr>
             </THead>
             <tbody>
-              {list.map((connection: McpConnectionDto) => (
-                <TR key={connection.id}>
-                  <TD className="font-medium">{connection.name}</TD>
-                  <TD className="machine max-w-xs truncate text-xs text-ink-muted">
-                    {connection.url}
-                  </TD>
-                  <TD>
-                    {connection.allowedOperations.length === 0 ? (
-                      <StatusPill tone="neutral">none granted</StatusPill>
-                    ) : (
-                      <span className="flex flex-wrap gap-1">
-                        {connection.allowedOperations.map((op) => (
-                          <StatusPill key={op} tone="idle">
-                            {op}
-                          </StatusPill>
-                        ))}
-                      </span>
-                    )}
-                  </TD>
-                  <TD className="text-xs text-ink-faint">
-                    {connection.credentialSecretId
-                      ? (secrets.data?.find((s) => s.id === connection.credentialSecretId)?.name ??
-                        connection.credentialSecretId)
-                      : "none"}
-                  </TD>
-                  <TD className="text-right">
-                    <DeleteAction
-                      what={connection.name}
-                      body={
-                        <>
-                          This connection will be removed from assigned agents in new sessions. The
-                          MCP server will not be changed.
-                        </>
-                      }
-                      onDelete={() => api.deleteMcpConnection(project.id, connection.id)}
-                      invalidate={[["mcp-connections", project.id], ["agents", project.id]]}
-                    />
-                  </TD>
-                </TR>
-              ))}
+              {list.map((connection: McpConnectionDto) => {
+                const credential = connection.credentialSecretId
+                  ? secrets.data?.find((s) => s.id === connection.credentialSecretId)
+                  : undefined;
+                return (
+                  <TR key={connection.id}>
+                    {/* Name over URL in one cell: the URL is what identifies the
+                      server, but it is not what the operator is scanning for,
+                      and as its own column it truncated to `https://api.…`. */}
+                    <TD className="max-w-[20rem]">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <IconTile tone={toneFor(connection.id)} size="sm">
+                          <Blocks />
+                        </IconTile>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-ink">{connection.name}</p>
+                          <p
+                            className="machine truncate text-xs text-ink-muted"
+                            title={connection.url}
+                          >
+                            {connection.url}
+                          </p>
+                        </div>
+                      </div>
+                    </TD>
+                    <TD className="max-w-[20rem]">
+                      {connection.allowedOperations.length === 0 ? (
+                        <StatusPill tone="neutral">none granted</StatusPill>
+                      ) : (
+                        // An operation is a category, not a state. These were blue
+                        // — the tone this system reserves for idle information and
+                        // things that leave the app — so a connection granting six
+                        // operations lit up like six live sessions.
+                        <span className="flex flex-wrap gap-1">
+                          {connection.allowedOperations.map((op) => (
+                            <StatusPill key={op} tone="neutral" className="machine">
+                              {op}
+                            </StatusPill>
+                          ))}
+                        </span>
+                      )}
+                    </TD>
+                    <TD className="max-w-[12rem]">
+                      {connection.credentialSecretId ? (
+                        <MetaRow>
+                          <Meta
+                            icon={<KeyRound />}
+                            machine={!credential}
+                            title={connection.credentialSecretId}
+                          >
+                            {credential?.name ?? connection.credentialSecretId}
+                          </Meta>
+                        </MetaRow>
+                      ) : (
+                        <span className="text-xs text-ink-faint">none</span>
+                      )}
+                    </TD>
+                    <TD className="w-0 text-right">
+                      <DeleteAction
+                        what={connection.name}
+                        body={
+                          <>
+                            This connection will be removed from assigned agents in new sessions.
+                            The MCP server will not be changed.
+                          </>
+                        }
+                        onDelete={() => api.deleteMcpConnection(project.id, connection.id)}
+                        invalidate={[
+                          ["mcp-connections", project.id],
+                          ["agents", project.id],
+                        ]}
+                      />
+                    </TD>
+                  </TR>
+                );
+              })}
             </tbody>
           </Table>
         </TableCard>

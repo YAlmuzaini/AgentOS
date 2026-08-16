@@ -4,8 +4,10 @@ import { MessagesSquare } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { InlineError, Skeleton } from "../components/ui/feedback";
 import { Well } from "../components/ui/panel";
 import { Time } from "../components/ui/time";
+import { reflow } from "../lib/prose";
 
 /**
  * What was already asked and answered about this card or goal.
@@ -51,8 +53,15 @@ export function EarlierInThread(props: {
 
       {open ? (
         <div className="mt-2 space-y-2">
-          {thread.isLoading ? (
-            <p className="text-xs text-ink-faint">Loading…</p>
+          {thread.isError ? (
+            <InlineError>Unable to load earlier messages for {subject.name}.</InlineError>
+          ) : thread.isLoading ? (
+            // Shaped like the wells it is standing in for, rather than a line
+            // of text that shifts everything below it when the answer lands.
+            <>
+              <Skeleton className="h-16" />
+              <Skeleton className="h-16" />
+            </>
           ) : earlier.length === 0 ? (
             <p className="text-xs text-ink-faint">
               No earlier messages for {subject.name}.
@@ -66,8 +75,8 @@ export function EarlierInThread(props: {
                   </span>
                   <Time iso={message.createdAt} className="text-ink-faint" />
                 </div>
-                <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-ink">
-                  {message.body}
+                <p className="text-[13px] leading-relaxed break-words whitespace-pre-wrap text-ink">
+                  {reflow(message.body)}
                 </p>
                 {message.answers.length > 0 || message.selectedChoiceId ? (
                   <p className="text-xs text-ink-muted">

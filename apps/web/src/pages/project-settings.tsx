@@ -1,4 +1,5 @@
 import { Settings2 } from "lucide-react";
+import { MicroLabel } from "../components/ui/panel";
 import { Page, PageHeader } from "../components/ui/page";
 import { useProjectGate } from "../hooks/use-project";
 import { ProjectCode } from "./project-code";
@@ -42,7 +43,14 @@ export function ProjectSettingsPage(): React.JSX.Element {
         <div className="min-w-0 space-y-5">
           <ProjectIdentity project={project} />
           <ProjectPolicy projectId={project.id} />
-          <ProjectDanger project={project} />
+
+          {/* Deleting a project is not the next setting down the column. It gets
+              its own captioned region behind a rule, so the panel above it ends
+              and this one begins rather than the two reading as one stack. */}
+          <section className="space-y-3 border-t border-edge pt-6">
+            <MicroLabel>Danger zone</MicroLabel>
+            <ProjectDanger project={project} />
+          </section>
         </div>
 
         <div className="min-w-0 space-y-5 xl:sticky xl:top-0">

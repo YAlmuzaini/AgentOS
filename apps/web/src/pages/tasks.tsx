@@ -1,22 +1,12 @@
-import {
-  SCHEDULE_KINDS,
-  TASK_STATUSES,
-  type TaskDto,
-  type TaskStatus,
-} from "@agentos/shared";
-import * as Dialog from "@radix-ui/react-dialog";
+import { TASK_STATUSES, type TaskDto, type TaskStatus } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Check, Maximize2, Play, Plus, SquareKanban } from "lucide-react";
-import { useState } from "react";
+import { SquareKanban } from "lucide-react";
 import { api } from "../api";
-import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ui/confirm";
 import { useToast } from "../components/ui/toast";
-import { EmptyState, SkeletonRows } from "../components/ui/feedback";
-import { CheckboxField, Field, FormActions, Input, Select, Textarea } from "../components/ui/form";
+import { Skeleton } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
-import { MicroLabel, Panel } from "../components/ui/panel";
 import { CountChip, StatusPill } from "../components/ui/pill";
 import { useProjectGate } from "../hooks/use-project";
 import { useUrlSelection } from "../hooks/use-url-selection";
@@ -39,25 +29,18 @@ const EMPTY_COLUMN_TEXT: Record<TaskStatus, string> = {
   done: "No completed tasks yet.",
 };
 
-type ScheduleKind = (typeof SCHEDULE_KINDS)[number];
-
-const SCHEDULE_LABEL: Record<ScheduleKind, string> = {
-  now: "Now",
-  at: "At a time",
-  cron: "On a cron",
-};
-
-const SCHEDULE_CHOICES = SCHEDULE_KINDS.map((kind) => ({
-  kind,
-  label: SCHEDULE_LABEL[kind],
-}));
-
-/** The column head keeps its status colour; the cards below stay neutral. */
+/**
+ * A column is a *category*, not a state, so its dot takes a data hue or the
+ * neutral — The One Meaning Rule. Review used to wear `gate` and Done `live`,
+ * which spent the two signal hues on headings that are always on screen and
+ * left the amber gate badge on a card competing with the amber heading above
+ * it.
+ */
 const COLUMN_DOT: Record<TaskStatus, string> = {
   todo: "bg-ink-faint",
   doing: "bg-data-sky",
-  review: "bg-gate",
-  done: "bg-live",
+  review: "bg-data-violet",
+  done: "bg-data-emerald",
 };
 
 export function TasksPage(): React.JSX.Element {
@@ -167,6 +150,9 @@ export function TasksPage(): React.JSX.Element {
   ).length;
   // Read from the live list so the sheet follows a card that moves under it.
   const openTask = (tasks.data ?? []).find((task) => task.id === openTaskId) ?? null;
+  /** The card names the agent it is parked on, so it needs the agent itself. */
+  const agentFor = (id: string | null) =>
+    id ? (agents.data ?? []).find((agent) => agent.id === id) : undefined;
 
   return (
     <Page fill>
@@ -183,26 +169,51 @@ export function TasksPage(): React.JSX.Element {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:min-h-0 lg:flex-1 xl:grid-cols-4">
+      {/*
+        The board is four lanes, not four stubs. Each lane is a sunken track
+        that owns its share of the sheet, because the previous version sized
+        itself to its cards: an empty project rendered four 65px wells with the
+        rest of the page as blank white, which reads as a screen that failed to
+        finish loading rather than as a board with nothing on it.
+
+        From `lg` the lanes are a row that scrolls sideways inside itself when
+        four 264px tracks no longer fit, so the page body never scrolls
+        sideways. Below `lg` they stack — one column on a phone, two on a
+        tablet — and the page scrolls as a whole, which is the right behaviour
+        when a lane is as tall as its contents.
+      */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:flex lg:min-h-0 lg:flex-1 lg:overflow-x-auto lg:overflow-y-hidden">
         {TASK_STATUSES.map((status) => {
           const columnTasks = (tasks.data ?? []).filter((task) => task.status === status);
           return (
-            <section key={status} className="flex min-w-0 flex-col gap-2 lg:min-h-0">
-              {/* The heading stays put while the column scrolls under it —
+            <section
+              key={status}
+              aria-label={COLUMN_TITLE[status]}
+              className="flex min-w-0 flex-col rounded-panel border border-edge bg-sunken lg:min-h-0 lg:min-w-[16.5rem] lg:flex-1"
+            >
+              {/* The heading stays put while the lane scrolls under it —
                   otherwise a long Done column takes every other column's
                   heading off the screen with it. */}
-              <div className="flex shrink-0 items-center gap-2 px-0.5">
+              <div className="flex shrink-0 items-center gap-2 px-3 py-2.5">
                 <span aria-hidden className={`size-1.5 rounded-full ${COLUMN_DOT[status]}`} />
-                <h2 className="text-[13px] font-medium text-ink">{COLUMN_TITLE[status]}</h2>
+                <h2 className="min-w-0 truncate text-[13px] font-medium text-ink">
+                  {COLUMN_TITLE[status]}
+                </h2>
                 <CountChip>{columnTasks.length}</CountChip>
               </div>
 
-              {/* One scroll region per column. The empty state lives inside it
-                  rather than after it, so an empty column shows its message at
-                  the top instead of pinned to the bottom of the fill. */}
-              <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-                {columnTasks.length === 0 ? (
-                  <p className="rounded-panel border border-dashed border-edge px-3 py-6 text-center text-[13px] text-ink-faint">
+              {/* One scroll region per lane. The empty line lives inside it
+                  rather than after it, and centres in the track it is standing
+                  in — at the top of a 700px lane it reads as a caption that
+                  lost its list. */}
+              <div className="flex min-h-24 flex-1 flex-col overflow-y-auto px-2 pb-2 lg:min-h-0">
+                {tasks.isLoading ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-24 rounded-panel" />
+                    <Skeleton className="h-24 rounded-panel" />
+                  </div>
+                ) : columnTasks.length === 0 ? (
+                  <p className="flex flex-1 items-center justify-center px-2 py-6 text-center text-[13px] text-ink-faint">
                     {EMPTY_COLUMN_TEXT[status]}
                   </p>
                 ) : (
@@ -211,6 +222,7 @@ export function TasksPage(): React.JSX.Element {
                       <TaskCard
                         key={task.id}
                         task={task}
+                        agent={agentFor(task.assigneeAgentId)}
                         busy={run.isPending || patch.isPending}
                         onOpen={() => setOpenTaskId(task.id)}
                         onRun={() => confirmRun(task)}

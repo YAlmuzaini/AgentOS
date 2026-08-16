@@ -1,7 +1,7 @@
 import type { CreateEnvironmentInput, EnvironmentDto } from "@agentos/shared";
 import { NETWORKING_MODES } from "@agentos/shared";
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "../components/ui/button";
 import { InlineError } from "../components/ui/feedback";
 import { Field, FormActions, Input, Select } from "../components/ui/form";
@@ -16,6 +16,11 @@ import { Field, FormActions, Input, Select } from "../components/ui/form";
 export function EditEnvironmentDialog(props: {
   environment: EnvironmentDto;
   pending: boolean;
+  /**
+   * A refused save. The dialog stays open on failure, so without this the
+   * operator pressed Save, watched it say "Saving…", and got nothing back.
+   */
+  error?: ReactNode;
   onClose: () => void;
   onSave: (body: CreateEnvironmentInput) => void;
 }): React.JSX.Element {
@@ -58,7 +63,7 @@ export function EditEnvironmentDialog(props: {
                   name came straight back on the next refetch. An environment's
                   name is part of the runtime identity its policy is published
                   under, which is why the contract refuses to move it. */}
-              <Field label="Name" hint="An environment cannot be renamed — create a new one.">
+              <Field label="Name" hint="Environment names cannot be changed. Create a new environment if needed.">
                 {(id) => <Input id={id} value={name} readOnly disabled className="machine" />}
               </Field>
               <Field label="Networking">
@@ -104,15 +109,20 @@ export function EditEnvironmentDialog(props: {
                   />
                 )}
               </Field>
+              {/* Not a validation failure — a statement of what this setting
+                  does. It wears the danger surface because taking the wall
+                  down is the one change on this dialog that breaks something. */}
               {networking === "open" ? (
                 <InlineError>
-                  Open networking lets a session reach any host. The allowlist below stops applying.
+                  Open networking lets a session reach any host. The allowlist above stops applying.
                 </InlineError>
               ) : null}
             </div>
 
             <div className="border-t border-edge px-5 py-3.5">
-              <FormActions>
+              <FormActions
+                message={props.error ? <span className="text-danger">{props.error}</span> : null}
+              >
                 <Button variant="ghost" onClick={props.onClose}>
                   Cancel
                 </Button>
@@ -127,9 +137,3 @@ export function EditEnvironmentDialog(props: {
     </Dialog.Root>
   );
 }
-
-/**
- * There are two modes and only two: `limited` is an allowlist, `open` is not.
- * An earlier version also branched on a `none` mode that does not exist in
- * NETWORKING_MODES, so the safe case was never actually coloured.
- */

@@ -8,9 +8,9 @@ import { Time } from "../components/ui/time";
  *
  * An inbox is a queue you work down, not a stack of cards you scroll: the
  * operator wants to see everything waiting at once, pick one, answer it, and
- * land on the next. So the rows carry only what choosing needs — who, about
- * what, how long it has been sitting there — and the reading pane carries the
- * rest.
+ * land on the next. So the rows carry only what choosing needs — the decision
+ * being asked for, who is asking, how long it has been sitting there — and the
+ * reading pane carries the rest.
  *
  * Open messages come first and stay first. Everything answered is history, and
  * history is for looking things up rather than for scanning.
@@ -26,7 +26,7 @@ export function InboxList(props: {
   return (
     <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
       {open.length > 0 ? (
-        <Section label={`Waiting on you · ${open.length}`}>
+        <Section waiting label={`Waiting on you · ${open.length}`}>
           {open.map((message) => (
             <Row
               key={message.id}
@@ -54,10 +54,31 @@ export function InboxList(props: {
   );
 }
 
-function Section(props: { label: string; children: React.ReactNode }): React.JSX.Element {
+/**
+ * A group heading, sticky so the operator always knows which half of the queue
+ * they are in.
+ *
+ * The waiting group wears gate amber. It is a 24px band and it is the only
+ * coloured surface on the screen at rest, which keeps it inside the rationing
+ * rule while making "something is parked on you" the first thing the eye lands
+ * on — this is the one channel an agent has to reach a human, so a queue that
+ * looks the same whether or not it holds an open question is the one failure
+ * this screen cannot afford.
+ */
+function Section(props: {
+  label: string;
+  waiting?: boolean;
+  children: React.ReactNode;
+}): React.JSX.Element {
   return (
     <section>
-      <MicroLabel className="sticky top-0 z-10 block border-b border-edge bg-sunken px-3.5 py-1.5">
+      <MicroLabel
+        className={`sticky top-0 z-10 block border-b px-3.5 py-1.5 ${
+          props.waiting
+            ? "border-gate-line bg-gate-soft text-gate"
+            : "border-edge bg-sunken"
+        }`}
+      >
         {props.label}
       </MicroLabel>
       <ul>{props.children}</ul>
@@ -84,38 +105,41 @@ function Row(props: {
         onClick={() => props.onSelect(message.id)}
         aria-current={props.selected}
       >
-        <span className="flex w-full items-center gap-2">
+        {/* The question leads. The agent's name used to be the first line and
+            the decision the second, which is the wrong way round: the operator
+            is choosing between questions, not between agents. */}
+        <span className="flex w-full items-start gap-2">
           {/* The dot is the only thing here that pulses, and only while
               something is genuinely waiting on the human. */}
-          {open ? <Dot tone="gate" pulse /> : <span className="size-1.5 shrink-0" />}
+          {open ? (
+            <Dot tone="gate" pulse className="mt-1.5" />
+          ) : (
+            <span className="mt-1.5 size-1.5 shrink-0" />
+          )}
           <span
-            className={`machine min-w-0 flex-1 truncate text-xs ${
-              open ? "text-ink" : "text-ink-muted"
-            }`}
-          >
-            {message.agentName ?? "an agent"}
-          </span>
-          <Time iso={message.createdAt} className="shrink-0 text-ink-faint" />
-        </span>
-
-        <span className="flex w-full items-baseline gap-2 pl-3.5">
-          <span
-            className={`min-w-0 flex-1 truncate text-[13px] ${
+            className={`min-w-0 flex-1 line-clamp-2 text-[13px] leading-snug break-words ${
               open ? "font-medium text-ink" : "text-ink-muted"
             }`}
           >
             {summarise(message)}
           </span>
-          {message.questions.length > 1 ? (
-            <span className="tnum shrink-0 text-xs text-ink-faint">
-              {message.questions.length} qs
-            </span>
-          ) : null}
+          <Time iso={message.createdAt} className="shrink-0 text-ink-faint" />
         </span>
 
-        {message.subject ? (
-          <span className="truncate pl-3.5 text-xs text-ink-faint">{message.subject.name}</span>
-        ) : null}
+        <span className="flex w-full items-center gap-1.5 pl-3.5 text-xs text-ink-faint">
+          <span className="machine min-w-0 shrink truncate">
+            {message.agentName ?? "an agent"}
+          </span>
+          {message.subject ? (
+            <>
+              <span aria-hidden className="size-0.5 shrink-0 rounded-full bg-edge-strong" />
+              <span className="min-w-0 shrink truncate">{message.subject.name}</span>
+            </>
+          ) : null}
+          {message.questions.length > 1 ? (
+            <span className="tnum ml-auto shrink-0 pl-1.5">{message.questions.length} qs</span>
+          ) : null}
+        </span>
       </button>
     </li>
   );

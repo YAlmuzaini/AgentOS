@@ -110,7 +110,13 @@ function ToastRow(props: { toast: Toast; onDismiss: () => void }): React.JSX.Ele
   }, [ttl, props.onDismiss]);
 
   return (
-    <div className="rise pointer-events-auto flex items-start gap-2.5 rounded-panel border border-edge bg-panel p-3 shadow-pop">
+    <div
+      // A failure interrupts; a success does not. The container's `polite` is
+      // right for "saved", and wrong for the one case an operator who has
+      // already looked away most needs to hear about.
+      role={toast.tone === "error" ? "alert" : "status"}
+      className="rise pointer-events-auto flex items-start gap-2.5 rounded-panel border border-edge bg-panel p-3 shadow-pop"
+    >
       <span className={cn("mt-px shrink-0 [&_svg]:size-4", TONE[toast.tone])}>
         {ICON[toast.tone]}
       </span>
@@ -120,11 +126,13 @@ function ToastRow(props: { toast: Toast; onDismiss: () => void }): React.JSX.Ele
           <p className="mt-0.5 text-xs break-words text-ink-muted">{toast.detail}</p>
         ) : null}
       </div>
+      {/* An error toast never dismisses itself, so this is the only way out of
+          it — a 20px target was the wrong size for the only way out. */}
       <button
         type="button"
         onClick={props.onDismiss}
         aria-label="Dismiss"
-        className="shrink-0 rounded p-0.5 text-ink-faint transition-colors hover:text-ink"
+        className="-m-1 flex size-7 shrink-0 items-center justify-center rounded-control text-ink-faint transition-colors hover:bg-sunken hover:text-ink"
       >
         <X className="size-3.5" />
       </button>

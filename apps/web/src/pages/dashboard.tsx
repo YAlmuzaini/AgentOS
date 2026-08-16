@@ -1,27 +1,17 @@
 import { TASK_STATUSES } from "@agentos/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import {
-  ArrowRight,
-  Bot,
-  History,
-  Inbox,
-  LayoutDashboard,
-  Target,
-  Terminal,
-} from "lucide-react";
-import { api, type ActivityEntryDto } from "../api";
+import { ArrowRight, Bot, History, LayoutDashboard, Target, Terminal } from "lucide-react";
+import { api } from "../api";
 import { Button } from "../components/ui/button";
-import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { InlineError } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
-import { Dot, StatusPill } from "../components/ui/pill";
+import { StatusPill } from "../components/ui/pill";
 import { StatCard, type MeterSegment } from "../components/ui/stat";
-import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useProjectGate } from "../hooks/use-project";
-import { relativeTime } from "../lib/time";
 import { NoProject, ProjectPending } from "./project-states";
-import { BoardMeter, Figure, truncate } from "./dashboard-figures";
+import { Figure, FiguresSkeleton, NoFigure } from "./dashboard-figures";
 import { ActivityFeed } from "./activity-feed";
 
 /**
@@ -35,6 +25,11 @@ import { ActivityFeed } from "./activity-feed";
  * AgentOS keeps no time series and inventing one would put a claim on screen
  * that the database cannot support. The reference's dashboard has those; this
  * one has the facts we actually hold.
+ *
+ * The page is one grid, not a pile of rows: three metric cards across the top,
+ * then the board and the fleet on the same three columns beneath them, so every
+ * gutter lines up with the one above it. Two rows of two-and-three that happened
+ * to be stacked read as an accident of markup rather than as a layout.
  */
 export function DashboardPage(): React.JSX.Element {
   const { project, pending, absent } = useProjectGate();
@@ -120,6 +115,16 @@ export function DashboardPage(): React.JSX.Element {
     accent: STATUS_ACCENT[status],
   }));
 
+  // One failed request is enough to make every number on the page a stale
+  // claim, so the page says so once rather than letting six cards quietly
+  // render the last good answer as if it were current.
+  const unreachable = [tasks, sessions, inbox, goals, agents, activity].some(
+    (query) => query.isError,
+  );
+  const counting =
+    tasks.isLoading || sessions.isLoading || inbox.isLoading || goals.isLoading || agents.isLoading;
+  const activityRows = activity.data ?? [];
+
   return (
     <Page>
       <PageHeader
@@ -139,115 +144,177 @@ export function DashboardPage(): React.JSX.Element {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/*
-          Settled sessions, not "success rate": a running session has not
-          succeeded or failed yet, so counting it either way would be a lie.
-        */}
-        <StatCard
-          label="Session success rate"
-          accent="emerald"
-          value={settled === 0 ? "—" : `${Math.round((finished / settled) * 100)}%`}
-          suffix={settled === 0 ? "no completed sessions" : `${finished} of ${settled} successful`}
-          meter={
-            settled === 0
-              ? undefined
-              : [
-                  { label: "Finished", value: finished, accent: "emerald" },
-                  { label: "Failed", value: failed, accent: "amber" },
-                ]
-          }
-          footer={running > 0 ? `${running} still running` : undefined}
-        />
+      {unreachable ? (
+        <InlineError>
+          Unable to reach the control plane. The figures below may be outdated.
+        </InlineError>
+      ) : null}
 
-        <StatCard
-          label="Waiting on you"
-          accent="amber"
-          value={waiting}
-          suffix={waiting === 1 ? "item" : "items"}
-          footer={
-            waiting === 0 ? (
-              "No action required."
-            ) : (
-              <span className="flex flex-wrap gap-x-3 gap-y-1">
-                {openQuestions > 0 ? <span>{openQuestions} inbox message{openQuestions === 1 ? "" : "s"}</span> : null}
-                {gatedInReview > 0 ? <span>{gatedInReview} approval gate{gatedInReview === 1 ? "" : "s"}</span> : null}
-                {unapprovedGoals > 0 ? <span>{unapprovedGoals} goal approval{unapprovedGoals === 1 ? "" : "s"}</span> : null}
-              </span>
-            )
-          }
-        />
+      {counting ? (
+        <FiguresSkeleton />
+      ) : (
+        <>
+          <div className="grid gap-4 lg:grid-cols-3">
+            {/*
+              Settled sessions, not "success rate": a running session has not
+              succeeded or failed yet, so counting it either way would be a lie.
+              With nothing settled there is no rate to show and the card says
+              that instead of printing a dash at the metric step.
+            */}
+            <StatCard
+              label="Session success rate"
+              accent="emerald"
+              value={
+                settled === 0 ? (
+                  <NoFigure>No sessions have finished yet</NoFigure>
+                ) : (
+                  `${Math.round((finished / settled) * 100)}%`
+                )
+              }
+              suffix={settled === 0 ? undefined : `${finished} of ${settled} successful`}
+              meter={
+                settled === 0
+                  ? undefined
+                  : [
+                      { label: "Finished", value: finished, accent: "emerald" },
+                      { label: "Failed", value: failed, accent: "amber" },
+                    ]
+              }
+              footer={
+                running > 0
+                  ? `${running} still running`
+                  : settled === 0
+                    ? "A rate appears once a run has finished or failed."
+                    : undefined
+              }
+            />
 
-        <StatCard
-          label="Spend"
-          accent="violet"
-          value={`$${spend.toFixed(2)}`}
-          suffix="across all sessions"
-          footer={
-            uncapped > 0 ? (
-              <span className="text-gate">
-                {uncapped} active goal{uncapped === 1 ? "" : "s"} with no spend cap
-              </span>
-            ) : (
-              `$${goalSpend.toFixed(2)} spent on goals`
-            )
-          }
-        />
-      </div>
+            <StatCard
+              label="Waiting on you"
+              accent="amber"
+              value={waiting}
+              suffix={waiting === 1 ? "item" : "items"}
+              footer={
+                waiting === 0 ? (
+                  "No action required."
+                ) : (
+                  <span className="flex flex-wrap gap-x-3 gap-y-1">
+                    {openQuestions > 0 ? <span>{openQuestions} inbox message{openQuestions === 1 ? "" : "s"}</span> : null}
+                    {gatedInReview > 0 ? <span>{gatedInReview} approval gate{gatedInReview === 1 ? "" : "s"}</span> : null}
+                    {unapprovedGoals > 0 ? <span>{unapprovedGoals} goal approval{unapprovedGoals === 1 ? "" : "s"}</span> : null}
+                  </span>
+                )
+              }
+            />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel className="p-4">
-          <PanelTitle accent="sky">Board</PanelTitle>
-          <div className="mt-3 flex items-baseline gap-1.5">
-            <span className="tnum text-[28px] leading-none font-semibold tracking-tight text-ink">
-              {taskList.length}
-            </span>
-            <span className="text-[13px] text-ink-faint">tasks</span>
+            <StatCard
+              label="Spend"
+              accent="violet"
+              value={`$${spend.toFixed(2)}`}
+              suffix="across all sessions"
+              footer={
+                uncapped > 0 ? (
+                  <span className="text-gate">
+                    {uncapped} active goal{uncapped === 1 ? "" : "s"} with no spend cap
+                  </span>
+                ) : (
+                  `$${goalSpend.toFixed(2)} spent on goals`
+                )
+              }
+            />
           </div>
-          <div className="mt-3">
-            <BoardMeter segments={boardMeter} />
-          </div>
-          <Button asChild variant="ghost" size="sm" className="mt-3 -ml-2">
-            <Link to="/tasks">
-              Open the board
-              <ArrowRight />
-            </Link>
-          </Button>
-        </Panel>
 
-        <Panel className="p-4">
-          <PanelTitle accent="violet">Fleet</PanelTitle>
-          <dl className="mt-3 grid grid-cols-3 gap-3">
-            <Figure
-              icon={<Bot />}
-              value={(agents.data ?? []).length}
-              label="agents"
-              to="/agents"
+          <div className="grid gap-4 lg:grid-cols-3">
+            {/* The board is a metric card like the three above it — same accent
+                mark, same number, same meter — rather than a hand-built panel
+                that happened to look similar. It takes two of the three columns
+                because its meter carries four labelled segments. */}
+            <StatCard
+              className="lg:col-span-2"
+              label="Board"
+              accent="sky"
+              value={
+                taskList.length === 0 ? (
+                  <NoFigure>Nothing on the board</NoFigure>
+                ) : (
+                  taskList.length
+                )
+              }
+              suffix={
+                taskList.length === 0 ? undefined : taskList.length === 1 ? "task" : "tasks"
+              }
+              meter={taskList.length === 0 ? undefined : boardMeter}
+              footer={
+                <Button asChild variant="ghost" size="sm" className="-ml-2">
+                  <Link to="/tasks">
+                    {taskList.length === 0 ? "File the first task" : "Open the board"}
+                    <ArrowRight />
+                  </Link>
+                </Button>
+              }
             />
-            <Figure
-              icon={<Target />}
-              value={activeGoals.length}
-              label={activeGoals.length === 1 ? "active goal" : "active goals"}
-              to="/goals"
-            />
-            <Figure
-              icon={<Terminal />}
-              value={sessionList.length}
-              label="sessions"
-              to="/sessions"
-            />
-          </dl>
-          {failed > 0 ? (
-            <p className="mt-4 border-t border-edge pt-3 text-xs text-ink-muted">
-              <span className="text-danger">{failed} failed</span> session
-              {failed === 1 ? "" : "s"}. Review the log before starting another run.
+
+            <Panel className="flex flex-col gap-3 p-4">
+              <PanelTitle accent="violet">Fleet</PanelTitle>
+              <div className="grid grid-cols-3 gap-1">
+                <Figure
+                  icon={<Bot />}
+                  value={(agents.data ?? []).length}
+                  label="agents"
+                  to="/agents"
+                />
+                <Figure
+                  icon={<Target />}
+                  value={activeGoals.length}
+                  label={activeGoals.length === 1 ? "active goal" : "active goals"}
+                  to="/goals"
+                />
+                <Figure
+                  icon={<Terminal />}
+                  value={sessionList.length}
+                  label="sessions"
+                  to="/sessions"
+                />
+              </div>
+              {failed > 0 ? (
+                <p className="mt-auto border-t border-edge pt-3 text-xs text-ink-muted">
+                  <span className="text-danger">{failed} failed</span> session
+                  {failed === 1 ? "" : "s"}. Review the log before starting another run.
+                </p>
+              ) : null}
+            </Panel>
+          </div>
+        </>
+      )}
+
+      {/*
+        With nothing to list, the activity table is a heading over 250px of
+        white — the tallest thing on the page saying the least. Until there is a
+        row to show, the region is a short panel that names what would fill it
+        and offers the control that starts something.
+      */}
+      {!activity.isLoading && activityRows.length === 0 ? (
+        <Panel>
+          <PanelHeader className="border-b border-edge">
+            <PanelTitle icon={<History />}>Recent activity</PanelTitle>
+          </PanelHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <p className="text-[13px] text-ink-muted">
+              {activity.isError
+                ? "Unable to load recent activity."
+                : "No activity recorded. Sessions, inbox responses, and goal progress will appear here."}
             </p>
-          ) : null}
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/tasks">
+                Open the board
+                <ArrowRight />
+              </Link>
+            </Button>
+          </div>
         </Panel>
-      </div>
-
-      <ActivityFeed entries={activity.data ?? []} loading={activity.isLoading} />
-
+      ) : (
+        <ActivityFeed entries={activityRows} loading={activity.isLoading} />
+      )}
     </Page>
   );
 }
@@ -259,6 +326,7 @@ const STATUS_LABEL: Record<(typeof TASK_STATUSES)[number], string> = {
   done: "Done",
 };
 
+/** The board meter labels every column, including the empty ones. */
 const STATUS_ACCENT: Record<
   (typeof TASK_STATUSES)[number],
   "violet" | "sky" | "amber" | "emerald"
@@ -268,8 +336,6 @@ const STATUS_ACCENT: Record<
   review: "amber",
   done: "emerald",
 };
-
-/** The board meter labels every column, including the empty ones. */
 
 /**
  * Session states that still hold a runtime container.

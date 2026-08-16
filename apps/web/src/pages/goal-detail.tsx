@@ -1,20 +1,52 @@
 import type { DodItem } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Pause, Play, Plus, X } from "lucide-react";
+import {
+  Check,
+  Clock3,
+  FileText,
+  Fingerprint,
+  ListChecks,
+  Play,
+  Plus,
+  Repeat,
+  Server,
+  Target,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ui/confirm";
-import { GoalControls, GoalSharedState, Rail } from "./goal-detail-parts";
-import { InlineError, SkeletonRows } from "../components/ui/feedback";
+import { EmptyState, InlineError, Skeleton } from "../components/ui/feedback";
 import { Input } from "../components/ui/form";
+import { IconTile, toneFor } from "../components/ui/icon-tile";
+import { Meta, MetaRow } from "../components/ui/meta";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
-import { StatusPill } from "../components/ui/pill";
-import { StatCard } from "../components/ui/stat";
+import { CountChip, StatusPill } from "../components/ui/pill";
+import { Meter } from "../components/ui/stat";
 import { Duration, Time } from "../components/ui/time";
+import { reflow } from "../lib/prose";
+import {
+  errorText,
+  GoalControls,
+  GoalRails,
+  GoalSharedState,
+  GoalStopped,
+  goalState,
+} from "./goal-detail-parts";
 
 let nextDraftId = 0;
 
+/**
+ * One goal, on one screen: what it is, how far along it is, and how close it is
+ * to the rails that stop it.
+ *
+ * The shape is the agent detail's — a main column with a 320px rail beside it —
+ * but the rail arrives a breakpoint later, because this screen sits inside the
+ * two-pane list rather than owning the whole sheet. Splitting at `xl` left the
+ * main column around 360px wide, which is narrower than the checklist it is
+ * meant to be showing.
+ */
 export function GoalDetail(props: {
   projectId: string;
   goalId: string;
@@ -58,240 +90,329 @@ export function GoalDetail(props: {
   });
 
   if (!goal.data) {
-    return (
-      <Panel>
-        <SkeletonRows rows={5} />
+    return goal.isError ? (
+      <Panel className="p-4">
+        <InlineError>{errorText(goal.error, "Unable to load this goal.")}</InlineError>
       </Panel>
+    ) : (
+      <GoalDetailSkeleton />
     );
   }
 
   const data = goal.data;
+  const state = goalState(data);
   const checked = data.definitionOfDone.filter((item) => item.done).length;
   const total = data.definitionOfDone.length;
+  const usable = draft.filter((item) => item.text.trim());
+  // Pause and resume are the same control in two states, so one error line
+  // under the header covers both rather than each growing its own.
+  const controlError = pause.error ?? resume.error;
 
   return (
-    <div className="space-y-4">
-      <Panel className="p-5">
-        <h2 className="text-[15px] font-semibold text-ink">{data.title}</h2>
-        <p className="mt-2 text-[13px] leading-relaxed whitespace-pre-wrap text-ink-muted">
-          {data.spec}
-        </p>
-
-        {/*
-          The rails. A goal loops on its own, so the three things that can stop
-          it — spend, wall-clock, and repeated no-progress iterations — are the
-          operator's whole safety net and were not rendered anywhere.
-        */}
-        <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-edge pt-4 text-xs">
-          <Rail label="Spend cap">
-            {data.spendCapUsd === null ? (
-              <span className="text-gate">none</span>
-            ) : (
-              `$${data.spendCapUsd.toFixed(2)}`
-            )}
-          </Rail>
-          <Rail label="Time cap">
-            {data.maxDurationMinutes === null ? (
-              <span className="text-gate">none</span>
-            ) : (
-              `${data.maxDurationMinutes} min`
-            )}
-          </Rail>
-          <Rail label="Stuck after">{data.stuckThreshold} iterations</Rail>
-          <Rail label="Runner">{data.runnerPreference}</Rail>
-          {/* A goal is the one thing here that runs for hours unattended, so
-              "since when" and "for how long" are the first two questions. */}
-          <Rail label="Started">
-            {data.startedAt ? <Time iso={data.startedAt} /> : <span className="text-ink-faint">not yet</span>}
-          </Rail>
-          {data.startedAt ? (
-            <Rail label="Running for">
-              <Duration
-                startedAt={data.startedAt}
-                endedAt={data.status === "active" ? null : data.updatedAt}
-                className="text-xs"
-              />
-            </Rail>
-          ) : null}
-          <Rail label="Last change">
-            <Time iso={data.updatedAt} />
-          </Rail>
-        </dl>
-      </Panel>
-
-      {!data.dodApproved ? (
+    <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px] 2xl:items-start">
+      {/* Identity spans both columns, so the rail below it starts level with
+          the checklist rather than a panel further down. */}
+      <div className="min-w-0 space-y-4 2xl:col-span-2">
         <Panel>
-          <PanelHeader className="border-b border-edge">
-            <PanelTitle accent="amber">Definition of done</PanelTitle>
-            <StatusPill tone="gate">approval required</StatusPill>
-          </PanelHeader>
+          <div className="flex flex-wrap items-start gap-3 border-b border-edge p-4">
+            {/* The same tile and tint the row in the list wore, so opening a
+                goal reads as opening that row rather than as landing on an
+                unrelated screen. */}
+            <IconTile tone={toneFor(data.id)} size="lg">
+              <Target />
+            </IconTile>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-start gap-2">
+                <h2
+                  className="min-w-0 line-clamp-2 text-[15px] leading-snug font-semibold text-ink"
+                  title={data.title}
+                >
+                  {data.title}
+                </h2>
+                <StatusPill tone={state.tone} dot pulse={state.pulse} title={state.title}>
+                  {state.label}
+                </StatusPill>
+              </div>
+              <MetaRow className="mt-1.5">
+                <Meta icon={<Fingerprint />} machine title={data.id}>
+                  {data.id.slice(0, 8)}
+                </Meta>
+                <Meta icon={<Server />}>{data.runnerPreference} runner</Meta>
+                <Meta icon={<Repeat />}>
+                  {data.iterations} {data.iterations === 1 ? "iteration" : "iterations"}
+                </Meta>
+                {/* A goal is the one thing here that runs for hours unattended,
+                    so "since when" and "for how long" are the first two
+                    questions. The duration ticks while it is still running. */}
+                <Meta icon={<Play />}>
+                  {data.startedAt ? (
+                    <>
+                      started <Time iso={data.startedAt} />
+                    </>
+                  ) : (
+                    "not started"
+                  )}
+                </Meta>
+                {data.startedAt ? (
+                  <Meta icon={<Clock3 />}>
+                    ran{" "}
+                    <Duration
+                      startedAt={data.startedAt}
+                      endedAt={data.status === "active" ? null : data.updatedAt}
+                    />
+                  </Meta>
+                ) : null}
+                <Meta icon={<Clock3 />}>
+                  changed <Time iso={data.updatedAt} />
+                </Meta>
+              </MetaRow>
+            </div>
+            <GoalControls
+              data={data}
+              pause={pause}
+              resume={resume}
+              onDelete={{
+                run: () => api.deleteGoal(props.projectId, props.goalId),
+                projectId: props.projectId,
+                title: data.title,
+              }}
+            />
+          </div>
 
           <div className="space-y-2 p-4">
-            {draft.map((item, index) => (
-              <div key={item.id} className="flex items-center gap-2">
-                <Input
-                  value={item.text}
-                  placeholder="Enter a measurable completion criterion"
-                  onChange={(event) => {
-                    const next = [...draft];
-                    next[index] = { ...item, text: event.target.value };
-                    setDraft(next);
-                  }}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Remove item"
-                  onClick={() => setDraft(draft.filter((_, i) => i !== index))}
-                >
-                  <X />
-                </Button>
-              </div>
-            ))}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                setDraft([...draft, { id: `draft-${nextDraftId++}`, text: "", done: false }])
-              }
-            >
-              <Plus />
-              Add item
-            </Button>
-          </div>
-
-          <div className="flex justify-end border-t border-edge px-4 py-3.5">
-            <Button
-              variant="solid"
-              disabled={draft.filter((item) => item.text.trim()).length === 0 || approve.isPending}
-              onClick={() =>
-                confirm({
-                  kind: "spend",
-                  title: `Approve and start “${data.title}”?`,
-                  body: (
-                    <>
-                      This starts the goal and dispatches agents until the checklist is complete or
-                      an operating limit is reached.{" "}
-                      {data.spendCapUsd === null
-                        ? "This goal has no spend limit."
-                        : `The goal will stop at $${data.spendCapUsd.toFixed(2)}.`}
-                    </>
-                  ),
-                  confirmLabel: "Approve and start",
-                  onConfirm: () => approve.mutate(draft.filter((item) => item.text.trim())),
-                })
-              }
-            >
-              <Check />
-              {approve.isPending ? "Approving…" : "Approve and start"}
-            </Button>
+            <PanelTitle icon={<FileText />}>Specification</PanelTitle>
+            <Well className="text-[13px] leading-relaxed break-words whitespace-pre-wrap text-ink">
+              {reflow(data.spec)}
+            </Well>
           </div>
         </Panel>
-      ) : (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <StatCard
-              label="Spend"
-              accent="violet"
-              value={`$${data.spendUsd.toFixed(2)}`}
-              suffix={data.spendCapUsd !== null ? `of $${data.spendCapUsd.toFixed(2)}` : "no cap"}
-              footer={
-                data.spendCapUsd === null
-                  ? "No spend limit configured."
-                  : `${data.iterations} iterations so far`
-              }
-              meter={
-                data.spendCapUsd === null
-                  ? undefined
-                  : [
-                      {
-                        label: "Spent",
-                        // Cents drive the bar so a sub-dollar spend still has
-                        // width; the legend prints dollars.
-                        value: Math.round(data.spendUsd * 100),
-                        display: `$${data.spendUsd.toFixed(2)}`,
-                        accent: "violet",
-                      },
-                      {
-                        label: "Remaining",
-                        value: Math.max(Math.round((data.spendCapUsd - data.spendUsd) * 100), 0),
-                        display: `$${Math.max(data.spendCapUsd - data.spendUsd, 0).toFixed(2)}`,
-                        accent: "sky",
-                      },
-                    ]
-              }
-            />
-            <StatCard
-              label="Checklist"
-              accent="emerald"
-              value={checked}
-              suffix={`of ${total} done`}
-              footer={
-                <GoalControls
-                  data={data}
-                  pause={pause}
-                  resume={resume}
-                  onDelete={{
-                    run: () => api.deleteGoal(props.projectId, props.goalId),
-                    projectId: props.projectId,
-                    title: data.title,
-                  }}
-                />
-              }
-              meter={[
-                { label: "Done", value: checked, accent: "emerald" },
-                { label: "Open", value: total - checked, accent: "amber" },
-              ]}
-            />
-          </div>
 
+        {controlError ? (
+          <InlineError>{errorText(controlError, "Unable to update the goal.")}</InlineError>
+        ) : null}
+
+        {/* Why the goal is not running any more, directly under the thing it is
+            about. It used to sit below the progress log, which is to say it was
+            the last line read on a screen it explains. */}
+        {data.stoppedReason ? <GoalStopped reason={data.stoppedReason} /> : null}
+      </div>
+
+      {/*
+        The safety story, in the rail, on both sides of approval — the caps are
+        what the operator is agreeing to when they approve, so they have to be
+        readable while the checklist is being read. Placed before the main
+        column in the DOM so that when the two panes stack it lands directly
+        under the header instead of below the progress log.
+      */}
+      <GoalRails goal={data} className="2xl:col-start-2 2xl:row-start-2" />
+
+      <div className="min-w-0 space-y-4 2xl:col-start-1 2xl:row-start-2">
+        {!data.dodApproved ? (
           <Panel>
             <PanelHeader className="border-b border-edge">
-              <PanelTitle accent="emerald">Definition of done</PanelTitle>
+              <PanelTitle accent="amber">Definition of done</PanelTitle>
+              <StatusPill
+                tone="gate"
+                title="An agent cannot mark this done. Only you can close it."
+              >
+                approval required
+              </StatusPill>
             </PanelHeader>
-            <ul className="divide-y divide-edge">
-              {data.definitionOfDone.map((item) => (
-                <li key={item.id} className="flex items-start gap-2.5 px-4 py-2.5">
-                  <span
-                    aria-hidden
-                    className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm border ${
-                      item.done
-                        ? "border-live bg-live text-on-solid"
-                        : "border-edge-strong bg-panel"
-                    }`}
+
+            <div className="space-y-2 p-4">
+              <p className="text-[13px] leading-relaxed text-ink-muted">
+                Nothing runs until you approve this list. Each line should be something an agent can
+                finish and you can check.
+              </p>
+              {draft.map((item, index) => (
+                <div key={item.id} className="flex items-center gap-2">
+                  <Input
+                    value={item.text}
+                    placeholder="Enter a measurable completion criterion"
+                    onChange={(event) => {
+                      const next = [...draft];
+                      next[index] = { ...item, text: event.target.value };
+                      setDraft(next);
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Remove item"
+                    title="Remove item"
+                    onClick={() => setDraft(draft.filter((_, i) => i !== index))}
                   >
-                    {item.done ? <Check className="size-3" strokeWidth={3} /> : null}
-                  </span>
-                  <span
-                    className={`text-[13px] ${item.done ? "text-ink-faint line-through" : "text-ink"}`}
-                  >
-                    {item.text}
-                  </span>
-                </li>
+                    <X />
+                  </Button>
+                </div>
               ))}
-            </ul>
-          </Panel>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  setDraft([...draft, { id: `draft-${nextDraftId++}`, text: "", done: false }])
+                }
+              >
+                <Plus />
+                Add item
+              </Button>
+            </div>
 
-          <GoalSharedState projectId={props.projectId} goalId={props.goalId} />
-
-          <Panel>
-            <PanelHeader className="border-b border-edge">
-              <PanelTitle accent="sky">Progress log</PanelTitle>
-            </PanelHeader>
-            <div className="p-4">
-              <Well className="max-h-96 overflow-auto p-0">
-                <pre className="machine px-3.5 py-3 text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">
-                  {data.progressLog || "No progress recorded."}
-                </pre>
-              </Well>
+            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-edge px-4 py-3.5">
+              {approve.isError ? (
+                <InlineError className="min-w-0 flex-1">
+                  {errorText(approve.error, "The checklist was not approved.")}
+                </InlineError>
+              ) : null}
+              <span className="tnum text-xs text-ink-faint">
+                {usable.length} {usable.length === 1 ? "criterion" : "criteria"}
+              </span>
+              <Button
+                variant="solid"
+                disabled={usable.length === 0 || approve.isPending}
+                onClick={() =>
+                  confirm({
+                    kind: "spend",
+                    title: `Approve and start “${data.title}”?`,
+                    body: (
+                      <>
+                        This starts the goal and dispatches agents until the checklist is complete or
+                        an operating limit is reached.{" "}
+                        {data.spendCapUsd === null
+                          ? "This goal has no spend limit."
+                          : `The goal will stop at $${data.spendCapUsd.toFixed(2)}.`}
+                      </>
+                    ),
+                    confirmLabel: "Approve and start",
+                    onConfirm: () => approve.mutate(usable),
+                  })
+                }
+              >
+                <Check />
+                {approve.isPending ? "Approving…" : "Approve and start"}
+              </Button>
             </div>
           </Panel>
+        ) : (
+          <>
+            {/*
+              The checklist is the progress. It gets the one large number on the
+              screen and the meter under it, because "how far along is it" is
+              half of what an operator opens this goal to find out.
+            */}
+            <Panel>
+              <PanelHeader className="border-b border-edge">
+                <PanelTitle accent="emerald">Definition of done</PanelTitle>
+                <CountChip>
+                  {checked}/{total}
+                </CountChip>
+              </PanelHeader>
 
-          {data.stoppedReason ? (
-            <InlineError>Goal stopped: {data.stoppedReason}</InlineError>
-          ) : null}
-        </>
-      )}
+              {total === 0 ? (
+                <EmptyState
+                  icon={<ListChecks />}
+                  title="No completion criteria"
+                  hint="This approved goal does not have any completion criteria."
+                />
+              ) : (
+                <>
+                  <div className="space-y-3 border-b border-edge p-4">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="tnum text-[28px] leading-none font-semibold tracking-tight text-ink">
+                        {checked}
+                      </span>
+                      <span className="tnum text-[13px] text-ink-faint">of {total} checked off</span>
+                    </div>
+                    <Meter
+                      segments={[
+                        { label: "Done", value: checked, accent: "emerald" },
+                        { label: "Open", value: total - checked, accent: "amber" },
+                      ]}
+                    />
+                  </div>
+                  <ul className="divide-y divide-edge">
+                    {data.definitionOfDone.map((item) => (
+                      <li key={item.id} className="flex items-start gap-2.5 px-4 py-2.5">
+                        <span
+                          aria-hidden
+                          className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm border ${
+                            item.done
+                              ? "border-live bg-live text-on-solid"
+                              : "border-edge-strong bg-panel"
+                          }`}
+                        >
+                          {item.done ? <Check className="size-3" strokeWidth={3} /> : null}
+                        </span>
+                        <span
+                          className={`min-w-0 text-[13px] break-words ${
+                            item.done ? "text-ink-faint line-through" : "text-ink"
+                          }`}
+                        >
+                          {item.text}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </Panel>
+
+            <GoalSharedState projectId={props.projectId} goalId={props.goalId} />
+
+            <Panel>
+              <PanelHeader className="border-b border-edge">
+                <PanelTitle accent="sky">Progress log</PanelTitle>
+              </PanelHeader>
+              <div className="p-4">
+                {data.progressLog ? (
+                  <Well className="max-h-96 overflow-auto p-0">
+                    <pre className="machine px-3.5 py-3 text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">
+                      {data.progressLog}
+                    </pre>
+                  </Well>
+                ) : (
+                  <Well>
+                    <p className="text-[13px] text-ink-faint">
+                      No progress recorded. The orchestrator writes here on every iteration.
+                    </p>
+                  </Well>
+                )}
+              </div>
+            </Panel>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Shaped like the screen it stands in for: header, checklist, rail. */
+function GoalDetailSkeleton(): React.JSX.Element {
+  return (
+    <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px] 2xl:items-start">
+      <Panel className="space-y-4 p-4 2xl:col-span-2">
+        <div className="flex items-start gap-3">
+          <Skeleton className="size-11 shrink-0" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+        </div>
+        <Skeleton className="h-16" />
+      </Panel>
+      <Panel className="h-fit space-y-3 p-4 2xl:col-start-2 2xl:row-start-2">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-10" />
+        <Skeleton className="h-10" />
+        <Skeleton className="h-10" />
+      </Panel>
+      <Panel className="space-y-3 p-4 2xl:col-start-1 2xl:row-start-2">
+        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-1.5" />
+        <Skeleton className="h-8" />
+        <Skeleton className="h-8" />
+        <Skeleton className="h-8" />
+      </Panel>
     </div>
   );
 }

@@ -13,7 +13,18 @@ function isInFlight(status: SessionDto["status"] | undefined): boolean {
   return status === "starting" || status === "running" || status === "committing";
 }
 
-/** One session's live event stream, with reconnection. */
+/**
+ * One session's live event stream, with reconnection.
+ *
+ * Uses fetch rather than EventSource on purpose: EventSource cannot send an
+ * Authorization header, and putting the operator token in the URL would leak
+ * it into server logs, browser history and referrers. If the stream fails the
+ * viewer keeps its 2s poll, which is what makes this safe behind a proxy that
+ * buffers server-sent events.
+ *
+ * (That rationale used to sit at the bottom of `sessions.tsx`, orphaned under
+ * no function, from before this hook was lifted out of it.)
+ */
 export function useLiveSession(
   sessionId: string | null,
   status: SessionDto["status"] | undefined,
