@@ -2,10 +2,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { runSession } from "./agent.js";
-import { loadConfig, resolveCredential, type WorkerConfig } from "./config.js";
+import { isGrokModel, runGrokSession } from "./grok-agent.js";
+import { acceptsNetworking, loadConfig, resolveCredential, type WorkerConfig } from "./config.js";
 import { frame, type ProvisionBody } from "./protocol.js";
 import { LocalSession } from "./session.js";
-import { createWorkspace } from "./workspace.js";
+import { collectCommits, createWorkspace } from "./workspace.js";
 
 /**
  * The VM-side half of the AgentOS local runner (SPEC §16).
@@ -62,7 +63,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     return;
   }
 
-  const match = /^\/sessions\/([^/]+)(\/events|\/tool-result|\/cost)?$/.exec(path);
+  const match = /^\/sessions\/([^/]+)(\/events|\/tool-result|\/cost|\/commits)?$/.exec(path);
   const session = match ? sessions.get(match[1]!) : undefined;
   if (!match || !session) {
     send(response, 404, { error: "unknown session" });
@@ -81,6 +82,14 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     }
     case "GET /cost":
       send(response, 200, { costUsd: session.cost });
+      return;
+    // Asked while the checkout still exists — a moment later the DELETE below
+    // removes it and the answer is gone for good (SPEC §6).
+    // Asked by teardown, after the event stream has already ended — so the
+    // answer travels in the response, not as a session event nobody is reading
+    // any more. The control plane writes it onto the session row.
+    case "GET /commits":
+      send(response, 200, await collectCommits(session.dir, session.input.repos));
       return;
     case "DELETE ":
       // Ends the run, then removes the workspace — and if removal fails, the
@@ -101,13 +110,22 @@ async function provision(request: IncomingMessage, response: ServerResponse): Pr
   // an egress firewall; a VM has whatever the operator configured, which this
   // process cannot see. Refusing is recoverable — the router falls back to
   // cloud. Pretending would silently downgrade a wall the operator relies on.
-  if (input.environment.networking === "limited" && !config.allowUnenforcedNetwork) {
+  // The proxy is a layer, never the permission.
+  //
+  // It holds every ordinary client, and an agent with a shell can still open
+  // its own socket — so treating it as enforcement would turn a wall the
+  // operator relies on into a promise this process cannot keep. Accepting a
+  // `limited` session remains one deliberate decision: the operator asserting
+  // that *this machine* is confined. The proxy then applies on top.
+  if (!acceptsNetworking(config, input.environment.networking)) {
     send(response, 409, {
       error:
         `this session requires a limited network (${input.environment.allowedHosts.join(", ") || "no hosts"}) ` +
-        "and this worker cannot enforce egress. Configure a firewall on this machine and set " +
-        "LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=1 to accept the risk, or leave it unset to keep " +
-        "these sessions on the cloud runner.",
+        "and this worker cannot enforce egress. Confine the machine — a container network policy, " +
+        "or a host firewall scoped to this worker's unix user — then set " +
+        "LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=1 to say so, and LOCAL_RUNNER_EGRESS_MODE=proxy to " +
+        "add an allow-listed proxy on top. Leaving it unset keeps these sessions on the cloud " +
+        "runner, which has a real egress firewall.",
     });
     return;
   }
@@ -132,8 +150,14 @@ async function provision(request: IncomingMessage, response: ServerResponse): Pr
   const session = new LocalSession(input, workspace, abort);
   sessions.set(session.id, session);
 
+  // Two engines behind one contract (SPEC §16): Claude Code, or Grok in yolo
+  // mode. The agent's model decides, and everything above this line — grants,
+  // gates, the inbox, the workspace — is identical either way.
+  //
   // Nothing here waits for the run: the control plane picks it up on /events.
-  void runSession(session, credential, abort.signal, config.maxSessionRequests);
+  void (isGrokModel(input.model)
+    ? runGrokSession(session, config, abort.signal)
+    : runSession(session, credential, config, abort.signal));
   expireLater(session, config);
 
   send(response, 200, { id: session.id });
@@ -248,6 +272,17 @@ async function sweepWorkRoot(): Promise<void> {
   }
 }
 
+/** Says which of the three egress postures this worker is actually in. */
+function describeEgress(worker: WorkerConfig): string {
+  const layer = worker.egressMode === "proxy" ? " + allow-list proxy" : "";
+  // The acceptance flag first, because it is what decides whether a limited
+  // session runs here at all. Reporting "allow-list proxy" while every such
+  // session is being refused reads as capability the worker does not have.
+  return worker.allowUnenforcedNetwork
+    ? `operator-managed${layer} (limited sessions accepted)`
+    : `required${layer} (limited sessions refused)`;
+}
+
 function authorised(request: IncomingMessage): boolean {
   return request.headers.authorization === `Bearer ${config.authToken}`;
 }
@@ -276,8 +311,7 @@ server.listen(config.port, () => {
   // The credential kind is worth printing; the credential itself never is.
   console.log(
     `agentos local runner on :${config.port} — auth: ${credential.kind}, ` +
-      `workspaces: ${config.workRoot}, network enforcement: ${
-        config.allowUnenforcedNetwork ? "operator-managed" : "required (limited sessions refused)"
-      }`,
+      `workspaces: ${config.workRoot}, engines: claude-code${config.grokApiKey ? " + grok" : ""}, ` +
+      `network enforcement: ${describeEgress(config)}`,
   );
 });

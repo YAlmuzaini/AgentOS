@@ -1,6 +1,7 @@
-import { type Database, sessions } from "@agentos/db";
+import { agents, type Database, sessions } from "@agentos/db";
 import {
   type Runner,
+  type SessionAccess,
   type SessionDto,
   type SessionStatus,
   type SessionSummaryDto,
@@ -26,11 +27,12 @@ export class SessionsService {
    */
   async list(limit = 100): Promise<SessionDto[]> {
     const rows = await this.db
-      .select()
+      .select({ session: sessions, agentName: agents.name })
       .from(sessions)
+      .leftJoin(agents, eq(agents.id, sessions.agentId))
       .orderBy(desc(sessions.startedAt))
       .limit(limit);
-    return rows.map(toDto);
+    return rows.map((row) => toDto(row.session, row.agentName));
   }
 
   /**
@@ -58,13 +60,19 @@ export class SessionsService {
         error: sessions.error,
         startedAt: sessions.startedAt,
         endedAt: sessions.endedAt,
+        access: sessions.access,
+        // Joined rather than fetched per row: the list is what the operator
+        // scans, and "which agent" is the first thing they want from it.
+        agentName: agents.name,
       })
       .from(sessions)
+      .leftJoin(agents, eq(agents.id, sessions.agentId))
       .orderBy(desc(sessions.startedAt))
       .limit(limit);
 
     return rows.map((row) => ({
       ...row,
+      access: row.access ?? null,
       costUsd: row.costUsd != null ? Number(row.costUsd) : null,
       startedAt: row.startedAt.toISOString(),
       endedAt: row.endedAt?.toISOString() ?? null,
@@ -72,7 +80,9 @@ export class SessionsService {
   }
 
   async get(id: string): Promise<SessionDto> {
-    return toDto(await this.require(id));
+    const row = await this.require(id);
+    const agent = await this.db.query.agents.findFirst({ where: eq(agents.id, row.agentId) });
+    return toDto(row, agent?.name ?? null);
   }
 
   async create(input: {
@@ -94,6 +104,16 @@ export class SessionsService {
       })
       .returning();
     return row!;
+  }
+
+  /**
+   * Records what this session was given (SPEC §13).
+   *
+   * Written before the container exists, so a provision that fails still shows
+   * the operator what it was about to hand over.
+   */
+  async recordAccess(id: string, access: SessionAccess): Promise<void> {
+    await this.db.update(sessions).set({ access }).where(eq(sessions.id, id));
   }
 
   async setStatus(id: string, status: SessionStatus): Promise<void> {
@@ -252,6 +272,27 @@ export class SessionsService {
         toolCallLog: sql`${sessions.toolCallLog} || ${JSON.stringify(entries)}::jsonb`,
       })
       .where(eq(sessions.id, id));
+  }
+
+  /**
+   * Records commits this session produced (SPEC §6).
+   *
+   * A set, and ordered by first sighting: the same commit can arrive twice —
+   * once because the agent reported it, once because the workspace was read
+   * before it was destroyed — and the session row should show it once.
+   */
+  async recordCommits(id: string, shas: string[]): Promise<string[]> {
+    const clean = shas.map((sha) => sha.trim().toLowerCase()).filter(Boolean);
+    if (clean.length === 0) {
+      return [];
+    }
+    const row = await this.require(id);
+    const commitShas = [...new Set([...row.commitShas, ...clean])];
+    if (commitShas.length === row.commitShas.length) {
+      return row.commitShas;
+    }
+    await this.db.update(sessions).set({ commitShas }).where(eq(sessions.id, id));
+    return commitShas;
   }
 
   async finish(

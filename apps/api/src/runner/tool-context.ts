@@ -1,3 +1,4 @@
+import { attachmentGrants, goalFolderGrant } from "@agentos/shared";
 import type { AgentRow } from "../agents/agents.service";
 import type { ToolContext } from "./tool-handler";
 
@@ -15,6 +16,8 @@ export function toolContext(
   agent: AgentRow,
   taskId: string | null,
   goalId: string | null,
+  /** Paths of the task's attachments, which this session may read. */
+  attachmentPaths: string[] = [],
 ): ToolContext {
   return {
     sessionId,
@@ -24,6 +27,19 @@ export function toolContext(
     taskId,
     goalId,
     inboxAccess: agent.inboxAccess,
-    filesystemGrants: agent.filesystemGrants,
+    // The goal's shared folder is a grant of the *session*, not of the agent:
+    // the same specialist working a different goal must not reach this one's
+    // files (SPEC §11 shared state).
+    filesystemGrants: [
+      ...agent.filesystemGrants,
+      ...goalFolderGrant(goalId),
+      ...attachmentGrants(attachmentPaths),
+    ],
+    collaborationList: agent.collaborationList,
+    // Only an agent that may push has commits to record. Same grant, read the
+    // same way the tool list reads it.
+    writableRepoIds: agent.repoAccess
+      .filter((access) => access.permissions === "git-write")
+      .map((access) => access.repoId),
   };
 }

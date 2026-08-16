@@ -79,6 +79,9 @@ const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/inbox",
   component: InboxPage,
+  // The open message is in the URL, so a push notification can deep-link to
+  // the question it is about rather than to the top of a list.
+  validateSearch: idSearch,
 });
 
 const goalsRoute = createRoute({

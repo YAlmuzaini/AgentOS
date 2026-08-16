@@ -66,6 +66,24 @@ export class ObjectStorage implements OnModuleInit {
     }
   }
 
+  /**
+   * The raw bytes, for anything that is not text.
+   *
+   * Reading an image or a PDF through `get` returns mojibake and a wrong byte
+   * count, so previews and downloads take this path instead.
+   */
+  async getBytes(key: string): Promise<Buffer | null> {
+    try {
+      const result = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      const bytes = await result.Body?.transformToByteArray();
+      return bytes ? Buffer.from(bytes) : null;
+    } catch {
+      return null;
+    }
+  }
+
   async remove(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }

@@ -256,6 +256,7 @@ export function toDto(row: GoalRow): GoalDto {
     progressLog: row.progressLog,
     stoppedReason: row.stoppedReason,
     iterations: row.iterations,
+    startedAt: row.startedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

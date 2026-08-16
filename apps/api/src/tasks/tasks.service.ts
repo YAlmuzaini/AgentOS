@@ -15,11 +15,13 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import { and, asc, eq, ne, notInArray } from "drizzle-orm";
+import { and, asc, eq, ne, notInArray, sql } from "drizzle-orm";
 import { AgentsService } from "../agents/agents.service";
 import { DATABASE } from "../db/db.module";
+import { FilesService } from "../files/files.service";
 import { ProjectsService } from "../projects/projects.service";
 import { SessionQueue } from "../queue/session.queue";
+import { releaseNextStep } from "./chain-release";
 import { activityToDto, toDto } from "./task-dto";
 import { removeTask } from "./task-removal";
 import { applySchedule } from "./task-schedule";
@@ -38,6 +40,7 @@ export class TasksService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly projects: ProjectsService,
     private readonly agents: AgentsService,
+    private readonly files: FilesService,
     private readonly queue: SessionQueue,
   ) {}
 
@@ -68,12 +71,47 @@ export class TasksService {
     return this.createInternal(projectId, input, { autoStart: false, chain });
   }
 
+  /**
+   * Creates a card one agent asked another to work (SPEC §5.10).
+   *
+   * The caller has already checked the target against the spawning agent's
+   * collaboration list; this records the lineage so the parent can read the
+   * result back and the depth ceiling has something to count.
+   */
+  async createSpawned(
+    projectId: string,
+    input: CreateTaskInput,
+    lineage: {
+      parentTaskId: string | null;
+      spawnedByAgentId: string;
+      spawnedBySessionId: string;
+      spawnDepth: number;
+    },
+  ): Promise<TaskDto> {
+    return this.createInternal(projectId, input, { autoStart: true, lineage });
+  }
+
+  /** How many cards one session has already spawned, for the per-session cap. */
+  async countSpawnedBySession(sessionId: string): Promise<number> {
+    const rows = await this.db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(eq(tasks.spawnedBySessionId, sessionId));
+    return rows.length;
+  }
+
   private async createInternal(
     projectId: string,
     input: CreateTaskInput,
     options: {
       autoStart: boolean;
       chain?: { chainId: string; chainIndex: number; templateId: string };
+      lineage?: {
+        parentTaskId: string | null;
+        spawnedByAgentId: string;
+        spawnedBySessionId: string;
+        spawnDepth: number;
+      };
     },
   ): Promise<TaskDto> {
     await this.projects.require(projectId);
@@ -82,7 +120,7 @@ export class TasksService {
     }
     const [row] = await this.db
       .insert(tasks)
-      .values({ ...input, projectId, ...(options.chain ?? {}) })
+      .values({ ...input, projectId, ...(options.chain ?? {}), ...(options.lineage ?? {}) })
       .returning();
 
     const task = toDto(row!);
@@ -122,6 +160,14 @@ export class TasksService {
     if (input.assigneeAgentId) {
       await this.agents.require(projectId, input.assigneeAgentId);
     }
+    if (input.attachmentIds) {
+      // An id from another project resolves to no path, so the session would
+      // silently get an attachment it cannot see. Refuse it here instead.
+      const found = await this.files.pathsByIds(projectId, input.attachmentIds);
+      if (found.length !== input.attachmentIds.length) {
+        throw new BadRequestException("one or more attachments are not files in this project");
+      }
+    }
     // Closing a card is a *claim*, not a write. The predicate — not the status
     // read above — decides whether this call is the one that closed it, so of
     // two concurrent completions exactly one releases the next step, and a
@@ -141,7 +187,7 @@ export class TasksService {
 
     const updated = toDto(row);
     if (closing) {
-      await this.advanceChain(updated);
+      await releaseNextStep(this.db, this.queue, this.logger, updated);
     }
     return updated;
   }
@@ -191,46 +237,33 @@ export class TasksService {
 
     const updated = toDto(row);
     if (closing) {
-      await this.advanceChain(updated);
+      await releaseNextStep(this.db, this.queue, this.logger, updated);
     }
     return updated;
   }
 
   /**
-   * Releases the next step of a template chain. This is the only way a later
-   * step starts, which is what makes an approval gate a hard stop: a gated
-   * card can only be closed by the operator, so nothing downstream of it moves
-   * until they do (SPEC §9.3, §9.4).
+   * Adds a file to a task's attachments, idempotently and atomically.
+   *
+   * One statement, because two of them are a lost update: a spawned reviewer
+   * attaching its report while the coordinator attaches the consolidated one
+   * would have had each read the same list and written its own over the
+   * other's. The `@>` guard is what keeps it a set.
    */
-  private async advanceChain(task: TaskDto): Promise<void> {
-    if (!task.chainId || task.chainIndex === null) {
-      return;
-    }
-    const next = await this.db.query.tasks.findFirst({
-      where: and(eq(tasks.chainId, task.chainId), eq(tasks.chainIndex, task.chainIndex + 1)),
-    });
-    if (!next) {
-      return;
-    }
-    if (next.assigneeType !== "agent" || !next.assigneeAgentId) {
-      // A human step simply sits on the board waiting for the operator.
-      this.logger.log(`chain ${task.chainId} reached a human step: ${next.name}`);
-      return;
-    }
-    // Keyed by the step being released: if two callers ever reach here for
-    // the same step, the queue keeps one job rather than starting two agents.
-    //
-    // A failure here leaves the predecessor `done` and the successor waiting
-    // with no job — the card is already committed, so this cannot be undone by
-    // throwing. `releaseStalledChains` is what finds it later.
-    try {
-      await this.queue.enqueueRun(next.id, `chain-release-${next.id}`);
-    } catch (error) {
-      this.logger.error(
-        `chain ${task.chainId}: step "${next.name}" was released but could not be queued ` +
-          `(${String(error)}); maintenance will retry it`,
-      );
-    }
+  async attach(taskId: string, fileId: string): Promise<string[]> {
+    const [row] = await this.db
+      .update(tasks)
+      .set({
+        attachmentIds: sql`${tasks.attachmentIds} || ${JSON.stringify([fileId])}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(tasks.id, taskId), sql`NOT (${tasks.attachmentIds} @> ${JSON.stringify([fileId])}::jsonb)`),
+      )
+      .returning({ attachmentIds: tasks.attachmentIds });
+
+    // No row means it was already attached — by this session or another.
+    return row?.attachmentIds ?? (await this.requireById(taskId)).attachmentIds;
   }
 
   async addActivity(input: {

@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 import { SessionQueue } from "../queue/session.queue";
+import { carryAttachments } from "./chain-attachments";
 
 /**
  * Recovers chain steps whose release never reached the queue.
@@ -45,6 +46,8 @@ export class ChainRecovery {
       if (previous?.status !== "done") {
         continue;
       }
+      // A release that was lost also lost the attachment carry, so redo both.
+      await carryAttachments(this.db, previous, task);
       // The dedupe key makes this safe to run repeatedly: if the original job
       // is still queued, this is a no-op rather than a second container.
       await this.queue.enqueueRun(task.id, `chain-release-${task.id}`);

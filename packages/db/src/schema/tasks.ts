@@ -42,6 +42,23 @@ export const tasks = pgTable(
     chainIndex: integer("chain_index"),
     templateId: uuid("template_id"),
 
+    /**
+     * Set when another agent spawned this card off its collaboration list
+     * (SPEC §5.10). No foreign key on the parent: a spawned card outlives the
+     * card that asked for it, and the report it carries is the point.
+     */
+    parentTaskId: uuid("parent_task_id"),
+    spawnedByAgentId: uuid("spawned_by_agent_id").references(() => agents.id, {
+      onDelete: "set null",
+    }),
+    spawnedBySessionId: uuid("spawned_by_session_id"),
+    /**
+     * How many spawns deep this card is. A reviewer that may spawn its own
+     * helpers is a loop waiting to happen, so the depth is stored rather than
+     * walked: the ceiling is checked in one read.
+     */
+    spawnDepth: integer("spawn_depth").notNull().default(0),
+
     scheduleKind: scheduleKindEnum("schedule_kind").notNull().default("now"),
     runAt: timestamp("run_at", { withTimezone: true }),
     cron: text("cron"),
@@ -53,6 +70,8 @@ export const tasks = pgTable(
   (table) => [
     index("tasks_project_status_idx").on(table.projectId, table.status),
     index("tasks_chain_idx").on(table.chainId, table.chainIndex),
+    index("tasks_parent_idx").on(table.parentTaskId),
+    index("tasks_spawned_by_session_idx").on(table.spawnedBySessionId),
   ],
 );
 

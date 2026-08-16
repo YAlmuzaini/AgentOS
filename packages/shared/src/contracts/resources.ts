@@ -160,6 +160,14 @@ export interface FileEntryDto {
   size: number;
   mime: string;
   updatedAt: string | null;
+  /**
+   * For a folder: how many files are under it, at any depth.
+   *
+   * A browser that shows a folder and nothing else leaves the operator to
+   * click it to find out whether it holds anything — and on this disk most
+   * folders belong to an agent that may never have written a thing.
+   */
+  childCount?: number;
 }
 
 export const writeFileSchema = z.object({

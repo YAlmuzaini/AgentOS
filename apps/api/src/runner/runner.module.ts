@@ -3,12 +3,15 @@ import { AgentsModule } from "../agents/agents.module";
 import { FilesModule } from "../files/files.module";
 import { InboxModule } from "../inbox/inbox.module";
 import { PushModule } from "../push/push.module";
+import { ResourcesModule } from "../resources/resources.module";
 import { SecretsModule } from "../secrets/secrets.module";
 import { SessionsModule } from "../sessions/sessions.module";
 import { SettingsModule } from "../settings/settings.module";
 import { TasksModule } from "../tasks/tasks.module";
 import { GoalContinuity } from "../goals/goal-continuity";
 import { CloudPublisher } from "./cloud-publisher";
+import { CollaborationService } from "./collaboration";
+import { InboxToolHandler } from "./inbox-tools";
 import { CloudManagedAgentsRunner } from "./cloud-runner";
 import { LocalVmRunner } from "./local-runner";
 import { RunnerRouter } from "./runner-router";
@@ -43,6 +46,7 @@ import { AgentToolHandler } from "./tool-handler";
     FilesModule,
     SettingsModule,
     PushModule,
+    ResourcesModule,
   ],
   controllers: [RunnersController],
   providers: [
@@ -51,6 +55,8 @@ import { AgentToolHandler } from "./tool-handler";
     LocalVmRunner,
     RunnerRouter,
     AgentToolHandler,
+    InboxToolHandler,
+    CollaborationService,
     ManifestResolver,
     SessionConsumer,
     EnvironmentPolicyResolver,

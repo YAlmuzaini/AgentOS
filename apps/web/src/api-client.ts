@@ -58,6 +58,47 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   return (await response.json()) as T;
 }
 
+/**
+ * The same transport, for bytes rather than JSON.
+ *
+ * Files on the agent filesystem are not all text — a screenshot an operator
+ * uploaded, a PDF an agent was given — and those cannot round-trip through
+ * `request`. The object-storage credential stays on the server, so the bytes
+ * come through the API with the operator's own token.
+ */
+export async function requestBlob(path: string): Promise<Blob> {
+  const token = getToken();
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}${path}`, {
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+    });
+  } catch (cause) {
+    throw new ApiError(0, `cannot reach the control plane at ${BASE}`, { cause });
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, `${response.status} ${response.statusText}`);
+  }
+  return response.blob();
+}
+
+/** Uploads one file as the raw request body; the path is the query. */
+export async function upload<T>(path: string, file: File): Promise<T> {
+  const token = getToken();
+  const response = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": file.type || "application/octet-stream",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: file,
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, `${response.status} — ${await response.text()}`);
+  }
+  return (await response.json()) as T;
+}
+
 /** Matches apps/api/src/activity/activity.service.ts — not published from @agentos/shared. */
 export interface ActivityEntryDto {
   id: string;

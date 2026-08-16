@@ -8,6 +8,7 @@ export * from "./contracts/automation";
 export * from "./contracts/document";
 export * from "./templates/compound-engineer";
 export * from "./fs-acl";
+export * from "./mime";
 export * from "./contracts/task";
 export * from "./contracts/session";
 export * from "./contracts/inbox";

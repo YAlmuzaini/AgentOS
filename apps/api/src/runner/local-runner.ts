@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { APP_CONFIG, type AppConfig } from "../config/config";
 import type {
+  CommitRecord,
   ProvisionInput,
   Runner,
   RunnerEvent,
@@ -191,6 +192,19 @@ export class LocalVmRunner implements Runner {
    */
   async destroy(handle: RunnerHandle): Promise<void> {
     await this.call(`/sessions/${handle.runtimeSessionId}`, { method: "DELETE" });
+  }
+
+  /**
+   * What this session actually committed, read out of the workspace before it
+   * is deleted (SPEC §6).
+   *
+   * The one backend that can answer this honestly: the checkout is a directory
+   * on a machine we control, so the commits are observed rather than attested.
+   */
+  async collectCommits(handle: RunnerHandle): Promise<CommitRecord[]> {
+    const response = await this.call(`/sessions/${handle.runtimeSessionId}/commits`);
+    const body = (await response.json()) as CommitRecord[];
+    return Array.isArray(body) ? body : [];
   }
 
   /**

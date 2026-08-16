@@ -11,6 +11,8 @@ import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback
 import { Field, Input, Textarea } from "../components/ui/form";
 import { PanelTitle, Well } from "../components/ui/panel";
 import { Dot, StatusPill } from "../components/ui/pill";
+import { Time } from "../components/ui/time";
+import { TaskAttachments } from "./task-attachments";
 
 /**
  * Everything the control plane knows about one task.
@@ -203,6 +205,12 @@ export function TaskDetail(props: {
                 <Row label="Schedule" icon={task.scheduleKind === "cron" ? <Repeat /> : <Clock />}>
                   <ScheduleValue task={task} />
                 </Row>
+                <Row label="Created" icon={<Clock />}>
+                  <Time iso={task.createdAt} absolute />
+                </Row>
+                <Row label="Last moved" icon={<Clock />}>
+                  <Time iso={task.updatedAt} />
+                </Row>
                 {task.chainId ? (
                   <Row label="Chain" icon={<GitBranch />}>
                     {/* chainIndex is zero-based; operators count from one. */}
@@ -212,6 +220,12 @@ export function TaskDetail(props: {
                 ) : null}
               </dl>
             </div>
+
+            <TaskAttachments
+              projectId={props.projectId}
+              taskId={task.id}
+              attachmentIds={task.attachmentIds}
+            />
 
             <div className="space-y-2">
               <PanelTitle>History</PanelTitle>
@@ -230,9 +244,11 @@ export function TaskDetail(props: {
                     .map((entry) => (
                       <li key={entry.id} className="relative pl-5">
                         <Dot className="absolute top-1.5 left-0 ring-2 ring-panel" />
-                        <div className="machine text-xs text-ink-faint">
-                          {entry.createdAt.slice(0, 19).replace("T", " ")}
-                        </div>
+                        <Time
+                          iso={entry.createdAt}
+                          className="block text-ink-faint"
+                          absolute
+                        />
                         <p className="mt-0.5 text-[13px] leading-relaxed whitespace-pre-wrap text-ink">
                           {entry.body}
                         </p>

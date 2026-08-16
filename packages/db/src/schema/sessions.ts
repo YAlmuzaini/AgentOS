@@ -1,4 +1,4 @@
-import type { ToolCallLogEntry } from "@agentos/shared";
+import type { SessionAccess, ToolCallLogEntry } from "@agentos/shared";
 import { sql } from "drizzle-orm";
 import {
   index,
@@ -55,6 +55,14 @@ export const sessions = pgTable(
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    /**
+     * What this session was given, as it was decided at provision (SPEC §13).
+     *
+     * Recorded rather than derived: grants are read from the agent, and an
+     * agent edited after a run would rewrite the history of every session it
+     * ever had. Names and keys only — never a secret value.
+     */
+    access: jsonb("access").$type<SessionAccess>(),
 
     costUsd: numeric("cost_usd", { precision: 12, scale: 4 }),
     error: text("error"),

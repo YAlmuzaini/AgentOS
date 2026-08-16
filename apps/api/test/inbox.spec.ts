@@ -199,4 +199,140 @@ describe("inbox pause and resume", () => {
     expect(harness.runner.injectedResults[0]!.result).toMatch(/no inbox access/);
     expect(await inbox.list("open")).toHaveLength(0);
   });
+
+  /**
+   * An agent that needs three decisions asks once. Parking three times holds a
+   * container open across three round trips through a human who is not there.
+   */
+  it("asks several questions in one park and resumes with every answer", async () => {
+    const { projectId, agentIds } = await harness.seedProject();
+    const task = await tasks.create(projectId, {
+      name: "Ship onboarding",
+      description: "",
+      assigneeType: "agent",
+      assigneeAgentId: agentIds.spec!,
+      attachmentIds: [],
+      approvalGate: false,
+      scheduleKind: "now",
+      runAt: null,
+      cron: null,
+      timezone: null,
+    });
+
+    harness.runner.setScript([
+      {
+        kind: "tool",
+        call: {
+          name: "inbox_ask",
+          input: {
+            questions: [
+              {
+                question: "Which auth mechanism?",
+                detail: "It decides the whole flow.",
+                choices: [
+                  { id: "magic", label: "Magic link" },
+                  { id: "password", label: "Email and password" },
+                ],
+              },
+              {
+                question: "Seed the first operator account?",
+                choices: [
+                  { id: "yes", label: "Yes, seed it" },
+                  { id: "no", label: "No, self-registration" },
+                ],
+                allowFreeText: true,
+              },
+            ],
+          },
+        },
+      },
+    ]);
+
+    await orchestrator.runTask(task.id);
+
+    const [message] = await inbox.list("open");
+    expect(message!.questions).toHaveLength(2);
+    expect(message!.questions[0]!.detail).toBe("It decides the whole flow.");
+    // Everything the operator needs to answer without opening another screen.
+    expect(message!.agentName).toBe("spec");
+    expect(message!.subject).toMatchObject({ kind: "task", name: "Ship onboarding" });
+
+    // Half an answer is refused: an agent told two of three proceeds on a guess.
+    await expect(
+      inbox.reply(message!.id, { answers: [{ questionId: "q1", choiceId: "magic" }] }),
+    ).rejects.toThrow(/was not answered/);
+    await expect(
+      inbox.reply(message!.id, {
+        answers: [
+          { questionId: "q1", choiceId: "not-offered" },
+          { questionId: "q2", choiceId: "yes" },
+        ],
+      }),
+    ).rejects.toThrow(/not one of the offered choices/);
+
+    harness.runner.setScript([
+      { kind: "tool", call: { name: "agentos_update_task", input: { status: "done" } } },
+    ]);
+    await inbox.reply(message!.id, {
+      answers: [
+        { questionId: "q1", choiceId: "magic" },
+        { questionId: "q2", choiceId: "no", text: "they invite each other" },
+      ],
+    });
+    await orchestrator.resumeSession(resumes[0]!.sessionId, resumes[0]!.inboxMessageId);
+
+    // The agent reads its own questions back with the answers attached.
+    const resumed = harness.runner.injectedResults.at(0)?.result ?? "";
+    expect(resumed).toContain("Q: Which auth mechanism?");
+    expect(resumed).toContain("A: Magic link");
+    expect(resumed).toContain("they invite each other");
+
+    const [answered] = await inbox.list("answered");
+    expect(answered!.answers).toHaveLength(2);
+    expect(answered!.answeredAt).not.toBeNull();
+  });
+
+  it("still accepts a single-question ask and a single-choice answer", async () => {
+    const { projectId, agentIds } = await harness.seedProject();
+    const task = await tasks.create(projectId, {
+      name: "One decision",
+      description: "",
+      assigneeType: "agent",
+      assigneeAgentId: agentIds.spec!,
+      attachmentIds: [],
+      approvalGate: false,
+      scheduleKind: "now",
+      runAt: null,
+      cron: null,
+      timezone: null,
+    });
+
+    harness.runner.setScript([
+      {
+        kind: "tool",
+        call: {
+          name: "inbox_ask",
+          input: {
+            question: "Ship it?",
+            choices: [
+              { id: "yes", label: "Ship" },
+              { id: "no", label: "Hold" },
+            ],
+          },
+        },
+      },
+    ]);
+    await orchestrator.runTask(task.id);
+
+    const [message] = await inbox.list("open");
+    // The legacy column is still filled, so anything reading `choices` works.
+    expect(message!.choices).toHaveLength(2);
+    expect(message!.questions).toHaveLength(1);
+
+    harness.runner.setScript([]);
+    await inbox.reply(message!.id, { selectedChoiceId: "yes" });
+    await orchestrator.resumeSession(resumes[0]!.sessionId, resumes[0]!.inboxMessageId);
+    // One question still answers with the label alone, not a Q/A pair.
+    expect(harness.runner.injectedResults.at(0)?.result).toBe("Ship");
+  });
 });

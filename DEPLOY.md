@@ -41,6 +41,7 @@ that cannot run an agent or write a file:
 | `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | **Required.** Cloudflare R2, for the agent filesystem |
 | `ANTHROPIC_WORKSPACE` | Workspace slug, for Console trace links. Defaults to `default` |
 | `S3_REGION` | Defaults to `auto`, which is what R2 wants |
+| `SECRETS_PROVIDER` / `GCP_PROJECT_ID` | `gcp` resolves secret references through Google Secret Manager instead of this process's environment. See §2.1 |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web Push. Unset disables push cleanly rather than breaking it. Generate with `npx web-push generate-vapid-keys` |
 | `LOCAL_RUNNER_URL` / `LOCAL_RUNNER_TOKEN` | Optional second backend, off unless set. Read §6 first |
 | `VITE_API_URL` | Only if the built bundle points at the wrong origin — see the note in the compose file |
@@ -48,6 +49,27 @@ that cannot run an agent or write a file:
 Assign a domain to `api` and to `web`. Leave `postgres` and `redis` without one:
 they are reached over the private network, and nothing in this file publishes a
 port.
+
+### 2.1 Secrets in production
+
+A `SecretRef` in the database is a **name**, never a value (SPEC §4). Which
+backend that name is resolved against is one variable:
+
+```
+SECRETS_PROVIDER=env     # development: the reference is an environment variable
+SECRETS_PROVIDER=gcp     # production: the reference is a Secret Manager resource
+GCP_PROJECT_ID=acme-prod # so a bare name resolves to projects/acme-prod/secrets/<name>/versions/latest
+```
+
+On `gcp`, a reference may also be a full path (`projects/p/secrets/s`, or one
+pinned to `/versions/7`). Google's own auth applies — a service account on the
+instance, or `GOOGLE_APPLICATION_CREDENTIALS` — and AgentOS never stores that
+credential. A secret that cannot be read resolves to null: the session refuses
+the grant that needed it and says which one, rather than starting an agent that
+is quietly missing its token.
+
+The point of `gcp` is the failure you hope never happens: a stolen database
+yields resource names, which decrypt nothing.
 
 ## 3. Storage, health, and what survives a redeploy
 
@@ -169,12 +191,53 @@ applied. Cloning anonymously instead failed obscurely mid-run on a private repo,
 and on a public one succeeded while the session prompt still advertised write
 access the agent did not have. Attach a secret to the repo, or drop the grant.
 
-**It cannot enforce a network wall.** The cloud runner gets an egress firewall
-from Anthropic; a VM has whatever you configured, which the worker cannot see.
-So a session that asks for `limited` networking is **refused** unless you set
-`LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=1`. Refusal is the safe outcome: the
-router falls back to the cloud runner automatically. Set the flag only once
-you have a real firewall on that machine.
+**The network wall, and what this worker can honestly do about it.** The cloud
+runner gets an egress firewall from Anthropic; a VM has whatever you configured,
+which the worker cannot see. Three settings, in order of how much they promise:
+
+| Setting | Behaviour |
+|---|---|
+| both unset (default) | A `limited`-network session is **refused**, and the router sends it to the cloud runner. Nothing is promised that is not kept |
+| `LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=1` | Accepts the session, on **your** assertion that this machine is confined — a container network policy, or a host firewall scoped to this worker's unix user |
+| `LOCAL_RUNNER_EGRESS_MODE=proxy` | Adds a loopback proxy per session that opens **only** the environment's allow-listed hosts, and hands the child `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`. What it refuses is written into the session log |
+
+**The proxy is a layer, never the permission.** It does not on its own make a
+`limited` session acceptable, and the worker will not treat it that way: an
+agent with a shell can open a socket directly or unset the proxy variables, so
+`proxy` alone would be a promise this process cannot keep. What it does is hold
+every ordinary client — curl, git, node, pip, npm — and every accident, on top
+of whatever confinement you actually configured. If a session genuinely must
+not reach a host and the machine is not confined, run it on the cloud runner,
+which has a real egress fabric.
+
+Two related details the worker enforces on its own: a granted environment
+variable named `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `ANTHROPIC_BASE_URL`,
+`ANTHROPIC_API_KEY` or the like is **refused and logged** rather than injected —
+those names configure containment, not the session — and the runtime's own
+values are applied after the granted ones regardless.
+
+### The Grok engine
+
+An agent whose model starts with `grok` runs on xAI's OpenAI-compatible API
+instead of Claude Code — SPEC §16's "Grok in yolo mode". Set `GROK_API_KEY`
+(`LOCAL_RUNNER_GROK_BASE_URL` defaults to `https://api.x.ai/v1`). The engine
+exposes the same AgentOS tools, forwarded to the control plane exactly as the
+Claude engine forwards them, plus a workspace toolset — shell, read, write,
+list — confined to the session's throwaway directory. No approval prompts:
+there is no human at the keyboard, and the confinement is the directory, the
+session ceilings, and the unix user, not a dialog.
+
+Three honest limits. Spend is **not** reported: xAI returns tokens, not dollars,
+so a Grok session records no cost — which is why a session that carries a budget
+at all (every specialist under a goal's spend cap) is **refused** by this engine
+rather than run unmetered; route those to the cloud runner. Turns are bounded by
+`LOCAL_RUNNER_MAX_SESSION_REQUESTS`. And without a key, a Grok-model session
+fails loudly rather than silently running on Claude.
+
+Give it `GROK_API_KEY_FILE` (a `0600` file owned by the worker's user) rather
+than `GROK_API_KEY` where you can, for the same reason as the Claude token: a
+file the worker reads and closes is never in `/proc/<pid>/environ`, which the
+agent's own shell can read.
 
 ### Credentials
 

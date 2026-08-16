@@ -1,39 +1,38 @@
 import {
-  type FilesystemGrant,
+  authorizeFs,
   type FsOperation,
-  type InboxChoice,
   TASK_STATUSES,
   type TaskStatus,
 } from "@agentos/shared";
 import { ForbiddenException, Injectable, Logger } from "@nestjs/common";
+import { CatalogService } from "../resources/catalog.service";
 import { FilesService } from "../files/files.service";
 import { GoalLogService } from "../goals/goal-log.service";
-import { InboxService } from "../inbox/inbox.service";
+import { SessionsService } from "../sessions/sessions.service";
 import { TasksService } from "../tasks/tasks.service";
+import { InboxToolHandler } from "./inbox-tools";
 import type { RunnerToolCall } from "./runner.types";
+import { deny, type ToolContext, type ToolOutcome } from "./tool-types";
 import {
+  TOOL_ATTACH_FILE,
   TOOL_FS_DELETE,
   TOOL_FS_LIST,
   TOOL_FS_MKDIR,
   TOOL_FS_READ,
   TOOL_FS_WRITE,
   TOOL_INBOX_ASK,
+  TOOL_INBOX_READ,
   TOOL_INBOX_SEND,
+  TOOL_READ_SUBTASK,
+  TOOL_RECORD_COMMIT,
+  TOOL_SPAWN,
   TOOL_TASK_NOTE,
   TOOL_TASK_UPDATE,
 } from "./tools";
+import { CollaborationService } from "./collaboration";
 
-export interface ToolContext {
-  sessionId: string;
-  projectId: string;
-  agentId: string;
-  agentSlug: string;
-  taskId: string | null;
-  goalId: string | null;
-  /** Grants — an ungranted tool is refused even if the container calls it. */
-  inboxAccess: boolean;
-  filesystemGrants: FilesystemGrant[];
-}
+/** Re-exported so existing callers keep importing from the handler. */
+export type { ToolContext, ToolOutcome } from "./tool-types";
 
 const FS_TOOLS: Record<string, FsOperation> = {
   [TOOL_FS_LIST]: "list",
@@ -42,10 +41,6 @@ const FS_TOOLS: Record<string, FsOperation> = {
   [TOOL_FS_MKDIR]: "mkdir",
   [TOOL_FS_DELETE]: "delete",
 };
-
-export type ToolOutcome =
-  | { kind: "result"; text: string }
-  | { kind: "park"; inboxMessageId: string; text: null };
 
 /**
  * Executes the AgentOS and Inbox tool calls on the container's behalf. Every
@@ -58,12 +53,24 @@ export class AgentToolHandler {
 
   constructor(
     private readonly tasks: TasksService,
-    private readonly inbox: InboxService,
+    private readonly inbox: InboxToolHandler,
     private readonly files: FilesService,
     private readonly goalLog: GoalLogService,
+    private readonly collaboration: CollaborationService,
+    private readonly catalog: CatalogService,
+    private readonly sessions: SessionsService,
   ) {}
 
-  async handle(ctx: ToolContext, call: RunnerToolCall): Promise<ToolOutcome> {
+  /**
+   * @param signal cancellation for the run this call belongs to. A tool that
+   * waits — spawning collaborators does — must stop waiting when the goal's
+   * deadline or lease revocation ends the session around it.
+   */
+  async handle(
+    ctx: ToolContext,
+    call: RunnerToolCall,
+    signal?: AbortSignal | null,
+  ): Promise<ToolOutcome> {
     try {
       const fsOperation = FS_TOOLS[call.name];
       if (fsOperation) {
@@ -75,10 +82,20 @@ export class AgentToolHandler {
           return await this.updateTask(ctx, call.input);
         case TOOL_TASK_NOTE:
           return await this.addNote(ctx, call.input);
+        case TOOL_ATTACH_FILE:
+          return await this.attachFile(ctx, call.input);
+        case TOOL_RECORD_COMMIT:
+          return await this.recordCommit(ctx, call.input);
         case TOOL_INBOX_SEND:
-          return await this.inboxSend(ctx, call.input);
+          return await this.inbox.send(ctx, call.input);
         case TOOL_INBOX_ASK:
-          return await this.inboxAsk(ctx, call);
+          return await this.inbox.ask(ctx, call);
+        case TOOL_INBOX_READ:
+          return await this.inbox.read(ctx);
+        case TOOL_SPAWN:
+          return { kind: "result", text: await this.collaboration.spawn(ctx, call.input, signal) };
+        case TOOL_READ_SUBTASK:
+          return { kind: "result", text: await this.collaboration.readSubtask(ctx, call.input) };
         default:
           return deny(`unknown tool "${call.name}"`);
       }
@@ -170,73 +187,85 @@ export class AgentToolHandler {
     return { kind: "result", text: "activity recorded" };
   }
 
-  private async inboxSend(ctx: ToolContext, input: Record<string, unknown>): Promise<ToolOutcome> {
-    if (!ctx.inboxAccess) {
-      return deny("this agent has no inbox access");
+  /**
+   * Attaches a file the agent wrote to the task it is working (SPEC §4).
+   *
+   * Authorised as a read of that path: an agent may only attach a file it
+   * could read anyway, so this cannot be used to hand the next step something
+   * out of a folder this agent was never granted.
+   */
+  private async attachFile(ctx: ToolContext, input: Record<string, unknown>): Promise<ToolOutcome> {
+    if (!ctx.taskId) {
+      return deny("this session is not attached to a task");
     }
-    const body = typeof input.body === "string" ? input.body.trim() : "";
-    if (!body) {
-      return deny("body is empty");
+    const path = typeof input.path === "string" ? input.path.trim() : "";
+    if (!path) {
+      return deny("path is required");
     }
-    await this.inbox.createFromAgent({
-      projectId: ctx.projectId,
-      agentId: ctx.agentId,
-      sessionId: ctx.sessionId,
-      taskId: ctx.taskId,
-      goalId: ctx.goalId,
-      kind: "text",
-      body,
-      runtimeToolUseId: null,
+    const decision = authorizeFs({
+      agentSlug: ctx.agentSlug,
+      grants: ctx.filesystemGrants,
+      operation: "read",
+      path,
     });
-    return { kind: "result", text: "message delivered to the operator inbox" };
+    if (!decision.allowed) {
+      return deny(decision.reason);
+    }
+    const file = await this.files.idForPath(ctx.projectId, decision.path);
+    const attachments = await this.tasks.attach(ctx.taskId, file.id);
+    return {
+      kind: "result",
+      text: `attached ${file.path} (${attachments.length} attachment(s) on this task)`,
+    };
   }
 
-  /** Parks the session: no tool result is sent until the operator answers. */
-  private async inboxAsk(ctx: ToolContext, call: RunnerToolCall): Promise<ToolOutcome> {
-    if (!ctx.inboxAccess) {
-      return deny("this agent has no inbox access");
+  /**
+   * Records a commit the agent says it made (SPEC §6).
+   *
+   * Attested, not observed: the cloud runtime owns the checkout and there is
+   * no moment after the run where AgentOS could go and look. A backend that
+   * *can* look — the local worker — is read separately at teardown, and the
+   * two are merged, so an honest agent and a verified workspace agree.
+   */
+  private async recordCommit(
+    ctx: ToolContext,
+    input: Record<string, unknown>,
+  ): Promise<ToolOutcome> {
+    if (ctx.writableRepoIds.length === 0) {
+      return deny("this agent has no git-write grant, so it has no commits to record");
     }
-    const question = typeof call.input.question === "string" ? call.input.question.trim() : "";
-    const choices = normaliseChoices(call.input.choices);
-    if (!question) {
-      return deny("question is empty");
+    const sha = typeof input.sha === "string" ? input.sha.trim() : "";
+    if (!/^[0-9a-f]{7,40}$/i.test(sha)) {
+      return deny("sha must be a git object id (7–40 hex characters)");
     }
-    if (choices.length < 2) {
-      return deny("offer at least two choices");
+    // The repository has to be one this agent may write. Recording a sha
+    // against an arbitrary label is a claim about somebody else's repository,
+    // and the session row is where the operator goes to believe it.
+    const claimed = typeof input.repo === "string" ? input.repo.trim() : "";
+    const writable = (await this.catalog.listRepos(ctx.projectId))
+      .filter((repo) => ctx.writableRepoIds.includes(repo.id))
+      .map((repo) => repo.name);
+    if (!writable.includes(claimed)) {
+      return deny(
+        `"${claimed}" is not a repository you hold git-write on (${writable.join(", ") || "none"})`,
+      );
     }
+    const repo = claimed.slice(0, 200);
+    const subject = typeof input.subject === "string" ? input.subject.trim().slice(0, 300) : "";
 
-    const message = await this.inbox.createFromAgent({
-      projectId: ctx.projectId,
-      agentId: ctx.agentId,
-      sessionId: ctx.sessionId,
-      taskId: ctx.taskId,
-      goalId: ctx.goalId,
-      kind: "multiple-choice",
-      body: question,
-      choices,
-      runtimeToolUseId: call.toolUseId,
-    });
-
-    return { kind: "park", inboxMessageId: message.id, text: null };
+    const shas = await this.sessions.recordCommits(ctx.sessionId, [sha]);
+    const line = `commit ${sha.slice(0, 12)}${repo ? ` in ${repo}` : ""}${subject ? `: ${subject}` : ""}`;
+    if (ctx.taskId) {
+      await this.tasks.addActivity({
+        taskId: ctx.taskId,
+        sessionId: ctx.sessionId,
+        agentId: ctx.agentId,
+        body: line,
+      });
+    } else if (ctx.goalId) {
+      await this.goalLog.appendProgress(ctx.goalId, ctx.agentSlug, line, { marksProgress: true });
+    }
+    return { kind: "result", text: `recorded ${shas.length} commit(s) on this session` };
   }
-}
 
-function deny(reason: string): ToolOutcome {
-  return { kind: "result", text: `refused: ${reason}` };
-}
-
-function normaliseChoices(raw: unknown): InboxChoice[] {
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  return raw.flatMap((entry) => {
-    if (typeof entry !== "object" || entry === null) {
-      return [];
-    }
-    const candidate = entry as { id?: unknown; label?: unknown };
-    if (typeof candidate.id !== "string" || typeof candidate.label !== "string") {
-      return [];
-    }
-    return [{ id: candidate.id, label: candidate.label }];
-  });
 }

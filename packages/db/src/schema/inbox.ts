@@ -1,4 +1,4 @@
-import type { InboxChoice } from "@agentos/shared";
+import type { InboxAnswer, InboxChoice, InboxQuestion } from "@agentos/shared";
 import { sql } from "drizzle-orm";
 import { index, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { agents } from "./agents";
@@ -31,6 +31,22 @@ export const inboxMessages = pgTable(
       .notNull()
       .default(sql`'[]'::jsonb`),
     selectedChoiceId: text("selected_choice_id"),
+    /**
+     * The questions this message asks, when it asks more than one.
+     *
+     * An agent that needs three decisions used to have to park three times,
+     * each one a separate round trip through a human who is not at their desk.
+     * `choices`/`selectedChoiceId` above stay as they were for every message
+     * written before this existed, and for the single-question case.
+     */
+    questions: jsonb("questions")
+      .$type<InboxQuestion[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    answers: jsonb("answers")
+      .$type<InboxAnswer[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     status: inboxStatusEnum("status").notNull().default("open"),
 
     /**

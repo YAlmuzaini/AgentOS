@@ -22,6 +22,24 @@ export interface WorkerConfig {
    * session is recoverable, a session that quietly had open internet is not.
    */
   allowUnenforcedNetwork: boolean;
+  /**
+   * How a `limited` network policy is honoured on this machine.
+   *
+   * `none` (the default) means it cannot be, and those sessions are refused so
+   * the control plane sends them to the cloud runner instead. `proxy` starts a
+   * per-session loopback proxy that only opens allow-listed hosts and points
+   * the child at it — real enforcement for every well-behaved client, and not
+   * a cage against an agent that opens its own socket. See DEPLOY.md §6.
+   */
+  egressMode: "none" | "proxy";
+  /** Where a Grok session sends its requests; OpenAI-compatible. */
+  grokBaseUrl: string;
+  /**
+   * Credential for Grok sessions. Absent means this worker runs Claude only.
+   * Prefer `GROK_API_KEY_FILE`: a file the worker reads and closes is never in
+   * its environment block.
+   */
+  grokApiKey: string;
   /** Minutes a session may run before it is torn down regardless. */
   maxSessionMinutes: number;
   /**
@@ -59,9 +77,35 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     authToken,
     workRoot: env.LOCAL_RUNNER_WORK_ROOT ?? "/tmp/agentos-local",
     allowUnenforcedNetwork: env.LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK === "1",
-    maxSessionMinutes: Number(env.LOCAL_RUNNER_MAX_SESSION_MINUTES ?? 120),
-    maxSessionRequests: Number(env.LOCAL_RUNNER_MAX_SESSION_REQUESTS ?? 500),
+    egressMode: env.LOCAL_RUNNER_EGRESS_MODE === "proxy" ? "proxy" : "none",
+    grokBaseUrl: env.LOCAL_RUNNER_GROK_BASE_URL ?? "https://api.x.ai/v1",
+    // Read from a file when one is given, for the same reason the Claude
+    // credential is: `/proc/<pid>/environ` exposes this process's environment
+    // to anything running as its unix user, and the agent's shell is that.
+    grokApiKey:
+      readIfPresent(env.GROK_API_KEY_FILE) ?? env.GROK_API_KEY ?? env.XAI_API_KEY ?? "",
+    maxSessionMinutes: positive(env.LOCAL_RUNNER_MAX_SESSION_MINUTES, 120, "LOCAL_RUNNER_MAX_SESSION_MINUTES"),
+    maxSessionRequests: positive(env.LOCAL_RUNNER_MAX_SESSION_REQUESTS, 500, "LOCAL_RUNNER_MAX_SESSION_REQUESTS"),
   };
+}
+
+/**
+ * A ceiling has to be a number greater than zero.
+ *
+ * `Number("")` is 0 and `Number("abc")` is NaN, and either would silently turn
+ * a ceiling into "no runs at all" or "no ceiling" depending on where it is
+ * read. A bad value falls back to the documented default, loudly.
+ */
+function positive(raw: string | undefined, fallback: number, name: string): number {
+  if (raw === undefined || raw === "") {
+    return fallback;
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    console.error(`${name}="${raw}" is not a positive number; using ${fallback}`);
+    return fallback;
+  }
+  return value;
 }
 
 /**
@@ -108,4 +152,19 @@ function readIfPresent(path: string | undefined): string | null {
   }
   const value = readFileSync(path, "utf8").trim();
   return value.length > 0 ? value : null;
+}
+
+/**
+ * Whether this worker may run a session with the given network policy.
+ *
+ * A pure function because it is the fail-closed decision of SPEC §5.5, and a
+ * decision buried in a request handler is one nothing can test: the proxy is a
+ * layer, and only the operator's assertion that the machine is confined is a
+ * permission.
+ */
+export function acceptsNetworking(
+  worker: Pick<WorkerConfig, "allowUnenforcedNetwork">,
+  networking: "open" | "limited",
+): boolean {
+  return networking === "open" || worker.allowUnenforcedNetwork;
 }

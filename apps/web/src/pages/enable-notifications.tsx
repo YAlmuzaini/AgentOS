@@ -25,7 +25,13 @@ export function EnableNotifications(): React.JSX.Element {
 
   if (!publicKey.data?.enabled) {
     return (
-      <Button size="sm" variant="ghost" disabled title="Push is not configured on the server">
+      <Button
+        size="sm"
+        className="min-h-11 sm:min-h-0"
+        variant="ghost"
+        disabled
+        title="Push is not configured on the server"
+      >
         <BellOff />
         Push not configured
       </Button>
@@ -35,6 +41,9 @@ export function EnableNotifications(): React.JSX.Element {
   return (
     <Button
       size="sm"
+      // The Phone Rule: this sits in the Inbox header, which is read
+      // one-handed, so it clears 44px there and stays compact elsewhere.
+      className="min-h-11 sm:min-h-0"
       disabled={subscribe.isPending || subscribe.isSuccess}
       onClick={() => subscribe.mutate()}
     >

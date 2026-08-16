@@ -19,6 +19,7 @@ import type {
   FileEntryDto,
   GoalDto,
   InstantiateTemplateInput,
+  InboxAnswer,
   InboxMessageDto,
   RunnerStatusDto,
   McpConnectionDto,
@@ -40,7 +41,7 @@ import type {
   UpdateSettingsInput,
   WriteFileInput,
 } from "@agentos/shared";
-import { request } from "./api-client";
+import { request, requestBlob, upload } from "./api-client";
 
 // Re-exported so every existing `from "../api"` import keeps working: this file
 // is still the front door, it just no longer carries the transport as well.
@@ -83,6 +84,9 @@ export const api = {
     request<void>(`/projects/${projectId}/tasks/${id}`, { method: "DELETE" }),
   taskActivity: (projectId: string, id: string) =>
     request<TaskActivityDto[]>(`/projects/${projectId}/tasks/${id}/activity`),
+  /** The files this card carries into every step and collaborator after it. */
+  taskAttachments: (projectId: string, id: string) =>
+    request<FileEntryDto[]>(`/projects/${projectId}/tasks/${id}/attachments`),
 
   // The list carries no tool-call log — fetch a single session to replay one.
   sessions: () => request<SessionSummaryDto[]>("/sessions"),
@@ -90,7 +94,24 @@ export const api = {
 
   inbox: (status?: string) =>
     request<InboxMessageDto[]>(`/inbox${status ? `?status=${status}` : ""}`),
-  replyInbox: (id: string, body: { body?: string; selectedChoiceId?: string }) =>
+  /**
+   * One subject's thread, oldest first (SPEC §11, §12).
+   *
+   * A goal's is shared across every specialist that worked it; a task's is how
+   * a sequence of questions from the same card reads as one conversation
+   * rather than as unrelated cards in a flat list.
+   */
+  inboxThread: (projectId: string, subject: { goalId?: string; taskId?: string }) =>
+    request<InboxMessageDto[]>(
+      `/inbox?projectId=${projectId}&` +
+        (subject.goalId ? `goalId=${subject.goalId}` : `taskId=${subject.taskId}`),
+    ),
+  goalInbox: (projectId: string, goalId: string) =>
+    request<InboxMessageDto[]>(`/inbox?projectId=${projectId}&goalId=${goalId}`),
+  replyInbox: (
+    id: string,
+    body: { body?: string; selectedChoiceId?: string; answers?: InboxAnswer[] },
+  ) =>
     request<InboxMessageDto>(`/inbox/${id}/reply`, {
       method: "POST",
       body: JSON.stringify(body),
@@ -176,6 +197,19 @@ export const api = {
     request<void>(`/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`, {
       method: "DELETE",
     }),
+  /** The id behind a path, for attaching a file to a card. */
+  fileId: (projectId: string, path: string) =>
+    request<{ id: string; path: string }>(
+      `/projects/${projectId}/files/id?path=${encodeURIComponent(path)}`,
+    ),
+  /** The raw bytes — for a download, or an inline preview of an image. */
+  fileBytes: (projectId: string, path: string) =>
+    requestBlob(`/projects/${projectId}/files/download?path=${encodeURIComponent(path)}`),
+  uploadFile: (projectId: string, path: string, file: File) =>
+    upload<FileEntryDto>(
+      `/projects/${projectId}/files/upload?path=${encodeURIComponent(path)}`,
+      file,
+    ),
 
   goals: (projectId: string) => request<GoalDto[]>(`/projects/${projectId}/goals`),
   goal: (projectId: string, id: string) =>

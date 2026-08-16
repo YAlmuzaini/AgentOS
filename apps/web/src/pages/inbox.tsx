@@ -1,25 +1,37 @@
-import type { InboxMessageDto } from "@agentos/shared";
+import type { InboxAnswer } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Inbox, Send } from "lucide-react";
-import { useState } from "react";
+import { useSearch } from "@tanstack/react-router";
+import { ChevronLeft, Inbox } from "lucide-react";
+import { useEffect } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
-import { Input } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
-import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
+import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
+import { useUrlSelection } from "../hooks/use-url-selection";
 import { EnableNotifications } from "./enable-notifications";
+import { InboxList } from "./inbox-list";
+import { MessageCard } from "./inbox-message";
 
 /**
- * The only human interrupt channel. Answering an open question resumes the
- * session that is parked on it.
+ * The only human interrupt channel, as an inbox rather than a feed.
  *
- * This is the one screen with a real mobile contract — it is read one-handed at
- * 23:00 — so every control here clears the 44px touch target on small screens.
+ * A queue on the left, the message being answered on the right — because the
+ * operator arrives with "what is waiting on me", works down the list, and
+ * needs the next one to be one click away. The previous stack of full cards
+ * made that a scroll: with three open questions the third was below the fold,
+ * and answering the first moved everything under the cursor.
+ *
+ * This is the one screen with a real mobile contract — it is read one-handed
+ * at 23:00 — so below `lg` it is one pane at a time: the list, or the message,
+ * with a way back. Every control clears 44px.
  */
 export function InboxPage(): React.JSX.Element {
   const queryClient = useQueryClient();
+  const { id: idFromUrl } = useSearch({ strict: false }) as { id?: string };
+  const [selected, setSelected] = useUrlSelection(idFromUrl);
+
   const messages = useQuery({
     queryKey: ["inbox"],
     queryFn: () => api.inbox(),
@@ -27,27 +39,50 @@ export function InboxPage(): React.JSX.Element {
   });
 
   const reply = useMutation({
-    mutationFn: (input: { id: string; body?: string; selectedChoiceId?: string }) =>
-      api.replyInbox(input.id, { body: input.body, selectedChoiceId: input.selectedChoiceId }),
+    mutationFn: (input: {
+      id: string;
+      body?: string;
+      selectedChoiceId?: string;
+      answers?: InboxAnswer[];
+    }) =>
+      api.replyInbox(input.id, {
+        body: input.body,
+        selectedChoiceId: input.selectedChoiceId,
+        answers: input.answers,
+      }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["inbox"] });
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      void queryClient.invalidateQueries({ queryKey: ["inbox-thread"] });
     },
   });
 
   const list = messages.data ?? [];
-  const open = list.filter((message) => message.status === "open").length;
+  const open = list.filter((message) => message.status === "open");
+  const active = list.find((message) => message.id === selected) ?? null;
+
+  // Land on the thing that is actually waiting — but only where there is a
+  // second pane to land in. On a phone the two panes are one screen, so
+  // auto-selecting would open a message the operator never chose and hide the
+  // queue they came to see.
+  useEffect(() => {
+    const twoPane = window.matchMedia("(min-width: 1024px)").matches;
+    if (twoPane && !selected && open.length > 0) {
+      setSelected(open[0]!.id);
+    }
+  }, [selected, open, setSelected]);
 
   return (
-    <Page width="reading">
+    <Page fill>
       <PageHeader
         icon={<Inbox />}
         title="Inbox"
+        meta={list.length > 0 ? `${list.length} message${list.length === 1 ? "" : "s"}` : undefined}
         actions={
           <>
-            {open > 0 ? (
+            {open.length > 0 ? (
               <StatusPill tone="gate" dot>
-                {open} open
+                {open.length} waiting
               </StatusPill>
             ) : null}
             <EnableNotifications />
@@ -57,103 +92,57 @@ export function InboxPage(): React.JSX.Element {
 
       {messages.isLoading ? (
         <Panel>
-          <SkeletonRows rows={3} />
+          <SkeletonRows rows={4} />
         </Panel>
-      ) : null}
-
-      {list.map((message) => (
-        <MessageCard
-          key={message.id}
-          message={message}
-          pending={reply.isPending}
-          onReply={(payload) => reply.mutate({ id: message.id, ...payload })}
-        />
-      ))}
-
-      {!messages.isLoading && list.length === 0 ? (
+      ) : list.length === 0 ? (
         <Panel>
           <EmptyState
             icon={<Inbox />}
             title="Nothing waiting on you"
-            hint="An agent that gets stuck or needs a decision will park its question here."
+            hint="An agent that gets stuck or needs a decision will park its question here, and push it to your phone."
           />
         </Panel>
-      ) : null}
-    </Page>
-  );
-}
-
-function MessageCard(props: {
-  message: InboxMessageDto;
-  pending: boolean;
-  onReply: (payload: { body?: string; selectedChoiceId?: string }) => void;
-}): React.JSX.Element {
-  const { message } = props;
-  const [text, setText] = useState("");
-  const open = message.status === "open";
-
-  return (
-    <Panel>
-      <PanelHeader className="border-b border-edge">
-        <PanelTitle accent={open ? "amber" : "emerald"}>
-          {message.kind === "multiple-choice" ? "Question" : "Message"}
-        </PanelTitle>
-        {open ? (
-          <StatusPill tone="gate">waiting on you</StatusPill>
-        ) : (
-          <StatusPill tone="neutral">{message.status}</StatusPill>
-        )}
-      </PanelHeader>
-
-      <div className="p-4">
-        <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-ink">{message.body}</p>
-
-        {open && message.kind === "multiple-choice" ? (
-          <div className="mt-4 space-y-2">
-            {message.choices.map((choice) => (
-              <button
-                key={choice.id}
-                type="button"
-                disabled={props.pending}
-                className="flex min-h-11 w-full items-center rounded-control border border-edge bg-panel px-3 text-left text-[13px] text-ink shadow-lift transition-colors hover:border-edge-strong hover:bg-sunken disabled:opacity-45"
-                onClick={() => props.onReply({ selectedChoiceId: choice.id })}
-              >
-                {choice.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {open && message.kind === "text" ? (
-          <form
-            className="mt-4 flex flex-col gap-2 sm:flex-row"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (text.trim()) {
-                props.onReply({ body: text });
-                setText("");
-              }
-            }}
+      ) : (
+        <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[340px_1fr]">
+          {/* One pane at a time on a phone: the list until something is picked,
+              then the message, with a way back. */}
+          <Panel
+            className={`h-fit overflow-hidden lg:flex lg:h-auto lg:min-h-0 lg:flex-col ${
+              active ? "hidden lg:block" : ""
+            }`}
           >
-            <Input
-              className="min-h-11 flex-1 sm:min-h-0"
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              placeholder="Reply…"
-              aria-label="Reply"
-            />
-            <Button
-              type="submit"
-              variant="solid"
-              disabled={!text.trim() || props.pending}
-              className="min-h-11 sm:min-h-0"
-            >
-              <Send />
-              Send
-            </Button>
-          </form>
-        ) : null}
-      </div>
-    </Panel>
+            <InboxList messages={list} selectedId={selected} onSelect={setSelected} />
+          </Panel>
+
+          <div className={`min-w-0 space-y-3 ${active ? "" : "hidden lg:block"}`}>
+            {active ? (
+              <>
+                <Button
+                  variant="ghost"
+                  className="min-h-11 lg:hidden"
+                  onClick={() => setSelected(null)}
+                >
+                  <ChevronLeft />
+                  All messages
+                </Button>
+                <MessageCard
+                  message={active}
+                  pending={reply.isPending}
+                  onReply={(payload) => reply.mutate({ id: active.id, ...payload })}
+                />
+              </>
+            ) : (
+              <Panel className="hidden lg:block">
+                <EmptyState
+                  icon={<Inbox />}
+                  title="Nothing waiting on you"
+                  hint="Pick a message on the left to read what an agent asked and what you answered."
+                />
+              </Panel>
+            )}
+          </div>
+        </div>
+      )}
+    </Page>
   );
 }

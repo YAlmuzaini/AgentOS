@@ -3,6 +3,7 @@ import { Check, Maximize2, Play } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
+import { Time } from "../components/ui/time";
 
 /** One card on the board. The whole thing opens the task. */
 export function TaskCard(props: {
@@ -62,6 +63,10 @@ export function TaskCard(props: {
         {/* A pill is a label, not a sentence. The full promise — that an agent
             physically cannot close this — is the title, so the card keeps a
             clean single-line badge at any column width. */}
+        {/* A board is a snapshot, and a card with no clock on it cannot tell
+            you whether "doing" means since this morning or since Tuesday. */}
+        <Time iso={task.updatedAt} className="mt-2 block text-ink-faint" />
+
         {task.approvalGate ? (
           <StatusPill tone="gate" className="mt-2" title="Approval gate — an agent cannot mark this done. Only you can close it.">
             approval gate

@@ -1,6 +1,7 @@
 import { isTerminalSessionStatus } from "@agentos/shared";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { type AgentRow, AgentsService } from "../agents/agents.service";
+import { FilesService } from "../files/files.service";
 import { GoalLogService } from "../goals/goal-log.service";
 import { InboxService } from "../inbox/inbox.service";
 import { SessionQueue } from "../queue/session.queue";
@@ -32,6 +33,7 @@ export class SessionOrchestrator {
 
   constructor(
     private readonly agents: AgentsService,
+    private readonly files: FilesService,
     private readonly tasks: TasksService,
     private readonly sessions: SessionsService,
     private readonly inbox: InboxService,
@@ -83,7 +85,16 @@ export class SessionOrchestrator {
         runner,
         handle,
         sessionId: session.id,
-        ctx: toolContext(session.id, task.projectId, agent, task.id, null),
+        ctx: toolContext(
+          session.id,
+          task.projectId,
+          agent,
+          task.id,
+          null,
+          // The attached files are readable by whoever is working the card,
+          // whatever folders their agent otherwise holds (SPEC §4).
+          await this.files.pathsByIds(task.projectId, task.attachmentIds),
+        ),
         seen: new Set<string>(),
       });
 
@@ -135,6 +146,7 @@ export class SessionOrchestrator {
         sessionId: session.id,
         kickoff: input.brief,
         budgetUsd: input.budgetUsd,
+        goalId: input.goalId,
         preference,
       }));
       await this.sessions.attachRuntime(
@@ -196,6 +208,7 @@ export class SessionOrchestrator {
     sessionId: string;
     kickoff?: string;
     budgetUsd: number | null;
+    goalId?: string | null;
     /** How this backend was chosen — decides whether a refusal may fall back. */
     preference: "cloud" | "local" | "auto";
   }): Promise<{ runner: Runner; handle: RunnerHandle }> {

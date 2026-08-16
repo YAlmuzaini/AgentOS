@@ -1,7 +1,11 @@
 import type { SessionDto } from "@agentos/shared";
 import type { SessionRow } from "./sessions.service";
 
-export function toDto(row: SessionRow): SessionDto {
+/**
+ * @param agentName joined by the caller. A session that names only an agent id
+ * makes the operator open another screen to learn who ran.
+ */
+export function toDto(row: SessionRow, agentName: string | null = null): SessionDto {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -18,5 +22,7 @@ export function toDto(row: SessionRow): SessionDto {
     error: row.error,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt?.toISOString() ?? null,
+    access: row.access ?? null,
+    agentName,
   };
 }

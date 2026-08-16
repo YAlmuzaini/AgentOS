@@ -15,6 +15,7 @@ import { StatusPill } from "../components/ui/pill";
 import { useProjectGate } from "../hooks/use-project";
 import { GoalDetail } from "./goal-detail";
 import { NoProject, ProjectPending } from "./project-states";
+import { Time } from "../components/ui/time";
 
 export function GoalsPage(): React.JSX.Element {
   const { project, pending, absent } = useProjectGate();
@@ -102,6 +103,7 @@ export function GoalsPage(): React.JSX.Element {
                       {goal.spendCapUsd !== null ? `$${goal.spendCapUsd.toFixed(2)}` : "no cap"} ·{" "}
                       {goal.iterations} iterations
                     </div>
+                    <Time iso={goal.updatedAt} className="mt-1 block text-ink-faint" />
                   </button>
                 </li>
               ))}

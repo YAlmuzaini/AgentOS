@@ -47,6 +47,8 @@ export const patchTaskSchema = z.object({
   status: z.enum(TASK_STATUSES).optional(),
   assigneeAgentId: z.string().uuid().nullable().optional(),
   approvalGate: z.boolean().optional(),
+  /** The operator's own attachment edits; agents attach through their tool. */
+  attachmentIds: z.array(z.string().uuid()).optional(),
 });
 export type PatchTaskInput = z.infer<typeof patchTaskSchema>;
 
@@ -63,6 +65,10 @@ export interface TaskDto {
   chainId: string | null;
   chainIndex: number | null;
   templateId: string | null;
+  /** Set when a collaborator spawned this card (SPEC §5.10). */
+  parentTaskId: string | null;
+  spawnedByAgentId: string | null;
+  spawnDepth: number;
   scheduleKind: (typeof SCHEDULE_KINDS)[number];
   runAt: string | null;
   cron: string | null;

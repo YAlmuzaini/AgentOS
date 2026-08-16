@@ -7,7 +7,9 @@ import {
   type TaskDto,
 } from "@agentos/shared";
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, UseGuards } from "@nestjs/common";
+import type { FileEntryDto } from "@agentos/shared";
 import { OperatorGuard } from "../auth/operator.guard";
+import { FilesService } from "../files/files.service";
 import { ZodBody } from "../common/zod-body.pipe";
 import { SessionQueue } from "../queue/session.queue";
 import { TasksService } from "./tasks.service";
@@ -17,8 +19,24 @@ import { TasksService } from "./tasks.service";
 export class TasksController {
   constructor(
     private readonly tasks: TasksService,
+    private readonly files: FilesService,
     private readonly queue: SessionQueue,
   ) {}
+
+  /**
+   * The files attached to a card, as directory entries (SPEC §9.2).
+   *
+   * Attachments are stored as ids; the operator needs paths and sizes, and the
+   * download route takes a path.
+   */
+  @Get(":id/attachments")
+  async attachments(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<FileEntryDto[]> {
+    const task = await this.tasks.require(projectId, id);
+    return this.files.entriesByIds(projectId, task.attachmentIds);
+  }
 
   @Get()
   list(@Param("projectId", ParseUUIDPipe) projectId: string): Promise<TaskDto[]> {

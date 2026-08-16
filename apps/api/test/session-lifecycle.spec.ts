@@ -151,6 +151,49 @@ describe("session lifecycle", () => {
     expect(sessions[0]!.status).toBe("failed");
     expect(sessions[0]!.error).toMatch(/no credential/);
   });
+
+  /**
+   * SPEC §13: the session screen has to be able to say what the run could
+   * touch, not only what it did. Recorded at provision from the resolved
+   * grants, and holding names rather than values — it ends up on a screen.
+   */
+  it("records what the session was granted, without any secret values", async () => {
+    const { projectId, agentIds } = await harness.seedProject();
+    const task = await tasks.create(projectId, {
+      name: "Look around",
+      description: "",
+      assigneeType: "agent",
+      assigneeAgentId: agentIds.plan!,
+      attachmentIds: [],
+      approvalGate: false,
+      scheduleKind: "now",
+      runAt: null,
+      cron: null,
+      timezone: null,
+    });
+
+    harness.runner.setScript([
+      { kind: "tool", call: { name: "agentos_update_task", input: { status: "done" } } },
+    ]);
+    await orchestrator.runTask(task.id);
+
+    const [session] = await listSessions(harness);
+    const access = session!.access;
+    expect(access).not.toBeNull();
+    expect(access!.model).toBe("claude-opus-5");
+    expect(access!.tools).toContain("agentos_update_task");
+    expect(access!.tools).toContain("fs_write");
+    // A seeded agent has no environment, which resolves to deny-everything.
+    expect(access!.networking).toBe("limited");
+    expect(access!.allowedHosts).toEqual([]);
+    expect(access!.folders.join(" ")).toContain("/agents/plan/");
+    // The plan agent holds no repo, no MCP server and no env binding.
+    expect(access!.repos).toEqual([]);
+    expect(access!.mcpServers).toEqual([]);
+    expect(access!.envVarKeys).toEqual([]);
+    // And the session says who ran it, so the screen needs no second fetch.
+    expect(session!.agentName).toBe("plan");
+  });
 });
 
 async function listSessions(harness: Harness) {

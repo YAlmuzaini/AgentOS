@@ -1,4 +1,5 @@
 import type {
+  CommitRecord,
   ProvisionInput,
   Runner,
   RunnerEvent,
@@ -24,7 +25,14 @@ export type Script = Array<
 >;
 
 export class FakeRunner implements Runner {
-  readonly name = "cloud" as const;
+  /**
+   * Which backend this is standing in for.
+   *
+   * Mutable because one behaviour genuinely differs between them: only a
+   * backend that still holds the checkout can report commits, and only the
+   * local one cannot push them anywhere.
+   */
+  name: "cloud" | "local" = "cloud";
 
   /** Everything the control plane asked this backend to do, for assertions. */
   readonly provisioned: ProvisionInput[] = [];
@@ -154,6 +162,18 @@ export class FakeRunner implements Runner {
     return 0.25;
   }
 
+  /** Commits the next teardown will observe, as a given backend. */
+  collectCommitsWith(name: "cloud" | "local", commits: CommitRecord[]): void {
+    this.name = name;
+    this.commits = commits;
+  }
+
+  private commits: CommitRecord[] | null = null;
+
+  async collectCommits(): Promise<CommitRecord[]> {
+    return this.commits ?? [];
+  }
+
   /** Makes the next destroy fail, the way a provider outage would. */
   failNextDestroy(error: Error): void {
     this.failDestroyWith = error;
@@ -184,6 +204,8 @@ export class FakeRunner implements Runner {
   }
 
   reset(): void {
+    this.name = "cloud";
+    this.commits = null;
     this.provisioned.length = 0;
     this.injectedResults.length = 0;
     this.destroyed.length = 0;

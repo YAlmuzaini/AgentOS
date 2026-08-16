@@ -18,6 +18,44 @@ export const toolCallLogEntrySchema = z.object({
 });
 export type ToolCallLogEntry = z.infer<typeof toolCallLogEntrySchema>;
 
+/**
+ * What one session was actually given, recorded when it was provisioned
+ * (SPEC §6, §13).
+ *
+ * The manifest is decided per session from the agent's grants, so an agent
+ * edited afterwards tells you nothing about the run you are looking at. This
+ * is the record of what that container could reach while it ran.
+ *
+ * **Names only.** Environment variables appear as keys, MCP connections and
+ * repositories as names — never a value, a URL with a credential in it, or a
+ * token. The whole point of the manifest is that it is safe to show.
+ */
+export const sessionAccessSchema = z.object({
+  model: z.string().default(""),
+  /** Control-plane tools this session was handed. */
+  tools: z.array(z.string()).default([]),
+  mcpServers: z
+    .array(z.object({ name: z.string(), allowedOperations: z.array(z.string()).default([]) }))
+    .default([]),
+  repos: z
+    .array(
+      z.object({
+        name: z.string(),
+        mountPath: z.string(),
+        permissions: z.enum(["git-read", "git-write"]),
+      }),
+    )
+    .default([]),
+  /** Keys only. A value here would be a credential on a screen. */
+  envVarKeys: z.array(z.string()).default([]),
+  skills: z.array(z.string()).default([]),
+  folders: z.array(z.string()).default([]),
+  collaborators: z.array(z.string()).default([]),
+  networking: z.enum(["open", "limited"]).default("limited"),
+  allowedHosts: z.array(z.string()).default([]),
+});
+export type SessionAccess = z.infer<typeof sessionAccessSchema>;
+
 export interface SessionDto {
   id: string;
   projectId: string;
@@ -36,6 +74,10 @@ export interface SessionDto {
   error: string | null;
   startedAt: string;
   endedAt: string | null;
+  /** Null for sessions that ran before this was recorded. */
+  access: SessionAccess | null;
+  /** Name of the agent that ran, so a session reads without a second fetch. */
+  agentName: string | null;
 }
 
 /**

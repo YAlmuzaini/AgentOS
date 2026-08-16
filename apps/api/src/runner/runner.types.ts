@@ -166,6 +166,22 @@ export interface Runner {
    * Used to retry a cleanup that failed after the session was already gone.
    */
   deleteVaults?(vaultIds: string[]): Promise<void>;
+  /**
+   * Commits this session produced, read from the workspace before it is gone
+   * (SPEC §6: "if git-write granted and work produced: commit, record sha").
+   *
+   * Optional because only a backend that still holds the checkout can answer
+   * it. The cloud runtime owns its own container, so there the record comes
+   * from the agent's own `agentos_record_commit` call instead — attested
+   * rather than observed, and labelled that way on the session row.
+   */
+  collectCommits?(handle: RunnerHandle): Promise<CommitRecord[]>;
+}
+
+export interface CommitRecord {
+  repo: string;
+  sha: string;
+  subject: string;
 }
 
 export interface RuntimeSessionSummary {

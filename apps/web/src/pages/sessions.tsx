@@ -8,7 +8,9 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Page, PageHeader } from "../components/ui/page";
-import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
+import { Panel, PanelHeader, PanelTitle, SectionLabel, Well } from "../components/ui/panel";
+import { exactTime, Time } from "../components/ui/time";
+import { SessionAccessPanel } from "./session-access";
 import { Dot, StatusPill } from "../components/ui/pill";
 
 /**
@@ -111,8 +113,14 @@ export function SessionsPage(): React.JSX.Element {
                       tone={leftContainerBehind(session) ? "danger" : toneFor(session.status)}
                       pulse={isInFlight(session.status)}
                     />
-                    <span className="machine flex-1 truncate text-xs text-ink">
-                      {session.id.slice(0, 8)}
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="machine truncate text-xs text-ink">
+                        {session.agentName ?? session.id.slice(0, 8)}
+                      </span>
+                      {/* When, on the row: the list is how an operator finds
+                          the run they are thinking of, and "which one was
+                          this morning" is the question they arrive with. */}
+                      <Time iso={session.startedAt} className="text-ink-faint" />
                     </span>
                     {/* What the run cost, where the operator is choosing which
                         run to open. It was recorded on every session and shown
@@ -186,6 +194,27 @@ export function SessionsPage(): React.JSX.Element {
             </div>
           </PanelHeader>
 
+          {detail.data ? (
+            <div className="shrink-0 border-b border-edge">
+              <SessionAccessPanel session={detail.data} entries={entries} />
+            </div>
+          ) : null}
+
+          {/* What the run left behind. A commit is the one thing that outlives
+              the container, so it belongs on the row rather than in a title. */}
+          {(detail.data?.commitShas ?? []).length > 0 ? (
+            <div className="shrink-0 border-b border-edge px-4 py-3">
+              <SectionLabel>Commits</SectionLabel>
+              <ul className="machine mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-muted">
+                {(detail.data?.commitShas ?? []).map((sha) => (
+                  <li key={sha} title={sha}>
+                    {sha.slice(0, 12)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           <div className="p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
             {!selected ? (
               <EmptyState title="Select a session" hint="Its tool calls stream in here." />
@@ -199,7 +228,9 @@ export function SessionsPage(): React.JSX.Element {
                       key={`${entry.eventId ?? index}`}
                       className="flex gap-2.5 px-3.5 py-1.5 leading-relaxed"
                     >
-                      <span className="shrink-0 text-ink-faint">{entry.at.slice(11, 19)}</span>
+                      <span className="shrink-0 text-ink-faint" title={exactTime(entry.at)}>
+                        {entry.at.slice(11, 19)}
+                      </span>
                       <span className="shrink-0 font-medium text-ink">
                         {entry.name ?? entry.type}
                       </span>

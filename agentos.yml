@@ -8,6 +8,9 @@
 #
 # `push` then `pull` is an identity, which is what makes the file safe to keep
 # in git. Secrets appear here only as references — never values.
+#
+# `pull` rewrites the whole file, so this header is the one thing it does not
+# preserve; re-add it if you regenerate.
 
 agents:
   coherence:
@@ -21,12 +24,28 @@ agents:
       You review the attached plan only through your lens (coherence).
       Write a report. Finish.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Coherence reviewer
-  default:
+  customer-support:
     collaboration: []
     environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-sonnet-5
+    prompt: |-
+      You handle inbound customer support. You have the support MCP (e.g. Front)
+      only. Analyze the conversation. Assign the correct human rep or account
+      executive. You do not have Gmail. You do not have GitHub. You must not
+      exfiltrate or request codebase information.
+    repos: []
+    runner: inherit
+    skills: []
+    title: Customer support
+  default:
+    collaboration: []
+    environment: open
     filesystem: []
     inbox: true
     mcp: []
@@ -35,9 +54,24 @@ agents:
       You are the default AgentOS agent. Do the assigned task with the tools
       you have. Finish or inbox if stuck.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Default agent
+  diagnostic:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-opus-5
+    prompt: |-
+      You diagnose a bug. You have the repo and the customer-support chat.
+      Produce a cause report. Do not implement until a human approves and a
+      follow-up implementation chain is started.
+    repos: []
+    runner: inherit
+    skills: []
+    title: Diagnostic agent
   feasibility:
     collaboration: []
     environment: null
@@ -49,7 +83,7 @@ agents:
       You review the attached plan only through your lens (feasibility).
       Write a report. Finish.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Feasibility reviewer
   implementation-plan-executioner:
@@ -63,7 +97,7 @@ agents:
       You implement the code according to the attached implementation plan.
       Do not re-litigate the plan. Commit. Leave notes in activity.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Implementation plan executioner
   librarian:
@@ -78,9 +112,24 @@ agents:
       reflect how the codebase actually works after this change. Do not
       change product code.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Librarian
+  linkedin-content:
+    collaboration: []
+    environment: null
+    filesystem: []
+    inbox: true
+    mcp: []
+    model: claude-sonnet-5
+    prompt: |-
+      You produce the scheduled LinkedIn content. Use only the MCPs and folders
+      you were granted. Inbox if you need a human approval before posting, if
+      posting is even in your tool list.
+    repos: []
+    runner: inherit
+    skills: []
+    title: LinkedIn content
   plan:
     collaboration: []
     environment: null
@@ -94,7 +143,7 @@ agents:
       task (and as a file attachment). Then finish the task. You do not
       implement. You do not open unrelated tools.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Plan agent
   plan-risk:
@@ -109,11 +158,15 @@ agents:
       tests). Call out steps that can fail silently, steps with no verification,
       and paths the plan leaves untested. Write a report. Finish.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Plan risk reviewer
   review-coordinator:
-    collaboration: []
+    collaboration:
+      - feasibility
+      - scope-guardian
+      - coherence
+      - plan-risk
     environment: null
     filesystem: []
     inbox: true
@@ -126,7 +179,7 @@ agents:
       into must-fix and should-fix. Attach the consolidated report. Do not
       implement fixes yourself.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Review coordinator
   scope-guardian:
@@ -140,7 +193,7 @@ agents:
       You review the attached plan only through your lens (scope creep).
       Write a report. Finish.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Scope guardian
   senior-dev:
@@ -155,7 +208,7 @@ agents:
       fixes, in the granted repo. Follow the plan if one is attached. Commit
       when done. Run available tests. Inbox the human only if you are blocked.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Senior developer
   spec:
@@ -171,7 +224,7 @@ agents:
       mark this task done — it is approval-gated. Inbox the human when the spec
       is ready for review.
     repos: []
-    runner: cloud
+    runner: inherit
     skills: []
     title: Spec agent
 environments:

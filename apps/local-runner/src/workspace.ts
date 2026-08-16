@@ -85,6 +85,58 @@ async function resolveInside(dir: string, mountPath: string): Promise<string> {
   return leaf;
 }
 
+export interface CommitRecord {
+  repo: string;
+  sha: string;
+  subject: string;
+}
+
+/**
+ * What this session committed, read straight out of the checkouts (SPEC §6).
+ *
+ * Observed rather than attested: the clone is a directory on a machine the
+ * operator owns, so the honest answer is `git log` rather than whatever the
+ * agent says it did. Commits are those on `HEAD` that the cloned tip does not
+ * have — a shallow clone still records `origin/<branch>`, which is exactly the
+ * base to compare against.
+ *
+ * Best effort by design: a repo the agent deleted, or one it left in a state
+ * git will not read, must not stop the session from ending.
+ */
+export async function collectCommits(
+  dir: string,
+  repos: ProvisionBody["repos"],
+): Promise<CommitRecord[]> {
+  const commits: CommitRecord[] = [];
+  for (const repo of repos) {
+    // A `git-read` grant cannot produce a commit anyone will ever see, so a
+    // local commit in one is a scratch commit, not a result.
+    if (repo.permissions !== "git-write") {
+      continue;
+    }
+    const target = join(dir, repo.mountPath.replace(/^\/+/, ""));
+    try {
+      const out = await capture("git", [
+        "-C",
+        target,
+        "log",
+        "--no-color",
+        "--format=%H%x09%s",
+        `origin/${repo.branch}..HEAD`,
+      ]);
+      for (const line of out.split("\n")) {
+        const [sha, subject] = line.split("\t");
+        if (sha?.trim()) {
+          commits.push({ repo: repo.name, sha: sha.trim(), subject: (subject ?? "").trim() });
+        }
+      }
+    } catch (error) {
+      console.error(`could not read commits in ${repo.name}: ${String(error)}`);
+    }
+  }
+  return commits;
+}
+
 function authenticatedUrl(remoteUrl: string, token: string): string {
   try {
     const url = new URL(remoteUrl);
@@ -110,6 +162,29 @@ function run(command: string, args: string[]): Promise<void> {
         return;
       }
       // Never echo the command: its arguments may hold a clone token.
+      reject(new Error(`${command} failed with code ${code}: ${redact(stderr).slice(0, 400)}`));
+    });
+  });
+}
+
+/** Same as `run`, but the caller wants what the command printed. */
+function capture(command: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(stdout);
+        return;
+      }
       reject(new Error(`${command} failed with code ${code}: ${redact(stderr).slice(0, 400)}`));
     });
   });

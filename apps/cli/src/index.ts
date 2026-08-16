@@ -19,6 +19,7 @@ import {
   required,
   YAML_FILE,
 } from "./client";
+import { inboxChoice } from "./inbox-choice";
 
 const USAGE = `agentos — control plane CLI
 
@@ -37,8 +38,14 @@ Creating
                       [--description <text>] [--gate] [--at <iso>] [--cron <expr> --tz <zone>]
   agentos goal create --project <slug> --title <title> --spec-file <path>
                       [--cap <usd> | --no-cap] [--max-minutes <n>]
+  agentos agent create --project <slug> --agent <name> --title <text> --model <id>
+                      --prompt-file <path> (--inbox | --no-inbox)
+                      [--runner cloud|local|inherit] [--collaborators a,b]
   agentos agent update --project <slug> --agent <name> [--model <id>] [--prompt-file <path>]
-  agentos skill create --project <slug> --slug <slug> --name <name> --body-file <path>
+                      [--title <text>] [--runner cloud|local|inherit] [--collaborators a,b]
+                      [--inbox | --no-inbox]
+  agentos skill create --project <slug> --slug <slug> --name <name>
+                      [--body-file <path> | --kind file --file-path /skills/x.py]
   agentos template run --project <slug> --template <name> --var k=v [--var k=v ...]
 
 Environment
@@ -76,6 +83,8 @@ async function main(argv: string[]): Promise<number> {
 
     case "agent list":
       return print(await call(`/projects/${await projectId(flags)}/agents`));
+    case "agent create":
+      return agentCreate(flags);
     case "agent update":
       return agentUpdate(flags);
 
@@ -88,17 +97,7 @@ async function main(argv: string[]): Promise<number> {
       return goalCreate(flags);
 
     case "skill create":
-      return print(
-        await call(`/projects/${await projectId(flags)}/skills`, {
-          method: "POST",
-          body: {
-            slug: required(flags.slug, "--slug"),
-            name: required(flags.name, "--name"),
-            kind: "prompt",
-            body: await readFile(required(flags["body-file"], "--body-file"), "utf8"),
-          },
-        }),
-      );
+      return skillCreate(flags);
 
     case "template run":
       return templateRun(flags);
@@ -184,6 +183,53 @@ async function goalCreate(flags: Flags): Promise<number> {
   return 0;
 }
 
+/**
+ * Creates an agent (SPEC §17: "adjust agents" is create *and* update).
+ *
+ * Grants are deliberately absent: repos, MCP connections and filesystem
+ * folders are ids, and handing them out on a command line is how an operator
+ * gives an agent something they meant to give another one. Those belong in
+ * `agentos.yml`, where the whole shape is visible at once, or in the UI.
+ */
+async function agentCreate(flags: Flags): Promise<number> {
+  const id = await projectId(flags);
+  // Stated, not defaulted, and not guessed at when the flags contradict.
+  const inboxAccess = inboxChoice(flags, true)!;
+  return print(
+    await call(`/projects/${id}/agents`, {
+      method: "POST",
+      body: {
+        name: required(flags.agent, "--agent"),
+        title: required(flags.title, "--title"),
+        model: required(flags.model, "--model"),
+        rolePrompt: await readFile(required(flags["prompt-file"], "--prompt-file"), "utf8"),
+        runnerPreference: flags.runner ?? "inherit",
+        collaborationList: splitList(flags.collaborators),
+        inboxAccess,
+      },
+    }),
+  );
+}
+
+/** A skill is a prompt or a file on the agent filesystem (SPEC §4). */
+async function skillCreate(flags: Flags): Promise<number> {
+  const id = await projectId(flags);
+  const kind = flags.kind === "file" ? "file" : "prompt";
+  return print(
+    await call(`/projects/${id}/skills`, {
+      method: "POST",
+      body: {
+        slug: required(flags.slug, "--slug"),
+        name: required(flags.name, "--name"),
+        kind,
+        ...(kind === "file"
+          ? { filePath: required(flags["file-path"], "--file-path"), body: "" }
+          : { body: await readFile(required(flags["body-file"], "--body-file"), "utf8") }),
+      },
+    }),
+  );
+}
+
 async function agentUpdate(flags: Flags): Promise<number> {
   const id = await projectId(flags);
   const name = required(flags.agent, "--agent");
@@ -197,13 +243,37 @@ async function agentUpdate(flags: Flags): Promise<number> {
   if (flags.model) {
     body.model = flags.model;
   }
+  if (flags.title) {
+    body.title = flags.title;
+  }
+  if (flags.runner) {
+    body.runnerPreference = flags.runner;
+  }
+  if (flags.collaborators !== undefined) {
+    body.collaborationList = splitList(flags.collaborators);
+  }
+  const inboxAccess = inboxChoice(flags, false);
+  if (inboxAccess !== undefined) {
+    body.inboxAccess = inboxAccess;
+  }
   if (flags["prompt-file"]) {
     body.rolePrompt = await readFile(flags["prompt-file"], "utf8");
   }
   if (Object.keys(body).length === 0) {
-    throw new Error("nothing to update — pass --model and/or --prompt-file");
+    throw new Error(
+      "nothing to update — pass --model, --title, --runner, --collaborators, " +
+        "--inbox/--no-inbox and/or --prompt-file",
+    );
   }
   return print(await call(`/projects/${id}/agents/${agent.id}`, { method: "PUT", body }));
+}
+
+/** `--collaborators plan,senior-dev` → `["plan", "senior-dev"]`. */
+function splitList(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 async function templateRun(flags: Flags): Promise<number> {

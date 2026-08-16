@@ -5,12 +5,13 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ui/confirm";
-import { GoalControls, Rail } from "./goal-detail-parts";
+import { GoalControls, GoalSharedState, Rail } from "./goal-detail-parts";
 import { InlineError, SkeletonRows } from "../components/ui/feedback";
 import { Input } from "../components/ui/form";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 import { StatCard } from "../components/ui/stat";
+import { Duration, Time } from "../components/ui/time";
 
 let nextDraftId = 0;
 
@@ -98,6 +99,23 @@ export function GoalDetail(props: {
           </Rail>
           <Rail label="Stuck after">{data.stuckThreshold} iterations</Rail>
           <Rail label="Runner">{data.runnerPreference}</Rail>
+          {/* A goal is the one thing here that runs for hours unattended, so
+              "since when" and "for how long" are the first two questions. */}
+          <Rail label="Started">
+            {data.startedAt ? <Time iso={data.startedAt} /> : <span className="text-ink-faint">not yet</span>}
+          </Rail>
+          {data.startedAt ? (
+            <Rail label="Running for">
+              <Duration
+                startedAt={data.startedAt}
+                endedAt={data.status === "active" ? null : data.updatedAt}
+                className="text-xs"
+              />
+            </Rail>
+          ) : null}
+          <Rail label="Last change">
+            <Time iso={data.updatedAt} />
+          </Rail>
         </dl>
       </Panel>
 
@@ -242,6 +260,8 @@ export function GoalDetail(props: {
               ))}
             </ul>
           </Panel>
+
+          <GoalSharedState projectId={props.projectId} goalId={props.goalId} />
 
           <Panel>
             <PanelHeader className="border-b border-edge">

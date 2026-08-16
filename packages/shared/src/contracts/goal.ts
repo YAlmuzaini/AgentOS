@@ -70,6 +70,8 @@ export interface GoalDto {
   progressLog: string;
   stoppedReason: string | null;
   iterations: number;
+  /** When the operator approved the checklist and the loop began. */
+  startedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,44 +1,11 @@
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
-import type { Credential } from "./config.js";
+import type { Credential, WorkerConfig } from "./config.js";
 import { startCredentialProxy } from "./credential-proxy.js";
+import { startEgressProxy } from "./egress-proxy.js";
+import { grantedEnv, inheritableEnv } from "./env.js";
 import { toZodShape } from "./json-schema-to-zod.js";
 import type { CustomToolDefinition, ProvisionBody } from "./protocol.js";
 import type { LocalSession } from "./session.js";
-
-/**
- * The worker's own environment, minus anything the agent must not see.
- *
- * Credentials are stripped by name: they belong to the worker, and the child
- * gets the proxy's placeholder instead. Everything else — PATH, HOME, locale —
- * is what makes the sandbox a usable shell.
- */
-function inheritableEnv(): Record<string, string> {
-  const withheld = new Set([
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "CLAUDE_CODE_OAUTH_TOKEN_FILE",
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_API_KEY_FILE",
-    "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_BASE_URL",
-    "LOCAL_RUNNER_TOKEN",
-    // The control plane's own secrets, in case this worker shares a .env with
-    // it in development.
-    "AGENTOS_OPERATOR_TOKEN",
-    "WEBHOOK_MASTER_SECRET",
-    "DATABASE_URL",
-    "REDIS_URL",
-    "S3_ACCESS_KEY_ID",
-    "S3_SECRET_ACCESS_KEY",
-    "VAPID_PRIVATE_KEY",
-  ]);
-  const inherited: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !withheld.has(key)) {
-      inherited[key] = value;
-    }
-  }
-  return inherited;
-}
 
 /** Tools that reach the network on their own; a limited session must not have them. */
 const NETWORK_TOOLS = ["WebFetch", "WebSearch"];
@@ -56,13 +23,20 @@ const NETWORK_TOOLS = ["WebFetch", "WebSearch"];
 export async function runSession(
   session: LocalSession,
   credential: Credential,
+  config: WorkerConfig,
   abort: AbortSignal,
-  maxRequests?: number,
 ): Promise<void> {
   const input = session.input;
   // One proxy per session, torn down with it, so a leaked base URL is useless
   // the moment the run ends.
-  const proxy = await startCredentialProxy(credential, { maxRequests });
+  const proxy = await startCredentialProxy(credential, { maxRequests: config.maxSessionRequests });
+  // And, when the operator turned it on, one egress wall per session. The
+  // child's HTTP_PROXY points at it, so every ordinary client on the machine
+  // is held to the environment's allowlist (SPEC §5.5).
+  const egress =
+    input.environment.networking === "limited" && config.egressMode === "proxy"
+      ? await startEgressProxy(input.environment.allowedHosts)
+      : null;
 
   try {
     const response = query({
@@ -103,14 +77,27 @@ export async function runSession(
           // shell builtins, which looks like a broken sandbox rather than a
           // configuration mistake.
           ...inheritableEnv(),
-          // A placeholder key and a loopback base URL. The operator's real
-          // credential lives in the proxy, not in this environment, because
-          // everything here is readable by the agent's own Bash tool.
-          ...proxy.env,
           // Granted env vars are handed to the session's own processes. Unlike
           // the cloud runner there is no egress substitution here: the value is
-          // really in the environment, and the agent can read it.
-          ...Object.fromEntries(input.envVars.map((variable: { key: string; value: string }) => [variable.key, variable.value])),
+          // really in the environment, and the agent can read it. A binding
+          // that names a runtime key is refused rather than applied.
+          ...grantedEnv(input.envVars, (key) =>
+            session.emit({
+              kind: "log",
+              eventId: `env-refused:${key}`,
+              type: "runner.warning",
+              name: key,
+              summary:
+                `the environment variable "${key}" was not injected: that name configures this ` +
+                "worker's credential or egress proxy, and a session may not reconfigure either.",
+            }),
+          ),
+          // Applied last, and deliberately so: a placeholder key, a loopback
+          // base URL, and the egress wall. The operator's real credential lives
+          // in the proxy, not in this environment, because everything here is
+          // readable by the agent's own Bash tool.
+          ...proxy.env,
+          ...(egress?.env ?? {}),
         },
         ...(input.budgetUsd !== null && input.budgetUsd > 0
           ? { maxBudgetUsd: input.budgetUsd }
@@ -131,6 +118,20 @@ export async function runSession(
     session.emit({ kind: "idle", stopReason: "error" });
   } finally {
     await proxy.close();
+    if (egress) {
+      // What the wall stopped is worth saying: a session that quietly failed
+      // to reach something looks like a model that gave up.
+      if (egress.refused.length > 0) {
+        session.emit({
+          kind: "log",
+          eventId: "egress:refused",
+          type: "runner.warning",
+          name: null,
+          summary: `the egress policy refused: ${[...new Set(egress.refused)].join(", ")}`,
+        });
+      }
+      await egress.close();
+    }
   }
 }
 

@@ -38,6 +38,8 @@ export interface SessionManifest {
   taskName: string | null;
   taskDescription: string | null;
   approvalGate: boolean;
+  /** Filesystem paths attached to this task, readable with the fs tools. */
+  attachments: string[];
   allowedTools: string[];
   allowedFolders: string[];
   allowedRepos: string[];
@@ -57,6 +59,14 @@ export function renderSessionManifest(manifest: SessionManifest): string {
       "## Task description",
       manifest.taskDescription?.trim() || "(none given)",
     );
+    if (manifest.attachments.length > 0) {
+      lines.push(
+        "",
+        "## Attachments",
+        "Read these with the filesystem tools before you start; they are the work that came before yours.",
+        ...manifest.attachments.map((path) => `- ${path}`),
+      );
+    }
   }
 
   lines.push(

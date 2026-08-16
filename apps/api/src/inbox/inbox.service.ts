@@ -1,6 +1,7 @@
 import { type Database, inboxMessages, sessions } from "@agentos/db";
 import type {
   InboxChoice,
+  InboxQuestion,
   InboxKind,
   InboxMessageDto,
   InboxStatus,
@@ -9,12 +10,14 @@ import type {
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
+import { normaliseAnswers, renderAnswers } from "./inbox-answers";
+import { inboxContext, type InboxRow, toDto } from "./inbox-dto";
 import { ERROR_REPORTER, type ErrorReporter } from "../observability/error-reporter";
 import { PushService } from "../push/push.service";
 import { SessionQueue } from "../queue/session.queue";
 import { SessionsService } from "../sessions/sessions.service";
 
-export type InboxRow = typeof inboxMessages.$inferSelect;
+export type { InboxRow };
 
 @Injectable()
 export class InboxService {
@@ -35,7 +38,39 @@ export class InboxService {
       .where(status ? eq(inboxMessages.status, status) : undefined)
       .orderBy(desc(inboxMessages.createdAt))
       .limit(200);
-    return rows.map(toDto);
+    const context = await inboxContext(this.db, rows);
+    return rows.map((row) => toDto(row, context));
+  }
+
+  /**
+   * The thread one task or goal has with the operator (SPEC §12, §20).
+   *
+   * Scoped by subject rather than by session on purpose: a goal's thread is
+   * shared across every specialist that works it, so the next one can read
+   * what the operator already told the last one instead of asking again.
+   */
+  async thread(input: {
+    projectId: string;
+    taskId?: string | null;
+    goalId?: string | null;
+    limit?: number;
+  }): Promise<InboxMessageDto[]> {
+    const subject = input.goalId
+      ? eq(inboxMessages.goalId, input.goalId)
+      : input.taskId
+        ? eq(inboxMessages.taskId, input.taskId)
+        : null;
+    if (!subject) {
+      return [];
+    }
+    const rows = await this.db
+      .select()
+      .from(inboxMessages)
+      .where(and(eq(inboxMessages.projectId, input.projectId), subject))
+      .orderBy(desc(inboxMessages.createdAt))
+      .limit(input.limit ?? 50);
+    const context = await inboxContext(this.db, rows);
+    return rows.reverse().map((row) => toDto(row, context));
   }
 
   /**
@@ -52,6 +87,8 @@ export class InboxService {
     kind: InboxKind;
     body: string;
     choices?: InboxChoice[];
+    /** Set when the agent asked more than one thing in one park. */
+    questions?: InboxQuestion[];
     runtimeToolUseId: string | null;
   }): Promise<InboxRow> {
     const [row] = await this.db
@@ -66,6 +103,7 @@ export class InboxService {
         kind: input.kind,
         body: input.body,
         choices: input.choices ?? [],
+        questions: input.questions ?? [],
         runtimeToolUseId: input.runtimeToolUseId,
         status: "open",
       })
@@ -74,9 +112,16 @@ export class InboxService {
     // The interrupt only works if it reaches the operator, so this is the one
     // place AgentOS pushes (SPEC §12).
     await this.push.send({
-      title: input.kind === "multiple-choice" ? "An agent needs a decision" : "An agent left you a message",
+      title:
+        input.kind === "multiple-choice"
+          ? (input.questions?.length ?? 0) > 1
+            ? `An agent needs ${input.questions!.length} decisions`
+            : "An agent needs a decision"
+          : "An agent left you a message",
       body: input.body.slice(0, 180),
-      url: "/inbox",
+      // Deep-linked: a push that lands on the top of a list makes the operator
+      // find the question again on a phone, at the hour they least want to.
+      url: `/inbox?id=${row!.id}`,
     });
     return row!;
   }
@@ -90,7 +135,10 @@ export class InboxService {
     // Validation first. The claim below moves the session out of
     // `waiting-inbox`, and a rejected answer must not leave it there: parked is
     // the only state the reaper and the resume path both understand.
-    if (message.kind === "multiple-choice") {
+    // A message that asked several things is answered in full or not at all;
+    // one that asked a single thing keeps the older single-choice check.
+    const answers = normaliseAnswers(message, input);
+    if (message.kind === "multiple-choice" && message.questions.length === 0) {
       const valid = message.choices.some((choice) => choice.id === input.selectedChoiceId);
       if (!valid) {
         throw new BadRequestException("selectedChoiceId is not one of the offered choices");
@@ -115,6 +163,7 @@ export class InboxService {
         .set({
           status: "answered",
           selectedChoiceId: input.selectedChoiceId ?? null,
+          answers,
           body: input.body?.trim() ? `${message.body}\n\n> ${input.body.trim()}` : message.body,
           answeredAt: new Date(),
         })
@@ -175,6 +224,11 @@ export class InboxService {
 
   /** The answer text the runner feeds back into the parked tool call. */
   answerText(row: InboxRow): string {
+    // Several questions: the agent gets them paired with their answers, in the
+    // order it asked, rather than one label with no idea which it belongs to.
+    if (row.questions.length > 0 && row.answers.length > 0) {
+      return renderAnswers(row.questions, row.answers);
+    }
     if (row.selectedChoiceId) {
       const choice = row.choices.find((candidate) => candidate.id === row.selectedChoiceId);
       return choice?.label ?? row.selectedChoiceId;
@@ -216,23 +270,4 @@ export class InboxService {
     }
     return row;
   }
-}
-
-export function toDto(row: InboxRow): InboxMessageDto {
-  return {
-    id: row.id,
-    projectId: row.projectId,
-    from: row.from,
-    agentId: row.agentId,
-    sessionId: row.sessionId,
-    taskId: row.taskId,
-    goalId: row.goalId,
-    kind: row.kind,
-    body: row.body,
-    choices: row.choices,
-    selectedChoiceId: row.selectedChoiceId,
-    status: row.status,
-    answeredAt: row.answeredAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
-  };
 }

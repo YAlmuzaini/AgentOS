@@ -19,6 +19,15 @@ export const filesystemGrantSchema = z.object({
   canRead: z.boolean(),
   canWrite: z.boolean(),
   canDelete: z.boolean(),
+  /**
+   * When true this grant covers that one path and nothing under it.
+   *
+   * Folder grants are prefixes, which is what an operator means by granting a
+   * folder. A task attachment means the opposite: this file, not the tree that
+   * happens to share its name — `/private/report.md` must not also open
+   * `/private/report.md/secrets`.
+   */
+  exact: z.boolean().optional(),
 });
 export type FilesystemGrant = z.infer<typeof filesystemGrantSchema>;
 

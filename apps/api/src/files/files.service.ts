@@ -4,10 +4,11 @@ import {
   type FileEntryDto,
   type FilesystemGrant,
   type FsOperation,
+  isTextual,
   normalisePath,
 } from "@agentos/shared";
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, inArray, like } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 import { ObjectStorage } from "./storage";
 
@@ -65,20 +66,91 @@ export class FilesService {
         continue;
       }
       const folder = `${normalised}${rest.slice(0, slash)}/`;
-      if (!entries.has(folder)) {
-        entries.set(folder, { path: folder, kind: "folder", size: 0, mime: "", updatedAt: null });
+      const known = entries.get(folder);
+      if (known) {
+        // Counted while walking the rows we already fetched: a folder that
+        // holds nothing looks the same as one holding forty otherwise.
+        known.childCount = (known.childCount ?? 0) + 1;
+        continue;
       }
+      entries.set(folder, {
+        path: folder,
+        kind: "folder",
+        size: 0,
+        mime: "",
+        updatedAt: null,
+        childCount: 1,
+      });
     }
     return [...entries.values()];
   }
 
   async read(projectId: string, path: string): Promise<{ path: string; content: string; mime: string }> {
     const row = await this.requireRow(projectId, path);
+    // A binary file read as text is mojibake with a wrong length, and an editor
+    // that saved it back would corrupt the object. Refusing sends the caller to
+    // the download route, which is the one that can actually carry it.
+    if (!isTextual(row.mime, row.path)) {
+      throw new BadRequestException(
+        `${row.path} is ${row.mime}, which is not text — download or preview it instead`,
+      );
+    }
     const content = await this.storage.get(row.bucketKey);
     if (content === null) {
       throw new NotFoundException(`${path} is indexed but missing from storage`);
     }
     return { path: row.path, content, mime: row.mime };
+  }
+
+  /** The bytes, whatever they are. Used by download and preview. */
+  async readBytes(
+    projectId: string,
+    path: string,
+  ): Promise<{ path: string; bytes: Buffer; mime: string }> {
+    const row = await this.requireRow(projectId, path);
+    const bytes = await this.storage.getBytes(row.bucketKey);
+    if (bytes === null) {
+      throw new NotFoundException(`${path} is indexed but missing from storage`);
+    }
+    return { path: row.path, bytes, mime: row.mime };
+  }
+
+  /**
+   * Stores raw bytes — an upload from the operator's own machine (SPEC §7).
+   *
+   * The same index row and the same paths as a text write, so an uploaded
+   * design mock and an agent-written spec sit side by side and both can be
+   * attached to a task.
+   */
+  async writeBytes(
+    projectId: string,
+    path: string,
+    bytes: Buffer,
+    mime = "application/octet-stream",
+  ): Promise<FileEntryDto> {
+    const normalised = normalisePath(path);
+    if (normalised === null || normalised.endsWith("/")) {
+      throw new BadRequestException("invalid file path");
+    }
+    const bucketKey = `${projectId}${normalised}`;
+    await this.storage.put(bucketKey, bytes, mime);
+
+    const [row] = await this.db
+      .insert(fileObjects)
+      .values({ projectId, path: normalised, bucketKey, mime, size: bytes.byteLength })
+      .onConflictDoUpdate({
+        target: [fileObjects.projectId, fileObjects.path],
+        set: { mime, size: bytes.byteLength, bucketKey, updatedAt: new Date() },
+      })
+      .returning();
+
+    return {
+      path: row!.path,
+      kind: "file",
+      size: row!.size,
+      mime: row!.mime,
+      updatedAt: row!.updatedAt.toISOString(),
+    };
   }
 
   async write(
@@ -111,6 +183,57 @@ export class FilesService {
       mime: row!.mime,
       updatedAt: row!.updatedAt.toISOString(),
     };
+  }
+
+  /**
+   * Paths for a set of file ids, in the order they were asked for.
+   *
+   * Task attachments are stored as ids and read as paths — the agent works in
+   * paths, because that is what the filesystem tools take. Ids belonging to
+   * another project resolve to nothing rather than to a path.
+   */
+  async pathsByIds(projectId: string, ids: string[]): Promise<string[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .select({ id: fileObjects.id, path: fileObjects.path })
+      .from(fileObjects)
+      .where(and(eq(fileObjects.projectId, projectId), inArray(fileObjects.id, ids)));
+    const byId = new Map(rows.map((row) => [row.id, row.path]));
+    return ids.map((id) => byId.get(id)).filter((path): path is string => Boolean(path));
+  }
+
+  /** Directory entries for a set of ids — what a task's attachments render as. */
+  async entriesByIds(projectId: string, ids: string[]): Promise<FileEntryDto[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .select()
+      .from(fileObjects)
+      .where(and(eq(fileObjects.projectId, projectId), inArray(fileObjects.id, ids)));
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return ids.flatMap((id) => {
+      const row = byId.get(id);
+      return row
+        ? [
+            {
+              path: row.path,
+              kind: "file" as const,
+              size: row.size,
+              mime: row.mime,
+              updatedAt: row.updatedAt.toISOString(),
+            },
+          ]
+        : [];
+    });
+  }
+
+  /** The file row at a path, when the operator or an agent needs its id. */
+  async idForPath(projectId: string, path: string): Promise<{ id: string; path: string }> {
+    const row = await this.requireRow(projectId, path);
+    return { id: row.id, path: row.path };
   }
 
   async remove(projectId: string, path: string): Promise<void> {
@@ -162,8 +285,17 @@ export class FilesService {
         };
       }
       case "read": {
-        const file = await this.read(projectId, decision.path);
-        return { ok: true, text: file.content };
+        try {
+          const file = await this.read(projectId, decision.path);
+          return { ok: true, text: file.content };
+        } catch (error) {
+          // A binary file is a legitimate thing to find and not a crash: the
+          // agent is told what it is so it can move on rather than retry.
+          if (error instanceof BadRequestException) {
+            return { ok: false, text: `refused: ${error.message}` };
+          }
+          throw error;
+        }
       }
       case "write": {
         const entry = await this.write(

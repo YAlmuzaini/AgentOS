@@ -33,9 +33,25 @@ packages/shared   Zod contracts, enums, reconstructed agent prompts, templates
 
 **The runtime is Anthropic Managed Agents.** Anthropic runs the agent loop and the per-session
 sandbox; AgentOS owns policy, tasks, goals, the inbox, and the record of what happened. A second
-backend — `apps/local-runner`, a worker on a VM you own running Claude Code — sits behind the same
-`Runner` interface. It is cheaper on a subscription and weaker on isolation; `DEPLOY.md` §6 is
-blunt about which trade you are making.
+backend — `apps/local-runner`, a worker on a VM you own — sits behind the same `Runner` interface
+and runs either Claude Code or Grok in yolo mode. It is cheaper on a subscription and weaker on
+isolation; `DEPLOY.md` §6 is blunt about which trade you are making.
+
+## What an agent can do inside a session
+
+Its whole toolset, and every one of them is granted rather than assumed:
+
+| Tool | What it is for |
+|---|---|
+| `agentos_update_task` · `agentos_add_activity` | Move the card, record what happened |
+| `agentos_attach_file` | Attach a file it wrote, so the next step and every collaborator inherit it |
+| `agentos_record_commit` | Record a commit, because the container is about to be destroyed |
+| `agentos_spawn_collaborators` · `agentos_read_subtask` | Spawn agents **on its collaboration list only**, in parallel, and read their reports |
+| `inbox_send` · `inbox_ask` · `inbox_read` | The only channel to you. `ask` carries up to four questions at once, so an agent that needs three decisions parks once rather than three times |
+| `fs_list` · `fs_read` · `fs_write` · `fs_mkdir` · `fs_delete` | The persistent filesystem, per-folder and per-verb |
+
+An agent with no collaboration list has no spawn tool at all; one with no `git-write` grant has no
+commit tool; one without inbox access has no inbox tools. Absent capability, not a refused call.
 
 ## Running it locally
 
@@ -80,13 +96,20 @@ It passes when the task reaches `done`, the session reaches `destroyed`, and the
 ## Tests
 
 ```sh
-pnpm --filter @agentos/api test
+pnpm test                                 # every suite
+pnpm --filter @agentos/api test           # control plane
+pnpm --filter @agentos/local-runner test  # the worker's egress wall and Grok engine
+pnpm --filter @agentos/cli test           # the CLI's capability flags
 ```
 
-77 tests covering all fourteen acceptance tests in `SPEC.md` §22. They run against a real Postgres
+144 control-plane tests, 18 worker tests and 4 CLI tests, covering all fourteen acceptance tests in `SPEC.md`
+§22. The control-plane suite runs against a real Postgres
 and a `FakeRunner` that implements the `Runner` contract, so the whole control plane — gates,
-grants, chains, rails, webhooks, resume — is exercised **without an Anthropic credential and without
-spending anything**. What they do not prove is that a real container behaves; see `PROGRESS.md`.
+grants, chains, rails, webhooks, resume, spawning, attachments, commits — is exercised **without an
+Anthropic credential and without spending anything**. The harness blanks `LOCAL_RUNNER_URL` for
+exactly that reason: with a worker running on your machine, the router would happily send the suite
+to it and bill a real subscription. What the suite does not prove is that a real container behaves;
+see `PROGRESS.md`.
 
 ## CLI
 
@@ -98,6 +121,11 @@ agentos pull                       # write the project to agentos.yml
 agentos push                       # apply the file; reports created/updated/unchanged
 agentos task create --project acme --name "Fix login" --agent senior-dev
 agentos goal create --project acme --title "Ship onboarding" --spec-file spec.md --cap 25
+agentos agent create --project acme --agent triage --title "Triage" --model claude-sonnet-5 \
+  --prompt-file prompts/triage.md --runner local --inbox   # or --no-inbox; it is not assumed
+agentos agent update --project acme --agent review-coordinator \
+  --collaborators feasibility,scope-guardian,coherence,plan-risk
+agentos skill create --project acme --slug lint --name Lint --kind file --file-path /skills/lint.py
 agentos template run --project acme --template compound-engineer-workflow \
   --var branchName=feat/onboarding --var feature="operator onboarding"
 ```
@@ -107,7 +135,8 @@ agentos template run --project acme --template compound-engineer-workflow \
 ## The five properties that are the product
 
 1. **Least privilege, default deny.** An agent gets no MCP, repo, env var, filesystem write, network
-   host, or spawn right that is not listed on it. Four independent walls.
+   host, or spawn right that is not listed on it. Four independent walls, and the spawn list is the
+   only path by which one agent starts another.
 2. **Ephemeral sessions.** The container is destroyed on every exit path. The one exception is a
    session parked on an inbox question — it survives until you answer, or until the timeout you set
    in Settings (24 hours by default) gives up on you.

@@ -111,6 +111,63 @@ export class SessionTeardown {
   }
 
   /**
+   * The commit step of SPEC §6, and the only window there is for it.
+   *
+   * A backend that still holds the checkout is asked what was committed while
+   * the workspace exists; a moment later the container is gone and the answer
+   * is unobtainable. The session is marked `committing` for the duration, so
+   * the state the spec names is a state the operator can actually see.
+   *
+   * Never fatal: a session that produced work and could not be asked about it
+   * still has to end and still has to be destroyed.
+   */
+  private async collectCommits(
+    runner: Runner,
+    handle: RunnerHandle,
+    sessionId: string,
+  ): Promise<void> {
+    if (!runner.collectCommits) {
+      return;
+    }
+    try {
+      await this.sessions.setStatus(sessionId, "committing");
+      const commits = await runner.collectCommits(handle);
+      if (commits.length > 0) {
+        await this.sessions.recordCommits(
+          sessionId,
+          commits.map((commit) => commit.sha),
+        );
+        this.logger.log(
+          `session ${sessionId} produced ${commits.length} commit(s): ` +
+            commits.map((commit) => `${commit.repo}@${commit.sha.slice(0, 8)}`).join(", "),
+        );
+        // Observed commits come from a workspace that is about to be deleted,
+        // and this backend holds no push credential — it strips the token from
+        // the remote after cloning. Recording the shas without saying that
+        // would leave a session row implying work survived when it did not.
+        // Written to the tool-call log because the event stream has ended by
+        // now: this is the last thing the operator will read about the run.
+        if (runner.name === "local") {
+          await this.sessions.appendToolCalls(sessionId, [
+            {
+              at: new Date().toISOString(),
+              type: "runner.warning",
+              name: null,
+              eventId: null,
+              summary:
+                `${commits.length} commit(s) existed only in this worker's workspace, which is ` +
+                "now deleted: the local backend cannot push. Run git-write agents on the cloud " +
+                "runner, whose runtime git proxy can.",
+            },
+          ]);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`session ${sessionId}: could not read its commits: ${String(error)}`);
+    }
+  }
+
+  /**
    * Reads spend, closes the session record, then frees the container.
    *
    * The destroy is in a `finally` for the same reason as the failure path: if
@@ -124,6 +181,7 @@ export class SessionTeardown {
     sessionId: string,
     failure: string | null,
   ): Promise<number | null> {
+    await this.collectCommits(runner, handle, sessionId);
     const costUsd = await runner.readCost(handle);
     try {
       await this.sessions.finish(sessionId, {

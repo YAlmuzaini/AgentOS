@@ -2,15 +2,152 @@
 
 Update every session. Read on boot alongside `RECIPE.md`, `PRODUCT.md`, `SPEC.md`, `DESIGN.md`.
 
-**Last updated:** 2026-08-15
+**Last updated:** 2026-08-16
 
 ---
 
+## What the operator could not see
+
+The founder opened the app and found three things missing that no test would ever catch, because
+each of them is an absence rather than a failure.
+
+**Nothing showed a clock.** Not the inbox, not sessions, not the board. A message said "waiting on
+you" without saying since when; a session listed tool calls with no idea whether the run was this
+morning or on Tuesday. There is now one `Time` component — relative on the surface, exact stamp on
+hover, machine font only for the exact form — and a `Duration` that ticks while a session is still
+running, because a frozen 3m on a live run answers "is this stuck?" wrongly. It is on the inbox
+(sent and answered), the session list and detail (started, ended, took), the board cards, the goal
+rails (started, running for, last change), the task sheet, the file browser, and every activity row.
+
+**The inbox said nothing about where a question came from.** No agent, no card, no session. At
+23:00 that is a question from nobody about nothing, and answering it meant opening two other
+screens first. Messages now carry the agent's name, the task or goal they belong to as a link, and
+the session as a link — resolved server-side in three batched lookups, because the inbox polls.
+
+**An agent could only ask one thing at a time.** `inbox_ask` took one question, so an agent needing
+three decisions parked three times — three containers held open across three round trips through a
+human who is not at their desk. A message now carries **up to four questions**, each with 2-4
+choices and optionally its own free-text answer, and the operator answers all of them in one
+submit. The reply is refused unless every question is answered: an agent told two of three proceeds
+on a guess about the third. Single-question asks are untouched — the old shape still works, still
+renders, and still answers with the bare label rather than a Q/A pair.
+
+The design pass on these surfaces found five real breaches of `DESIGN.md`, all now fixed: three
+open questions rendered three near-black buttons on one screen (the rule is one primary action, and
+three equal ones are not one); amber `gate` was used for "unrestricted network", which is a fact
+rather than something waiting on the human, and dilutes the hue the approval gate depends on;
+emerald `live` marked a tool as *ever called* on a finished session, where everywhere else in the
+app it means running right now; a choice button dimmed itself with opacity instead of changing
+surface; and a status was encoded into the `PanelTitle` accent, which the component documents as
+decoration only. The inbox's subject links also got real tap targets, since that is the one screen
+held to 44px.
+
+**Sessions never showed what the agent could touch.** Only what it did. `sessions.access` is now
+recorded at provision from the same resolved grants the container gets — model, tools, MCP servers,
+repos and their permissions, environment variable **keys**, folders, collaborators, network policy
+— and the session screen shows it beside a count of how many times each tool was actually called.
+Names and keys only: the panel is designed to be safe to look at.
+
+## The inbox was a feed, and the file browser had no names
+
+Two more from the founder looking at the running app.
+
+**Every folder in the file browser rendered with no name.** A real bug, not a taste question: the
+API returns folders with a trailing slash (`/agents/`), and the browser took the last segment of a
+split — which after a trailing slash is the empty string. So the page was a column of folder icons
+with nothing beside them, and the operator could not tell whether the disk was empty or broken.
+There is one `entryName` now, used by the list and the download filename both. While there: the
+path in the header is a breadcrumb rather than a label, folders carry a file count (a folder holding
+nothing looked identical to one holding forty), and the empty state says what puts something there
+— `/agents/<name>/` appears the first time an agent writes.
+
+**The inbox was a stack of full cards.** With three open questions the third was below the fold, and
+answering the first moved everything under the cursor. It is a queue and a reading pane now: rows
+grouped "Waiting on you" then "Answered", each carrying who asked, what about, and how long it has
+been sitting there; the message opens beside them. Below `lg` it is one pane at a time — the list,
+or the message with a way back — and on a phone it deliberately does *not* auto-open the first
+message, because the two panes are one screen there and the operator came to see the queue. Push
+notifications deep-link to the message rather than to the top of the list.
+
+Checked in a real browser at 1440×900 and 390×844: two panes at `340px 782px`, one pane on the
+phone, no horizontal scroll at either size, and **no control under 44px** anywhere on the Inbox —
+which caught three of my own (the subject links, the thread toggle) and one pre-existing (the
+notifications button).
+
+## The nine gaps, closed
+
+A gap analysis against `SPEC.md` found nine things the build had declared and not done. All nine
+are now built, each with tests. In the order the founder asked for them:
+
+**1. Collaborators could not actually be spawned.** `collaborationList` was stored, rendered in the
+UI, and named in every agent's prompt — and no tool implemented it. Template step 3 tells the
+review coordinator to "spawn the four plan reviewers", which it physically could not do. There is
+now `agentos_spawn_collaborators`: it creates one subtask per collaborator, starts them **in
+parallel**, waits for all of them (bounded, default 20 minutes), and returns each one's status,
+activity notes and attachments as the tool result. Three rails: the target must be on the spawning
+agent's own list (checked in the control plane, not in the tool schema), eight spawns per session,
+and a depth ceiling of two — a reviewer that can spawn reviewers is a loop with a budget.
+
+**2. Attachments never travelled.** `attachmentIds` existed on every card and every writer
+hardcoded `[]`; `attachmentsFromPrevious` was declared on all nine template steps and read by
+nothing. So the spec written in step 1 never reached the plan agent in step 2. Now: an
+`agentos_attach_file` tool (authorised as a *read* of that path, so it cannot launder a file out of
+a folder the agent was never granted), a chain carry that runs before the next step is released,
+attachments inherited by spawned collaborators, the paths listed in the session manifest, and
+**read grants for exactly those paths** — the plan agent can open the spec agent's file without
+gaining its folder. The operator's half is on the card and in the create form.
+
+**3. The commit step of the lifecycle did not exist.** `commitShas` was a column nothing wrote and
+`committing` a status nothing set. Both backends now answer for it: the local worker reads
+`git log origin/<branch>..HEAD` out of the workspace *before* it is deleted (observed), and the
+cloud path takes `agentos_record_commit` from the agent (attested — the runtime owns that container
+and there is no later moment to go and look). The session sits in `committing` while it is
+collected, and the shas render on the session.
+
+**4. The filesystem was text-only.** Upload, download, and image preview, with one rule shared by
+the API and the browser: a binary object refuses a text read rather than returning mojibake an
+editor could save back over it. Agents get the same refusal, in words.
+
+**5. Secrets had no production driver.** `GoogleSecretManagerProvider` sits behind the same
+interface as the env driver, selected by `SECRETS_PROVIDER=gcp`. Bare names resolve against
+`GCP_PROJECT_ID`; full paths and pinned versions are used as written; an unreadable secret returns
+null so the session refuses the grant that needed it instead of starting half-configured.
+
+**6. A goal had no shared state.** `/goals/{goalId}/` is now a real grant — read and write, never
+delete, held by a session *because it is working that goal* rather than by its agent — and the
+inbox has a thread view scoped to the goal, which is also what `inbox_read` returns.
+
+**7. The local runner had one engine and no egress.** Grok in yolo mode is the second engine
+(SPEC §16): an OpenAI-compatible tool loop with the same control-plane tools, plus a shell/read/
+write/list toolset confined to the session workspace. And `LOCAL_RUNNER_EGRESS_MODE=proxy` starts a
+per-session allow-list proxy the child is pointed at. Both are documented for what they are, and
+round eight below tightened both: the proxy is a layer rather than a permission, and a Grok session
+that carries a spend cap is refused rather than run unmetered.
+
+**8. `inbox_read` was missing.** Agents could send and ask, never read. They can now read their own
+task or goal thread — and nothing else, which is why it is scoped by subject rather than by inbox.
+
+**9. The CLI could not create an agent.** `agentos agent create` (inbox access is opt-in, per
+default-deny), plus `--title`, `--runner`, `--collaborators` and `--inbox/--no-inbox` on
+`agent update`, and `skill create --kind file`.
+
+## The test suite was spending real money
+
+Worth writing down, because it was invisible and it is the kind of thing that only shows up when
+someone times a run. The suite took **fifty minutes** and produced agent prose no `FakeRunner`
+writes. The cause: `FakeRunner` replaces the *cloud* backend, and `LocalVmRunner` reads
+`LOCAL_RUNNER_URL` from the environment — where a developer's `.env` points it at a worker that is
+actually running on their machine. Under `auto` routing the router preferred it, so the suite had
+been launching real Claude Code sessions against a real subscription: thirteen were still running
+when this was found, and were terminated. The harness now blanks `LOCAL_RUNNER_URL`; the same
+suite is **38 seconds**.
+
 ## Where we are
 
-**All eight phases of `SPEC.md` §21 are built, and agents now actually run.** 109 automated tests
-pass, and the cloud runner, the network wall, the inbox pause/resume cycle, vault cleanup, the
-local runner and its credential proxy have each been exercised against real containers. Six
+**All eight phases of `SPEC.md` §21 are built, the nine gaps found by a spec audit are closed, and
+agents actually run.** 166 automated tests pass (144 control plane, 18 worker, 4 CLI), and the cloud runner,
+the network wall, the inbox pause/resume cycle, vault cleanup, the local runner and its credential
+proxy have each been exercised against real containers. Six
 independent review rounds have each found real defects in the previous round's fixes — round six's
 headline finding was that round five's session deadline could not actually stop a silent session,
 and round seven was the first to clear the thing it was pointed at. Both backends were run end to
@@ -30,7 +167,28 @@ reporting (`RECIPE.md` A8) is wired and off by default.
 | Local runner | Built (`apps/local-runner`); a real task ran on it end to end |
 | Deploy | Dockerfiles, `docker-compose.prod.yml`, `DEPLOY.md` |
 
-## Verified this session
+## Verified on this build
+
+`pnpm test` — **144 control-plane tests across 23 suites, 18 worker tests and 4 CLI tests**, in under a minute. New
+coverage for the nine gaps:
+
+| Suite | What it holds |
+|---|---|
+| `collaboration.spec.ts` | Spawn tool absent without a list; a target off the list is refused before any card exists; two reviewers run and their reports come back; the eight-spawn cap; a goal session may not spawn at all; a subtask this session did not spawn cannot be read |
+| `attachments.spec.ts` | Attach refuses a file the agent cannot read; the chain carries step 1's spec to step 2; a session reads its attachment without gaining the folder, cannot write there, and cannot reach anything named beneath it; a commit is recorded, a malformed sha is refused, a repository the agent does not hold `git-write` on is refused, and an agent without the grant has no commits to record |
+| `shared-state.spec.ts` | A goal session reads and writes its own folder, cannot delete from it, and cannot touch another goal's; a task session cannot reach a goal folder at all; `inbox_read` returns this card's thread and not another's, and is refused without inbox access |
+| `files-binary.spec.ts` | Bytes round-trip; a text read of a binary object is refused; the agent is told what it found; a text file with a useless mime still reads |
+| `secrets-provider.spec.ts` | Bare names, full paths and pinned versions resolve correctly; an unreadable secret returns null rather than throwing |
+| `apps/local-runner/test` | The egress proxy refuses a host outside the allowlist over both plain HTTP and CONNECT, allows one inside it, and never routes loopback through itself; workspace tools refuse a path that climbs out; a granted binding named `HTTPS_PROXY` or `ANTHROPIC_API_KEY` is refused; the worker's own credentials never reach the child; the Grok loop forwards a control-plane tool call and finishes; a budgeted Grok session is refused; a missing Grok key fails loudly |
+
+By hand against the running control plane and MinIO: a binary uploaded through
+`POST /files/upload`, refused by the text read with a 400, downloaded byte-for-byte, attached to a
+card, listed back through `GET /tasks/:id/attachments`, and both removed. `agentos push` → `pull`
+is still byte-identical, and `agentos.yml` was regenerated — the copy in git had
+`collaboration: []` for the review coordinator, so pushing it would have removed the very grant
+that makes step 3 of the feature template work.
+
+## Verified in the previous session
 
 Automated (`pnpm --filter @agentos/api test`, 109 tests, 17 suites):
 
@@ -610,6 +768,104 @@ Consequences visible in the code:
 | §4 webhook `secretId` → secret store | Per-trigger salt in the DB; key derived from `WEBHOOK_MASTER_SECRET` | A stolen database yields salts, which sign nothing. Strictly stronger than storing a reference |
 | §17 model ids (`claude-opus-4`, `grok-4.6`) | `claude-opus-5` planners, `claude-sonnet-5` workers | The spec's ids predate the current model line |
 | §11 DoD drafting "or a planning call" | Heuristic draft from the spec's own bullets | Honest and instant; the operator edits it before approving anyway. A model-backed drafter drops in behind the same call |
+| §16 "Grok in yolo mode" on the local VM | An OpenAI-compatible tool loop against xAI, with a workspace shell | There is no Grok CLI that speaks the AgentOS tool protocol. Shelling out to one would have left the agent unable to update its own task, which is the whole contract |
+| §5.5 network wall on the local runner | `none` (refuse) by default, `proxy` opt-in | A userland worker cannot hold a socket the agent opens itself. The proxy is real enforcement for every ordinary client and is documented as not being a cage |
+| §6 "commit, record sha" | Observed on local, attested on cloud | Only a backend that still holds the checkout can observe it; the cloud runtime owns the container and destroys it. The two merge on the session row |
+
+## Round eight: Codex reviewed the nine gaps and refused them
+
+Eleven findings — three Critical, four High, four Medium — and it was right to block. What it found
+was mostly the same shape: a capability added without asking what it does to a rail or a wall.
+
+**A goal specialist could spawn its way out of every rail (Critical).** Spawned subtasks run as
+ordinary task sessions: no budget, no deadline, and they outlive a goal that stopped. Eight per
+session, two deep, is up to 72 uncharged descendants of a goal with a $5 cap. **Spawning is now
+refused outright from a goal session** — a goal grows by orchestrator dispatch, which is the thing
+that counts spend, time and iterations before it starts anything.
+
+**`LOCAL_RUNNER_EGRESS_MODE=proxy` was treated as permission (Critical).** It made the worker accept
+`limited`-network sessions, and the proxy is a wall an agent with a shell can walk around. That is a
+promise the process cannot keep, and it replaced a fail-closed default. The proxy is now a *layer*:
+accepting a limited session still takes `LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=1`, the operator
+asserting the machine itself is confined, and the proxy applies on top of that.
+
+**A Grok session ran unmetered under a spend cap (High).** xAI reports tokens, not dollars, so a
+capped goal could spend without the cap ever moving. A session carrying a budget is now **refused**
+by that engine, and turns are bounded by `LOCAL_RUNNER_MAX_SESSION_REQUESTS`.
+
+**An attachment grant opened a subtree (High).** Attachments were stored as ordinary folder grants,
+and a folder grant is a prefix — so attaching `/private/report.md` also opened
+`/private/report.md/secrets`. `FilesystemGrant` gained `exact`, and the ACL matches it as one path.
+
+**A granted environment variable could switch containment off (High).** Session bindings were
+applied *after* the credential and egress proxies, so a variable named `HTTPS_PROXY` or
+`ANTHROPIC_BASE_URL` reconfigured the runtime. Reserved names are now refused and logged, and the
+runtime's own values are applied last regardless.
+
+**The worker's Grok key was readable by the agent it launched (Critical, bounded).** The same
+`/proc` exposure the Claude credential has always had on this backend, which is documented and
+unfixable in userland — but the key was also in the child's environment. It is stripped by name now,
+and `GROK_API_KEY_FILE` keeps it out of the worker's own environment block.
+
+**Local commits are recorded and then deleted (High, reported not fixed).** This worker clones with
+a credential and strips it from the remote, so nothing on this backend can push. Commits found in
+the workspace are still recorded — they are what happened — but the session log now says plainly
+that they exist only in a directory about to be deleted, and points `git-write` agents at the cloud
+runner, whose runtime git proxy can push. Making the worker push on an agent's behalf is a product
+decision, not a bug fix.
+
+The four Medium findings are fixed: a commit is recorded only against a repository the agent holds
+`git-write` on (and the local collector skips `git-read` repos); `attach` is one atomic statement
+rather than a read-modify-write two sessions could lose; the CLI's `agent create` no longer grants
+inbox access unless `--inbox` is passed; and the create form no longer claims an agent reads binary
+attachments, which it cannot.
+
+**A second Codex pass on the fixes cleared eight and blocked three more**, all fair:
+`GROK_API_KEY_FILE` was withheld from the child's environment but not from the *reserved binding*
+list, and the path is as good as the key; the local-only commit warning was emitted onto an event
+stream the consumer had already stopped reading, so it reached nobody — the control plane writes it
+onto the session row at teardown now; and `agent create` defaulted the inbox to off silently, which
+is the same trap as defaulting it on, so it now refuses without `--inbox` or `--no-inbox`. It also
+caught `budgetUsd: 0` slipping past the Grok refusal (a goal that has spent its cap dispatches with
+exactly that), a request ceiling that coerced a misconfigured `0` into "one turn", and startup
+telemetry that announced "allow-list proxy" while every limited session was in fact being refused.
+
+Each fix has a regression test, including the proof cases the second pass said were missing: the
+network-acceptance decision as a pure function, `GROK_API_KEY_FILE` in both denylists, the request
+ceiling actually stopping a loop, two concurrent `attach()` calls keeping both files, the local-only
+warning landing on the session row, and commit collection run against a real git repository where a
+`git-read` repo is skipped and a `git-write` one is not.
+
+**A third pass cleared everything but one edge, and it was the good kind.** `agent create` refused a
+*missing* inbox choice and accepted a contradictory one — `--inbox --no-inbox` together read only
+the first flag and granted the capability, which is exactly what a script assembling flags in a loop
+produces. The decision is one function now (`inbox-choice.ts`), it refuses both the missing case and
+the contradictory one, `agent update` shares it, and the CLI has its own suite covering all four
+shapes. The suite is **144 control-plane tests, 18 worker tests, and 4 CLI tests**.
+
+**Round eight ended GO on the fourth pass** — four rounds of review over one session's work, which
+is the trend continuing: eleven findings, then three, then one, then none. Every blocker it raised
+was real, and the three Criticals were all the same mistake in different clothes — a capability
+added without asking what it does to a rail or a wall. The one thing it cleared on the first pass
+and never revisited is worth naming: the walls this build already had (`fs-acl`, manifest scoping,
+the approval gate, webhook replay) held under all nine new capabilities.
+
+## Known limits of what was just built
+
+Written down rather than discovered later:
+
+- **A Grok session records no cost**, so it is refused a budget rather than run under one. Time and
+  iteration rails still apply, and the cloud runner is where a capped goal belongs.
+- **`LOCAL_RUNNER_EGRESS_MODE=proxy` is a layer, not a permission.** It holds every ordinary client
+  through `HTTP_PROXY`; it does not hold an agent that opens its own socket, and it does not on its
+  own let a limited-network session run here.
+- **The local runner cannot push.** A `git-write` grant on this backend produces commits that die
+  with the workspace; the session log says so, and those agents belong on the cloud runner.
+- **The spawn tool blocks its own tool call while it waits.** The session stays `running` and its
+  container stays alive for up to the wait (20 minutes by default). A worker that dies mid-wait
+  leaves that container to the orphan sweep, the same as any other crash mid-run.
+- **Binary attachments are for the operator.** An agent's `fs_read` refuses them by design, so a PDF
+  on a card is something you read, not something its agent does.
 
 ## Blocked / unverified — needs the founder
 
@@ -638,7 +894,13 @@ Consequences visible in the code:
    than once. Round seven's own three fixes have not been reviewed by anyone.
 5. **`.env.example` line 9 was twice found holding a real token.** The founder confirmed that was
    their own doing, not a stray process. Blank now; worth a glance before the first commit.
-6. **Six smoke tasks are on the Acme board** from this session's live runs ("Round five smoke",
+6. **None of the nine new capabilities has run against a real container.** The suite proves the
+   control plane's half of each — the refusals, the grants, the carries, the records — with a fake
+   backend. What no test can prove is that a real model, handed the new tool list, uses it: that a
+   coordinator actually spawns its four reviewers and consolidates what comes back, that a spec
+   agent attaches the file it wrote, that a senior dev records the sha it just pushed. One run of
+   `compound-engineer-workflow` is the check, and it costs what it costs.
+7. **Six smoke tasks are on the Acme board** from an earlier session's live runs ("Round five smoke",
    "Round five local smoke", "Round five local stream", "Round five cleanup proof", "Cloud path
    proof", "Vault lifecycle proof"). Two are stuck in `doing` behind the failures from the old, dead
    API key; they are left deliberately as evidence that the failure path records a provider outage
@@ -646,10 +908,17 @@ Consequences visible in the code:
 
 ## Next session
 
-The ops gap is closed and both runners are verified on this build, so what is left is short.
+The nine gaps are closed and every wall around them has a test. What is left is the part a coding
+agent cannot sign off.
 
-**The founder's hour.** A real visual pass (`RECIPE.md` A1.6) and one click on "enable
-notifications" to close the push path. Neither is something a coding agent can honestly sign off.
+**The founder's hour.** A real visual pass (`RECIPE.md` A1.6) — the file browser, the attachments
+on a card, and the goal's shared thread are new surfaces nobody has looked at — one click on
+"enable notifications" to close the push path, and **one live run of the feature template**, which
+is the only thing that proves the new tools are usable by a real model rather than merely present.
+
+**Watch what the local runner costs you while you do it.** It is configured on the founder's
+machine and `auto` routing prefers it; that is exactly how the test suite came to spend a
+subscription for fifty minutes at a time.
 
 **Set `GLITCHTIP_DSN`** when the stack goes up, or the reporting above stays in the log where the
 two incidents that motivated it went unnoticed.

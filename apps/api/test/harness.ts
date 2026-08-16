@@ -61,6 +61,18 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     AGENTOS_OPERATOR_TOKEN: token,
     AGENTOS_DISABLE_WORKER: "1",
     ANTHROPIC_API_KEY: "test-key",
+    // The one backend the FakeRunner cannot stand in for.
+    //
+    // `RUNNER_CLOUD` is overridden below, but `LocalVmRunner` reads a URL from
+    // the environment — and a developer's `.env` points it at a worker that is
+    // actually running on their machine. Under `auto` routing the router then
+    // prefers it, and the suite launches *real* Claude Code sessions against a
+    // real subscription: slow, expensive, and nothing to do with what is being
+    // tested. Blanking it here makes the backend unconfigured, so routing falls
+    // to the fake. Values set in the process environment win over the `.env`
+    // file, so this holds even where one exists.
+    LOCAL_RUNNER_URL: "",
+    LOCAL_RUNNER_TOKEN: "",
   });
 
   const runner = new FakeRunner();

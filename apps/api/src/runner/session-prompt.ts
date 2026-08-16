@@ -1,4 +1,4 @@
-import { agentHomeFolder, renderSessionManifest } from "@agentos/shared";
+import { agentHomeFolder, goalFolderGrant, renderSessionManifest } from "@agentos/shared";
 import type { AgentRow } from "../agents/agents.service";
 import type { TaskRow } from "../tasks/tasks.service";
 import type { ResolvedGrants } from "./manifest";
@@ -18,12 +18,17 @@ export function buildSystemPrompt(input: {
   tools: CustomToolDefinition[];
   environment: EnvironmentPolicy;
   grants: ResolvedGrants;
+  /** Filesystem paths for the task's attachments, already resolved. */
+  attachments?: string[];
+  /** Set for a goal session: it also holds the goal's shared folder. */
+  goalId?: string | null;
 }): string {
   const manifest = renderSessionManifest({
     taskId: input.task?.id ?? null,
     taskName: input.task?.name ?? null,
     taskDescription: input.task?.description ?? null,
     approvalGate: input.task?.approvalGate ?? false,
+    attachments: input.attachments ?? [],
     allowedTools: [
       "the standard agent toolset (bash, file read/write/edit, glob, grep, web)",
       ...input.tools.map((tool) => tool.name),
@@ -33,7 +38,7 @@ export function buildSystemPrompt(input: {
           : `${server.name} (MCP)`,
       ),
     ],
-    allowedFolders: describeFolders(input.agent),
+    allowedFolders: describeFolders(input.agent, input.goalId ?? null),
     allowedRepos: input.grants.repos.map(
       (repo) => `${repo.mountPath} → ${repo.name} (${repo.permissions})`,
     ),
@@ -66,11 +71,15 @@ export function buildSystemPrompt(input: {
   ].join("\n");
 }
 
-function describeFolders(agent: AgentRow): string[] {
+export function describeFolders(agent: AgentRow, goalId: string | null): string[] {
   // A name that cannot form a home folder gets no home line: the prompt must
   // not promise access the ACL will refuse.
   const homeFolder = agentHomeFolder(agent.name);
   const home = homeFolder ? `${homeFolder} (read/write — your own folder)` : null;
+  const shared = goalFolderGrant(goalId).map(
+    (grant) =>
+      `${grant.folderPath} (read/write — shared with every specialist on this goal; leave what the next one needs here)`,
+  );
   const explicit = agent.filesystemGrants.map((grant) => {
     const verbs = [
       grant.canRead ? "read" : null,
@@ -79,7 +88,7 @@ function describeFolders(agent: AgentRow): string[] {
     ].filter(Boolean);
     return `${grant.folderPath} (${verbs.join("/") || "no access"})`;
   });
-  return [...(home ? [home] : []), ...explicit];
+  return [...(home ? [home] : []), ...shared, ...explicit];
 }
 
 /** The first user turn. Starts the run; the manifest already carries context. */

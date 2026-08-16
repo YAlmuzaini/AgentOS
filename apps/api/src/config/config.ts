@@ -39,6 +39,17 @@ const envSchema = z.object({
   VAPID_PRIVATE_KEY: z.string().default(""),
   VAPID_SUBJECT: z.string().default("mailto:operator@localhost"),
 
+  /**
+   * Which secret backend resolves a `providerRef` (SPEC §4, §23).
+   *
+   * `env` reads the process environment and is the development driver.
+   * `gcp` reads Google Secret Manager, where the value is encrypted at rest
+   * and the app database holds only the resource name.
+   */
+  SECRETS_PROVIDER: z.enum(["env", "gcp"]).default("env"),
+  /** Default GCP project for a bare secret name; full resource paths win. */
+  GCP_PROJECT_ID: z.string().default(""),
+
   /** Local runner worker endpoint, used by the local backend when healthy. */
   LOCAL_RUNNER_URL: z.string().default(""),
   LOCAL_RUNNER_TOKEN: z.string().default(""),

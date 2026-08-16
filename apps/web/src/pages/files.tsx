@@ -1,7 +1,8 @@
 import type { FileEntryDto } from "@agentos/shared";
+import { isTextual } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CornerLeftUp, File, Folder, Save, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { CornerLeftUp, File, Folder, Save, Trash2, Upload } from "lucide-react";
+import { useRef, useState } from "react";
 import { api, ApiError } from "../api";
 import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ui/confirm";
@@ -9,6 +10,9 @@ import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel, PanelHeader, PanelTitle } from "../components/ui/panel";
 import { useProjectGate } from "../hooks/use-project";
+import { Time } from "../components/ui/time";
+import { Breadcrumb } from "./file-breadcrumb";
+import { DownloadButton, entryName, FileBody, formatSize } from "./file-viewer";
 import { NoProject, ProjectPending } from "./project-states";
 
 function parentPath(path: string): string {
@@ -23,6 +27,7 @@ export function FilesPage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const projectId = project?.id;
 
+  const picker = useRef<HTMLInputElement>(null);
   const [path, setPath] = useState("/");
   const [selected, setSelected] = useState<string | null>(null);
   // The editor buffer is stamped with the path it was loaded from. Holding the
@@ -37,34 +42,29 @@ export function FilesPage(): React.JSX.Element {
     enabled: Boolean(projectId),
   });
 
-  const file = useQuery({
-    queryKey: ["file-content", projectId, selected],
-    queryFn: () => api.fileContent(projectId!, selected!),
-    enabled: Boolean(projectId && selected),
-  });
-
-  useEffect(() => {
-    if (file.data && selected) {
-      setDraft({ path: selected, content: file.data.content });
-    }
-  }, [file.data, selected]);
-
-  // Only ever the text that belongs to the open path. Anything else is either
-  // still loading or failed, and both must leave the editor empty and disabled
-  // rather than showing a neighbouring file's contents.
-  const loaded = draft && draft.path === selected ? draft : null;
+  const selectedEntry = (entries.data ?? []).find((entry) => entry.path === selected);
+  const editable = selected ? isTextual(selectedEntry?.mime ?? "", selected) : false;
 
   const save = useMutation({
     mutationFn: () =>
       api.writeFileContent(projectId!, {
         // The path the buffer was loaded from, never the currently highlighted
         // one: they differ for exactly as long as a read is in flight.
-        path: loaded!.path,
-        content: loaded!.content,
-        mime: file.data?.mime ?? "text/plain",
+        path: draft!.path,
+        content: draft!.content,
+        mime: selectedEntry?.mime ?? "text/plain",
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["file-content", projectId, selected] });
+      void queryClient.invalidateQueries({ queryKey: ["files", projectId, path] });
+    },
+  });
+
+  const uploadFile = useMutation({
+    mutationFn: (file: File) =>
+      api.uploadFile(projectId!, `${path.replace(/\/$/, "")}/${file.name}`, file),
+    onSuccess: (entry) => {
+      setSelected(entry.path);
       void queryClient.invalidateQueries({ queryKey: ["files", projectId, path] });
     },
   });
@@ -89,7 +89,44 @@ export function FilesPage(): React.JSX.Element {
 
   return (
     <Page fill>
-      <PageHeader icon={<Folder />} title="Files" meta={path} />
+      <PageHeader
+        icon={<Folder />}
+        title="Files"
+        meta={<Breadcrumb path={path} onNavigate={setPath} />}
+        actions={
+          <>
+            <input
+              ref={picker}
+              type="file"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  uploadFile.mutate(file);
+                }
+                // Cleared so choosing the same file twice fires again.
+                event.target.value = "";
+              }}
+            />
+            <Button
+              variant="solid"
+              onClick={() => picker.current?.click()}
+              disabled={uploadFile.isPending}
+            >
+              <Upload />
+              {uploadFile.isPending ? "Uploading…" : "Upload"}
+            </Button>
+          </>
+        }
+      />
+
+      {uploadFile.isError ? (
+        <InlineError>
+          {uploadFile.error instanceof ApiError
+            ? uploadFile.error.message
+            : "could not upload that file"}
+        </InlineError>
+      ) : null}
 
       <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr]">
         <Panel className="h-fit overflow-hidden lg:flex lg:h-auto lg:min-h-0 lg:flex-col">
@@ -132,17 +169,34 @@ export function FilesPage(): React.JSX.Element {
                       <File className="size-4 shrink-0 text-ink-faint" />
                     )}
                     <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
-                      {entry.path.split("/").pop()}
+                      {entryName(entry.path)}
                     </span>
                     {entry.kind === "file" ? (
-                      <span className="tnum shrink-0 text-xs text-ink-faint">{entry.size}b</span>
-                    ) : null}
+                      <span className="flex shrink-0 flex-col items-end">
+                        <span className="tnum text-xs text-ink-faint">{formatSize(entry.size)}</span>
+                        <Time iso={entry.updatedAt} className="text-ink-faint" />
+                      </span>
+                    ) : (
+                      // A folder that holds nothing looked identical to one
+                      // holding forty, so the operator had to click to find out.
+                      <span className="tnum shrink-0 text-xs text-ink-faint">
+                        {entry.childCount ?? 0} file{(entry.childCount ?? 0) === 1 ? "" : "s"}
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
 
               {list.length === 0 ? (
-                <EmptyState icon={<Folder />} title="No files here yet" />
+                <EmptyState
+                  icon={<Folder />}
+                  title={path === "/" ? "This disk is empty" : "Nothing in this folder"}
+                  hint={
+                    path === "/"
+                      ? "Agents write here through their filesystem tools — /agents/<name>/ appears the first time one saves something. You can upload a file yourself."
+                      : "Upload a file, or wait for an agent to write one here."
+                  }
+                />
               ) : null}
             </ul>
           )}
@@ -156,10 +210,18 @@ export function FilesPage(): React.JSX.Element {
                   <span className="machine text-xs">{selected}</span>
                 </PanelTitle>
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending || !loaded}>
-                    <Save />
-                    {save.isPending ? "Saving…" : "Save"}
-                  </Button>
+                  {editable ? (
+                    <Button
+                      size="sm"
+                      onClick={() => save.mutate()}
+                      disabled={save.isPending || draft?.path !== selected}
+                    >
+                      <Save />
+                      {save.isPending ? "Saving…" : "Save"}
+                    </Button>
+                  ) : (
+                    <DownloadButton projectId={project.id} path={selected} />
+                  )}
                   <Button
                     size="sm"
                     variant="danger"
@@ -185,34 +247,19 @@ export function FilesPage(): React.JSX.Element {
                   </Button>
                 </div>
               </PanelHeader>
-              <div className="space-y-3 p-4 lg:min-h-0 lg:flex-1">
-                {/* A read that failed must say so. Leaving the box editable and
-                    empty invited the operator to "fix" the file by saving over
-                    it with nothing. */}
-                {file.isError ? (
-                  <InlineError>
-                    {file.error instanceof ApiError
-                      ? file.error.message
-                      : "could not read this file"}
-                  </InlineError>
-                ) : null}
-                <textarea
-                  className="machine h-[60vh] w-full resize-none rounded-control bg-sunken p-3.5 text-xs leading-relaxed text-ink focus:outline-none focus-visible:outline-2 focus-visible:outline-solid disabled:opacity-50 lg:h-full"
-                  value={loaded?.content ?? ""}
-                  disabled={!loaded}
-                  onChange={(event) =>
-                    loaded ? setDraft({ path: loaded.path, content: event.target.value }) : undefined
-                  }
-                  aria-label={`Contents of ${selected}`}
-                  spellCheck={false}
-                />
-              </div>
+              <FileBody
+                projectId={project.id}
+                path={selected}
+                entry={selectedEntry}
+                draft={draft}
+                onDraft={setDraft}
+              />
             </>
           ) : (
             <EmptyState
               icon={<File />}
               title="Select a file"
-              hint="Its contents open here, editable in place."
+              hint="Text opens here to edit; images preview; anything else downloads."
             />
           )}
         </Panel>

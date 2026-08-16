@@ -8,6 +8,7 @@ import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ui/confirm";
 import { CheckboxField, Field, FormActions, Input, Select, Textarea } from "../components/ui/form";
 import { MicroLabel } from "../components/ui/panel";
+import { AttachmentPicker, type PickedAttachment } from "./attachment-picker";
 
 const SCHEDULE_LABEL: Record<ScheduleKind, string> = {
   now: "Now",
@@ -31,6 +32,7 @@ export function CreateTaskDialog(props: {
   const [description, setDescription] = useState("");
   const [agentId, setAgentId] = useState("");
   const [approvalGate, setApprovalGate] = useState(false);
+  const [attachments, setAttachments] = useState<PickedAttachment[]>([]);
   const [scheduleKind, setScheduleKind] = useState<ScheduleKind>("now");
   const confirm = useConfirm();
   const [runAt, setRunAt] = useState("");
@@ -46,6 +48,7 @@ export function CreateTaskDialog(props: {
         description,
         assigneeType: "agent",
         assigneeAgentId: agentId,
+        attachmentIds: attachments.map((attachment) => attachment.id),
         approvalGate,
         scheduleKind,
         // The server rejects a mismatched pair, so only send the fields the
@@ -59,6 +62,7 @@ export function CreateTaskDialog(props: {
       setDescription("");
       setRunAt("");
       setCron("");
+      setAttachments([]);
       props.onCreated();
     },
   });
@@ -211,6 +215,12 @@ export function CreateTaskDialog(props: {
                   </Field>
                 </div>
               ) : null}
+
+              <AttachmentPicker
+                projectId={props.projectId}
+                value={attachments}
+                onChange={setAttachments}
+              />
 
               <CheckboxField
                 label="Require my approval before this can be marked done"

@@ -81,7 +81,7 @@ export class SessionConsumer {
         }
 
         if (event.kind === "tool-call") {
-          const outcome = await this.toolHandler.handle(ctx, event.call);
+          const outcome = await this.toolHandler.handle(ctx, event.call, cancellation.signal);
           const summary =
             outcome.kind === "park"
               ? "parked — waiting on the operator"

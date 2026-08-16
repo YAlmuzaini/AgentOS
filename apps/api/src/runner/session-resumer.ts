@@ -2,7 +2,9 @@ import { isTerminalSessionStatus } from "@agentos/shared";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { AgentsService } from "../agents/agents.service";
 import { DispatchLease } from "../goals/dispatch-lease";
+import { FilesService } from "../files/files.service";
 import { GoalLogService } from "../goals/goal-log.service";
+import { TasksService } from "../tasks/tasks.service";
 import { GoalLeases } from "../goals/goal-leases";
 import { InboxService } from "../inbox/inbox.service";
 import { SessionQueue } from "../queue/session.queue";
@@ -29,6 +31,8 @@ export class SessionResumer {
 
   constructor(
     private readonly agents: AgentsService,
+    private readonly files: FilesService,
+    private readonly tasks: TasksService,
     private readonly sessions: SessionsService,
     private readonly inbox: InboxService,
     private readonly consumer: SessionConsumer,
@@ -89,7 +93,14 @@ export class SessionResumer {
         runner,
         handle,
         sessionId: session.id,
-        ctx: toolContext(session.id, session.projectId, agent, session.taskId, session.goalId),
+        ctx: toolContext(
+          session.id,
+          session.projectId,
+          agent,
+          session.taskId,
+          session.goalId,
+          await this.attachmentPaths(session.projectId, session.taskId),
+        ),
         seen,
         // The rail applies to the whole goal, not to the half of the turn that
         // ran before the question. Without this a goal could park just inside
@@ -183,4 +194,18 @@ export class SessionResumer {
     return new Date(rail.startedAt.getTime() + rail.maxDurationMinutes * 60_000);
   }
 
+
+  /**
+   * Read grants for the card's attachments, rebuilt on resume.
+   *
+   * A resumed session must get exactly the context it started with: the same
+   * grants, including the files the operator or the previous step attached.
+   */
+  private async attachmentPaths(projectId: string, taskId: string | null): Promise<string[]> {
+    if (!taskId) {
+      return [];
+    }
+    const task = await this.tasks.requireById(taskId).catch(() => null);
+    return task ? this.files.pathsByIds(projectId, task.attachmentIds) : [];
+  }
 }
