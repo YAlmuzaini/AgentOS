@@ -49,7 +49,26 @@ export class RunnerRouter {
   }
 
   async pick(request: RoutingRequest): Promise<Runner> {
+    return (await this.resolve(request)).runner;
+  }
+
+  /**
+   * The backend *and* the preference that chose it.
+   *
+   * The caller needs both, because what to do when the local worker refuses a
+   * session depends on why it was picked. Under `auto`, falling back to cloud
+   * is the whole point. Under an explicit `local`, falling back is the opposite
+   * of what the operator asked for — they moved off cloud deliberately, usually
+   * because it costs money they no longer want to spend.
+   */
+  async resolve(
+    request: RoutingRequest,
+  ): Promise<{ runner: Runner; preference: "cloud" | "local" | "auto" }> {
     const preference = await this.preferenceFor(request);
+    return { runner: await this.runnerFor(preference), preference };
+  }
+
+  private async runnerFor(preference: "cloud" | "local" | "auto"): Promise<Runner> {
 
     if (preference === "cloud") {
       return this.cloud;

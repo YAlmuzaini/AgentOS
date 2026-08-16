@@ -10,6 +10,7 @@ import { VaultCleanup } from "../src/runner/vault-cleanup";
 import { SessionOrchestrator } from "../src/runner/session-orchestrator";
 import { SessionsService } from "../src/sessions/sessions.service";
 import { SettingsService } from "../src/settings/settings.service";
+import { TasksService } from "../src/tasks/tasks.service";
 import { createHarness, type Harness } from "./harness";
 import { stubQueue, type QueueSink } from "./queue-stub";
 

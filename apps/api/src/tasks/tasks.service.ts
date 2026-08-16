@@ -1,4 +1,5 @@
-import { type Database, taskActivity, tasks } from "@agentos/db";
+import { type Database, sessions, taskActivity, tasks } from "@agentos/db";
+import { TERMINAL_SESSION_STATUSES } from "@agentos/shared";
 import type {
   CreateTaskInput,
   PatchTaskInput,
@@ -6,13 +7,22 @@ import type {
   TaskDto,
   TaskStatus,
 } from "@agentos/shared";
-import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { and, asc, eq, ne } from "drizzle-orm";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
+import { and, asc, eq, ne, notInArray } from "drizzle-orm";
 import { AgentsService } from "../agents/agents.service";
 import { DATABASE } from "../db/db.module";
 import { ProjectsService } from "../projects/projects.service";
 import { SessionQueue } from "../queue/session.queue";
 import { activityToDto, toDto } from "./task-dto";
+import { removeTask } from "./task-removal";
+import { applySchedule } from "./task-schedule";
 
 export type TaskRow = typeof tasks.$inferSelect;
 export { toDto } from "./task-dto";
@@ -90,30 +100,9 @@ export class TasksService {
     return task;
   }
 
-  /**
-   * Turns the task's schedule into queue work. `now` runs immediately, `at`
-   * runs once with a delay, `cron` installs a repeating scheduler keyed by the
-   * task id so re-saving replaces rather than duplicates it (SPEC §9.2).
-   */
-  async applySchedule(task: TaskDto): Promise<void> {
-    if (task.assigneeType !== "agent" || !task.assigneeAgentId) {
-      return;
-    }
-    switch (task.scheduleKind) {
-      case "now":
-        await this.queue.enqueueRun(task.id);
-        return;
-      case "at":
-        if (task.runAt) {
-          await this.queue.enqueueRunAt(task.id, new Date(task.runAt));
-        }
-        return;
-      case "cron":
-        if (task.cron && task.timezone) {
-          await this.queue.scheduleCron(task.id, task.cron, task.timezone);
-        }
-        return;
-    }
+  /** Turns the task's schedule into queue work; see `task-schedule.ts`. */
+  applySchedule(task: TaskDto): Promise<void> {
+    return applySchedule(this.queue, task);
   }
 
   async get(projectId: string, id: string): Promise<TaskDto> {
@@ -279,6 +268,11 @@ export class TasksService {
       throw new NotFoundException(`task ${id} not found in project ${projectId}`);
     }
     return row;
+  }
+
+  /** Removing a task; the rules live in `task-removal.ts`. */
+  async remove(projectId: string, id: string): Promise<void> {
+    await removeTask(this.db, this.queue, await this.require(projectId, id));
   }
 
   async requireById(id: string): Promise<TaskRow> {

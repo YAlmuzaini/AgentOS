@@ -6,17 +6,7 @@ import {
   type TaskActivityDto,
   type TaskDto,
 } from "@agentos/shared";
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-  UseGuards,
-} from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, UseGuards } from "@nestjs/common";
 import { OperatorGuard } from "../auth/operator.guard";
 import { ZodBody } from "../common/zod-body.pipe";
 import { SessionQueue } from "../queue/session.queue";
@@ -73,6 +63,16 @@ export class TasksController {
     }
     await this.queue.enqueueRun(task.id);
     return { enqueued: true };
+  }
+
+  /** Removing a task the operator no longer wants. */
+  @Delete(":id")
+  @HttpCode(204)
+  remove(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.tasks.remove(projectId, id);
   }
 
   @Get(":id/activity")

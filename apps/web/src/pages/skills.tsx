@@ -6,7 +6,7 @@ import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { CreatePanel } from "../components/ui/create-panel";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
-import { Field, Input, Select } from "../components/ui/form";
+import { Field, Input, Select, Textarea } from "../components/ui/form";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
@@ -118,10 +118,18 @@ export function SkillsPage(): React.JSX.Element {
             )}
           </Field>
         </div>
+        {/* The skill *is* this text, and a single-line input made anything
+            longer than a sentence impossible to read while writing it. */}
         {kind === "prompt" ? (
           <Field label="Prompt body">
             {(id) => (
-              <Input id={id} value={body} onChange={(event) => setBody(event.target.value)} />
+              <Textarea
+                id={id}
+                rows={10}
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+                placeholder="What this skill tells the agent to do."
+              />
             )}
           </Field>
         ) : (

@@ -112,10 +112,13 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 
       const agentIds: Record<string, string> = {};
       for (const role of ROLE_SEEDS) {
+        // Seeded as `inherit`, matching the real seed: these agents follow the
+        // project's own runner setting. Hardcoding 'cloud' here meant the
+        // routing tests could never exercise that setting at all.
         const [row] = await db.execute<{ id: string }>(sql`
           INSERT INTO agents (project_id, name, title, model, foundational_prompt, role_prompt, runner_preference)
           VALUES (${projectId}, ${role.name}, ${role.title}, 'claude-opus-5',
-                  ${FOUNDATIONAL_PROMPT}, ${role.rolePrompt}, 'cloud')
+                  ${FOUNDATIONAL_PROMPT}, ${role.rolePrompt}, 'inherit')
           RETURNING id
         `);
         agentIds[role.name] = row!.id;

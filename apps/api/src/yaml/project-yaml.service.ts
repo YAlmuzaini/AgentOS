@@ -182,7 +182,10 @@ export class ProjectYamlService {
       skillIds,
     });
 
-    // The document is the source of truth; the row is a projection of it.
+    // Stored so `pull` can hand back the exact text that was pushed. Only
+    // within this push is the document authoritative — the rows it just wrote
+    // are what a session reads, and the Agents screen writes to those rows
+    // too, so a later push of a stale file overwrites those edits.
     await this.db
       .update(projects)
       .set({ yaml: yamlText, updatedAt: new Date() })

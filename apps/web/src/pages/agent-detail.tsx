@@ -1,19 +1,9 @@
 import type { AgentDto } from "@agentos/shared";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Blocks,
-  Bot,
-  FileText,
-  FolderTree,
-  GitBranch,
-  Inbox,
-  Server,
-  ShieldCheck,
-  Sparkles,
-  Users,
-} from "lucide-react";
+import { Blocks, Bot, FileText, FolderTree, GitBranch, Inbox, Pencil, Server, ShieldCheck, Sparkles, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "../api";
+import { Button } from "../components/ui/button";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
 import { Dot, StatusPill } from "../components/ui/pill";
@@ -31,6 +21,8 @@ import { describeRunner, GrantRow, Section } from "./agent-detail-parts";
 export function AgentDetail(props: {
   projectId: string;
   agentId: string;
+  /** Opens the editor on this agent — the grants below are what it edits. */
+  onEdit?: () => void;
 }): React.JSX.Element {
   const agent = useQuery({
     queryKey: ["agent", props.projectId, props.agentId],
@@ -113,6 +105,15 @@ export function AgentDetail(props: {
                 <span>{describeRunner(data.runnerPreference, settings.data?.defaultRunner)}</span>
               </div>
             </div>
+            {/* The edit sits beside the grants it changes: this screen is where
+                an operator reads what an agent may reach, so it is where they
+                should be able to change it. */}
+            {props.onEdit ? (
+              <Button variant="ghost" size="sm" onClick={props.onEdit}>
+                <Pencil />
+                Edit
+              </Button>
+            ) : null}
           </div>
 
           <Section title="Role" icon={<FileText />}>

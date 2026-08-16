@@ -1,5 +1,7 @@
 import type {
   AgentDto,
+  CreateAgentInput,
+  UpdateAgentInput,
   ApproveDodInput,
   AutomationDto,
   CreateAutomationInput,
@@ -49,6 +51,17 @@ import type { ActivityEntryDto } from "./api-client";
 export const api = {
   projects: () => request<ProjectDto[]>("/projects"),
   agents: (projectId: string) => request<AgentDto[]>(`/projects/${projectId}/agents`),
+  createAgent: (projectId: string, body: CreateAgentInput) =>
+    request<AgentDto>(`/projects/${projectId}/agents`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** Everything except the name, which is the identity other agents refer to. */
+  updateAgent: (projectId: string, id: string, body: UpdateAgentInput) =>
+    request<AgentDto>(`/projects/${projectId}/agents/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   agent: (projectId: string, id: string) =>
     request<AgentDto>(`/projects/${projectId}/agents/${id}`),
 
@@ -65,6 +78,9 @@ export const api = {
     }),
   runTask: (projectId: string, id: string) =>
     request<{ enqueued: true }>(`/projects/${projectId}/tasks/${id}/run`, { method: "POST" }),
+  /** Removing a task. Refused by the server while a session still runs on it. */
+  deleteTask: (projectId: string, id: string) =>
+    request<void>(`/projects/${projectId}/tasks/${id}`, { method: "DELETE" }),
   taskActivity: (projectId: string, id: string) =>
     request<TaskActivityDto[]>(`/projects/${projectId}/tasks/${id}/activity`),
 

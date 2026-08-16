@@ -1,11 +1,14 @@
 import type { AgentDto, TaskDto } from "@agentos/shared";
 import * as Dialog from "@radix-ui/react-dialog";
-import { useQuery } from "@tanstack/react-query";
-import { Check, Clock, GitBranch, Play, Repeat, User, X } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Clock, GitBranch, Pencil, Play, Repeat, Trash2, User, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { api } from "../api";
+import { useState } from "react";
+import { api, ApiError } from "../api";
 import { Button } from "../components/ui/button";
-import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { useConfirm } from "../components/ui/confirm";
+import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
+import { Field, Input, Textarea } from "../components/ui/form";
 import { PanelTitle, Well } from "../components/ui/panel";
 import { Dot, StatusPill } from "../components/ui/pill";
 
@@ -28,6 +31,34 @@ export function TaskDetail(props: {
   onApprove: () => void;
 }): React.JSX.Element {
   const { task } = props;
+  const queryClient = useQueryClient();
+  const confirm = useConfirm();
+  // Editing is inline rather than a second dialog: the sheet already has the
+  // task open, and a dialog over a dialog is a worse place to fix a typo.
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(task.name);
+  const [description, setDescription] = useState(task.description);
+
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["tasks", props.projectId] });
+    void queryClient.invalidateQueries({ queryKey: ["task", props.projectId, task.id] });
+  };
+
+  const save = useMutation({
+    mutationFn: () => api.patchTask(props.projectId, task.id, { name, description }),
+    onSuccess: () => {
+      setEditing(false);
+      invalidate();
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: () => api.deleteTask(props.projectId, task.id),
+    onSuccess: () => {
+      invalidate();
+      props.onClose();
+    },
+  });
 
   const activity = useQuery({
     queryKey: ["task-activity", props.projectId, task.id],
@@ -61,15 +92,96 @@ export function TaskDetail(props: {
                 ) : null}
               </div>
             </div>
-            <Dialog.Close asChild>
-              <Button variant="ghost" size="icon-sm" aria-label="Close">
-                <X />
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Edit task"
+                onClick={() => {
+                  setName(task.name);
+                  setDescription(task.description);
+                  setEditing((open) => !open);
+                }}
+              >
+                <Pencil />
               </Button>
-            </Dialog.Close>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Delete task"
+                className="text-ink-faint hover:bg-danger-soft hover:text-danger"
+                onClick={() =>
+                  confirm({
+                    kind: "destroy",
+                    title: `Delete “${task.name}”?`,
+                    body: (
+                      <>
+                        The card and its activity go with it. Sessions that already ran are kept —
+                        they are the record of what happened and what it cost. This cannot be undone.
+                      </>
+                    ),
+                    confirmLabel: "Delete task",
+                    onConfirm: () => remove.mutate(),
+                  })
+                }
+              >
+                <Trash2 />
+              </Button>
+              <Dialog.Close asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="Close">
+                  <X />
+                </Button>
+              </Dialog.Close>
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-            {task.description ? (
+            {editing ? (
+              <form
+                className="space-y-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  save.mutate();
+                }}
+              >
+                <Field label="Name">
+                  {(id) => (
+                    <Input id={id} value={name} onChange={(e) => setName(e.target.value)} />
+                  )}
+                </Field>
+                <Field label="Description">
+                  {(id) => (
+                    <Textarea
+                      id={id}
+                      rows={6}
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                    />
+                  )}
+                </Field>
+                <div className="flex items-center gap-2">
+                  <Button type="submit" variant="solid" disabled={save.isPending || !name}>
+                    {save.isPending ? "Saving…" : "Save"}
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+                    Cancel
+                  </Button>
+                  {save.isError ? (
+                    <span className="text-[13px] text-danger">
+                      {save.error instanceof ApiError ? save.error.message : "could not save"}
+                    </span>
+                  ) : null}
+                </div>
+              </form>
+            ) : null}
+
+            {remove.isError ? (
+              <InlineError>
+                {remove.error instanceof ApiError ? remove.error.message : "could not delete"}
+              </InlineError>
+            ) : null}
+
+            {!editing && task.description ? (
               <div className="space-y-2">
                 <PanelTitle>Description</PanelTitle>
                 <Well className="text-[13px] leading-relaxed whitespace-pre-wrap text-ink">

@@ -7,7 +7,7 @@ import {
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Check, Play, Plus, SquareKanban } from "lucide-react";
+import { Check, Maximize2, Play, Plus, SquareKanban } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
@@ -20,6 +20,7 @@ import { MicroLabel, Panel } from "../components/ui/panel";
 import { CountChip, StatusPill } from "../components/ui/pill";
 import { useProjectGate } from "../hooks/use-project";
 import { useUrlSelection } from "../hooks/use-url-selection";
+import { TaskCard } from "./task-card";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { NoProject, ProjectPending } from "./project-states";
 import { TaskDetail } from "./task-detail";
@@ -247,52 +248,5 @@ export function TasksPage(): React.JSX.Element {
         }}
       />
     </Page>
-  );
-}
-
-function TaskCard(props: {
-  task: TaskDto;
-  busy: boolean;
-  onOpen: () => void;
-  onRun: () => void;
-  onAdvance: (next: TaskStatus) => void;
-}): React.JSX.Element {
-  const { task } = props;
-  const action =
-    task.status === "todo" ? (
-      <Button size="sm" onClick={props.onRun} disabled={props.busy}>
-        <Play />
-        Run now
-      </Button>
-    ) : task.status === "review" ? (
-      <Button size="sm" variant="solid" onClick={() => props.onAdvance("done")} disabled={props.busy}>
-        <Check />
-        Approve → done
-      </Button>
-    ) : null;
-
-  return (
-    <li>
-      <Panel className="p-3 transition-colors hover:border-edge-strong">
-        {/* The whole card opens the detail; the action buttons below stop the
-            click so running a task never also opens a sheet over it. */}
-        <button
-          type="button"
-          className="block w-full text-left text-[13px] font-medium text-ink"
-          onClick={props.onOpen}
-        >
-          {task.name}
-        </button>
-        {/* A pill is a label, not a sentence. The full promise — that an agent
-            physically cannot close this — is the title, so the card keeps a
-            clean single-line badge at any column width. */}
-        {task.approvalGate ? (
-          <StatusPill tone="gate" className="mt-2" title="Approval gate — an agent cannot mark this done. Only you can close it.">
-            approval gate
-          </StatusPill>
-        ) : null}
-        {action ? <div className="mt-3">{action}</div> : null}
-      </Panel>
-    </li>
   );
 }

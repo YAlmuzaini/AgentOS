@@ -52,7 +52,7 @@ export class SessionOrchestrator {
       throw new Error(`task ${taskId} has no assigned agent`);
     }
     const agent = await this.agents.requireById(task.assigneeAgentId);
-    const requested = await this.router.pick({ agent });
+    const { runner: requested, preference } = await this.router.resolve({ agent });
     const session = await this.sessions.create({
       projectId: task.projectId,
       agentId: agent.id,
@@ -70,6 +70,7 @@ export class SessionOrchestrator {
         runner,
         sessionId: session.id,
         budgetUsd: null,
+        preference,
       }));
       await this.sessions.attachRuntime(
         session.id,
@@ -113,7 +114,10 @@ export class SessionOrchestrator {
     signal?: AbortSignal | null;
   }): Promise<{ sessionId: string; summary: string; costUsd: number | null; parked: boolean }> {
     const agent = await this.agents.requireByName(input.projectId, input.agentName);
-    const requested = await this.router.pick({ agent, goalPreference: input.runnerPreference });
+    const { runner: requested, preference } = await this.router.resolve({
+      agent,
+      goalPreference: input.runnerPreference,
+    });
     const session = await this.sessions.create({
       projectId: input.projectId,
       agentId: agent.id,
@@ -131,6 +135,7 @@ export class SessionOrchestrator {
         sessionId: session.id,
         kickoff: input.brief,
         budgetUsd: input.budgetUsd,
+        preference,
       }));
       await this.sessions.attachRuntime(
         session.id,
@@ -191,6 +196,8 @@ export class SessionOrchestrator {
     sessionId: string;
     kickoff?: string;
     budgetUsd: number | null;
+    /** How this backend was chosen — decides whether a refusal may fall back. */
+    preference: "cloud" | "local" | "auto";
   }): Promise<{ runner: Runner; handle: RunnerHandle }> {
     const onVaultsCreated = (vaultIds: string[]) =>
       this.sessions.recordVaults(input.sessionId, vaultIds);
@@ -200,6 +207,17 @@ export class SessionOrchestrator {
     } catch (error) {
       if (input.runner.name !== "local") {
         throw error;
+      }
+      // Falling back is what `auto` means, and only what `auto` means. An
+      // operator who chose `local` did it to stop paying per token — quietly
+      // running on cloud instead spends the money they moved away from, and
+      // when that credential is exhausted it surfaces as an unrelated 401 that
+      // says nothing about the actual cause.
+      if (input.preference === "local") {
+        throw new Error(
+          `the local worker refused this session and the project is set to run locally, ` +
+            `so it was not sent to the cloud. ${String(error)}`,
+        );
       }
       this.logger.warn(
         `local runner would not take session ${input.sessionId} (${String(error)}); using cloud`,

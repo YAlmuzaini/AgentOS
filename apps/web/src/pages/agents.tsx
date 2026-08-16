@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bot } from "lucide-react";
+import { Bot, Plus } from "lucide-react";
 import { useSearch } from "@tanstack/react-router";
 import { useUrlSelection } from "../hooks/use-url-selection";
 import { useState } from "react";
@@ -9,7 +9,9 @@ import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 import { useProjectGate } from "../hooks/use-project";
+import { Button } from "../components/ui/button";
 import { AgentDetail } from "./agent-detail";
+import { AgentForm } from "./agent-form";
 import { NoProject, ProjectPending } from "./project-states";
 
 /**
@@ -22,6 +24,8 @@ export function AgentsPage(): React.JSX.Element {
   // The URL is the selection; a click overrides it until the URL moves again.
   const { id: idFromUrl } = useSearch({ strict: false }) as { id?: string };
   const [selected, setSelected] = useUrlSelection(idFromUrl);
+  const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const agents = useQuery({
     queryKey: ["agents", project?.id],
@@ -38,6 +42,7 @@ export function AgentsPage(): React.JSX.Element {
 
   const list = agents.data ?? [];
   const active = selected ?? list[0]?.id ?? null;
+  const activeAgent = list.find((agent) => agent.id === active);
 
   return (
     <Page fill>
@@ -45,6 +50,23 @@ export function AgentsPage(): React.JSX.Element {
         icon={<Bot />}
         title="Agents"
         meta={list.length > 0 ? `${list.length} configured` : undefined}
+        actions={
+          <Button onClick={() => setCreating(true)}>
+            <Plus />
+            New agent
+          </Button>
+        }
+      />
+
+      <AgentForm
+        key={editingId ?? "new"}
+        projectId={project.id}
+        agent={editingId ? list.find((agent) => agent.id === editingId) : undefined}
+        open={creating || Boolean(editingId)}
+        onClose={() => {
+          setCreating(false);
+          setEditingId(null);
+        }}
       />
 
       <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[280px_1fr]">
@@ -55,7 +77,7 @@ export function AgentsPage(): React.JSX.Element {
             <EmptyState
               icon={<Bot />}
               title="No agents configured"
-              hint="Agents are declared in agentos.yml. Push the file and they appear here."
+              hint="Create one here, or declare a fleet in agentos.yml and push it."
             />
           ) : (
             <ul className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
@@ -91,7 +113,11 @@ export function AgentsPage(): React.JSX.Element {
 
         <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto">
           {active ? (
-            <AgentDetail projectId={project.id} agentId={active} />
+            <AgentDetail
+              projectId={project.id}
+              agentId={active}
+              onEdit={() => setEditingId(active)}
+            />
           ) : (
             <Panel>
               <EmptyState title="Select an agent" hint="Its grants and recent runs open here." />
@@ -100,10 +126,17 @@ export function AgentsPage(): React.JSX.Element {
         </div>
       </div>
 
+      {/* The old note here said agents were edited in YAML and that editing
+          them on this screen would drift from it. Both halves were wrong: the
+          database is what a session actually reads, and this screen now writes
+          to it. What is worth saying is the one direction that really does
+          overwrite work — pushing a file that was exported before these edits. */}
       <p className="shrink-0 text-xs text-ink-faint">
-        Prompts, grants, and collaboration lists are edited in{" "}
-        <span className="machine text-ink-muted">agentos.yml</span>: pull it, edit it, push it. That
-        file is the source of truth, so editing an agent here would only drift from it.
+        Edits here take effect on the next session.{" "}
+        <span className="machine text-ink-muted">agentos.yml</span> is for authoring a fleet in
+        version control — <span className="machine text-ink-muted">push</span> applies a file to
+        this project and <span className="machine text-ink-muted">pull</span> exports what is here,
+        so pull before you push if you have changed anything on this screen.
       </p>
     </Page>
   );
