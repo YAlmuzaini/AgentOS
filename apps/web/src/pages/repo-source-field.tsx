@@ -47,8 +47,8 @@ export function RepoSourceField({
         className="sm:col-span-2"
         hint={
           value.installationId
-            ? "Each clone mints a token that expires in an hour and reaches only the repositories you granted."
-            : "A stored personal access token. Long-lived and as broad as its scopes — prefer a GitHub App."
+            ? "Uses a short-lived token limited to the repositories granted to the GitHub App."
+            : "Uses a stored personal access token with its configured scopes. Prefer a GitHub App."
         }
       >
         {(id) => (
@@ -82,7 +82,7 @@ export function RepoSourceField({
             remote.isError
               ? "Could not list repositories for that installation."
               : remote.isLoading
-                ? "Loading what GitHub granted…"
+                ? "Loading authorized repositories…"
                 : `${(remote.data ?? []).length} available`
           }
         >
@@ -101,7 +101,7 @@ export function RepoSourceField({
               }}
             >
               <option value="" disabled>
-                choose a repository…
+                Select a repository
               </option>
               {(remote.data ?? []).map((repo) => (
                 <option key={repo.fullName} value={repo.fullName}>
@@ -122,7 +122,7 @@ export function RepoSourceField({
                 onChange({ installationId: "", credentialSecretId: event.target.value })
               }
             >
-              <option value="">no credential…</option>
+              <option value="">No credential</option>
               {secrets.map((secret) => (
                 <option key={secret.id} value={secret.id}>
                   {secret.name}

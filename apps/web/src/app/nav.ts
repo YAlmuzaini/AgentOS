@@ -58,7 +58,7 @@ export const NAV: NavGroup[] = [
   {
     label: "Resources",
     items: [
-      { to: "/repos", label: "Repos", icon: GitBranch },
+      { to: "/repos", label: "Repositories", icon: GitBranch },
       { to: "/files", label: "Files", icon: Folder },
       { to: "/mcps", label: "MCPs", icon: Blocks },
     ],

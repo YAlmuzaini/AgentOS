@@ -49,7 +49,7 @@ export function MessageCard(props: {
         <div className="flex flex-wrap items-center gap-2">
           <Time iso={message.createdAt} className="text-ink-faint" />
           {open ? (
-            <StatusPill tone="gate">waiting on you</StatusPill>
+            <StatusPill tone="gate">response required</StatusPill>
           ) : (
             <StatusPill tone="neutral">{message.status}</StatusPill>
           )}
@@ -212,7 +212,7 @@ function QuestionForm(props: {
                 {question.allowFreeText ? (
                   <Input
                     className="min-h-11 sm:min-h-0"
-                    placeholder="or answer in your own words"
+                    placeholder="Enter a custom response"
                     value={text[question.id] ?? ""}
                     onChange={(event) =>
                       setText((current) => ({ ...current, [question.id]: event.target.value }))
@@ -248,8 +248,8 @@ function QuestionForm(props: {
           {!complete ? (
             <span className="text-xs text-ink-faint">
               {props.questions.length > 1
-                ? "Answer every question — the agent resumes with all of them at once."
-                : "Pick one to continue."}
+                ? "Answer every question to continue."
+                : "Select an option to continue."}
             </span>
           ) : null}
         </div>
@@ -278,7 +278,7 @@ function TextReply(props: {
         className="min-h-11 flex-1 sm:min-h-0"
         value={text}
         onChange={(event) => setText(event.target.value)}
-        placeholder="Reply…"
+        placeholder="Enter your response"
         aria-label="Reply"
       />
       <Button

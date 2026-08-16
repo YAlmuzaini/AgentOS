@@ -123,7 +123,7 @@ export function GoalDetail(props: {
         <Panel>
           <PanelHeader className="border-b border-edge">
             <PanelTitle accent="amber">Definition of done</PanelTitle>
-            <StatusPill tone="gate">nothing runs until you approve this</StatusPill>
+            <StatusPill tone="gate">approval required</StatusPill>
           </PanelHeader>
 
           <div className="space-y-2 p-4">
@@ -131,7 +131,7 @@ export function GoalDetail(props: {
               <div key={item.id} className="flex items-center gap-2">
                 <Input
                   value={item.text}
-                  placeholder="What has to be true for this to be done"
+                  placeholder="Enter a measurable completion criterion"
                   onChange={(event) => {
                     const next = [...draft];
                     next[index] = { ...item, text: event.target.value };
@@ -170,11 +170,11 @@ export function GoalDetail(props: {
                   title: `Approve and start “${data.title}”?`,
                   body: (
                     <>
-                      This starts the goal loop: it dispatches specialists one after another until
-                      the checklist is satisfied or a rail stops it.{" "}
+                      This starts the goal and dispatches agents until the checklist is complete or
+                      an operating limit is reached.{" "}
                       {data.spendCapUsd === null
-                        ? "This goal has no spend cap, so the only limits are its time and stuck rails."
-                        : `It will stop at $${data.spendCapUsd.toFixed(2)}.`}
+                        ? "This goal has no spend limit."
+                        : `The goal will stop at $${data.spendCapUsd.toFixed(2)}.`}
                     </>
                   ),
                   confirmLabel: "Approve and start",
@@ -197,7 +197,7 @@ export function GoalDetail(props: {
               suffix={data.spendCapUsd !== null ? `of $${data.spendCapUsd.toFixed(2)}` : "no cap"}
               footer={
                 data.spendCapUsd === null
-                  ? "Unbounded — this goal has no ceiling."
+                  ? "No spend limit configured."
                   : `${data.iterations} iterations so far`
               }
               meter={
@@ -281,14 +281,14 @@ export function GoalDetail(props: {
             <div className="p-4">
               <Well className="max-h-96 overflow-auto p-0">
                 <pre className="machine px-3.5 py-3 text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">
-                  {data.progressLog || "(nothing logged yet)"}
+                  {data.progressLog || "No progress recorded."}
                 </pre>
               </Well>
             </div>
           </Panel>
 
           {data.stoppedReason ? (
-            <InlineError>stopped: {data.stoppedReason}</InlineError>
+            <InlineError>Goal stopped: {data.stoppedReason}</InlineError>
           ) : null}
         </>
       )}

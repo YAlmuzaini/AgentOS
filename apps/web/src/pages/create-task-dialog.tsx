@@ -91,8 +91,8 @@ export function CreateTaskDialog(props: {
                   title: `Create and run “${name}”?`,
                   body: (
                     <>
-                      This starts an agent session immediately and consumes API credits. It cannot
-                      be un-run.
+                      This starts an agent session immediately and consumes API credits. This action
+                      cannot be reversed.
                     </>
                   ),
                   confirmLabel: "Create and run",
@@ -129,7 +129,7 @@ export function CreateTaskDialog(props: {
                     rows={3}
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
-                    placeholder="What the agent should do, and what done looks like"
+                    placeholder="Describe the work and completion criteria"
                   />
                 )}
               </Field>
@@ -140,7 +140,7 @@ export function CreateTaskDialog(props: {
                     value={agentId}
                     onChange={(event) => setAgentId(event.target.value)}
                   >
-                    <option value="">assign agent…</option>
+                    <option value="">Select an agent</option>
                     {props.agents.map((agent) => (
                       <option key={agent.id} value={agent.id}>
                         {agent.name}
@@ -233,7 +233,7 @@ export function CreateTaskDialog(props: {
             <div className="border-t border-edge px-5 py-3.5">
               <FormActions
                 message={
-                  create.isError ? <span className="text-danger">Could not create it.</span> : null
+                  create.isError ? <span className="text-danger">Task creation failed.</span> : null
                 }
               >
                 <Dialog.Close asChild>
@@ -272,10 +272,10 @@ export function CreateTaskDialog(props: {
 function describeSchedule(kind: ScheduleKind): string {
   switch (kind) {
     case "now":
-      return "It is queued and run immediately once created, which spends API credits.";
+      return "The task will start immediately and consume API credits.";
     case "at":
-      return "It is created now and run once at the time you pick.";
+      return "The task will run once at the selected time.";
     case "cron":
-      return "It is created now and run on the schedule you set, until you remove it.";
+      return "The task will run on the specified schedule until deleted.";
   }
 }

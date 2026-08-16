@@ -52,9 +52,8 @@ export function SettingsPage(): React.JSX.Element {
             </PanelHeader>
             <div className="space-y-4 p-4">
               <p className="text-[13px] leading-relaxed text-ink-muted">
-                Where the backends are is a deployment fact — one worker serves every project on
-                this installation. <em>Which</em> backend a project prefers is that project's
-                choice, and lives in its own settings.
+                Runner availability applies to this installation. Select a default runner separately
+                in each project's settings.
               </p>
 
               <dl className="grid gap-px overflow-hidden rounded-control border border-edge bg-edge">
@@ -73,9 +72,8 @@ export function SettingsPage(): React.JSX.Element {
               </dl>
 
               <p className="text-[13px] leading-relaxed text-ink-muted">
-                One worker, many projects. Each session gets its own temporary directory and only
-                the repos, secrets and MCP connections its own project granted it, so two projects
-                running at once never share a workspace.
+                Each session receives an isolated temporary directory and only the resources granted
+                by its project.
               </p>
             </div>
           </Panel>
@@ -87,8 +85,7 @@ export function SettingsPage(): React.JSX.Element {
             </PanelHeader>
             <div className="p-4">
               <p className="text-[13px] leading-relaxed text-ink-muted">
-                Push is granted to this browser, not to a project — once enabled you are notified
-                about questions parked in any project's inbox.
+                Notifications are enabled for this browser across all projects.
               </p>
             </div>
           </Panel>
@@ -101,8 +98,7 @@ export function SettingsPage(): React.JSX.Element {
             </PanelHeader>
             <div className="space-y-3 p-4">
               <p className="text-[13px] leading-relaxed text-ink-muted">
-                One operator, one token. It authorises every project on this control plane, so the
-                project picker is a view, never a permission.
+                The operator token authorizes access to every project on this control plane.
               </p>
               <Well className="space-y-1">
                 <p className="machine text-xs break-all text-ink">{BASE}</p>
@@ -115,10 +111,9 @@ export function SettingsPage(): React.JSX.Element {
           </Panel>
 
           <p className="px-1 text-xs leading-relaxed text-ink-faint">
-            Looking for the default runner, the parked-session timeout, or the orphan sweep? Those
-            are set per project —{" "}
+            Default runner and session maintenance settings are configured per project.{" "}
             <Link to="/project" className="text-link hover:underline">
-              open this project's settings
+              Open project settings
             </Link>
             .
           </p>

@@ -21,7 +21,7 @@ const OWNED = [
   { to: "/skills", label: "Skills", key: "skills", load: api.skills },
   { to: "/tasks", label: "Tasks", key: "tasks", load: api.tasks },
   { to: "/goals", label: "Goals", key: "goals", load: api.goals },
-  { to: "/repos", label: "Repos", key: "repos", load: api.repos },
+  { to: "/repos", label: "Repositories", key: "repos", load: api.repos },
   { to: "/mcps", label: "MCP connections", key: "mcpConnections", load: api.mcpConnections },
   { to: "/environment", label: "Environments", key: "environments", load: api.environments },
   { to: "/secrets", label: "Secrets", key: "secrets", load: api.secrets },
@@ -40,7 +40,7 @@ export function ProjectOwns({ projectId }: { projectId: string }): React.JSX.Ele
   return (
     <Panel>
       <PanelHeader className="border-b border-edge">
-        <PanelTitle accent="violet">What this project owns</PanelTitle>
+        <PanelTitle accent="violet">Project resources</PanelTitle>
       </PanelHeader>
       <div className="space-y-4 p-4">
         <p className="text-[13px] leading-relaxed text-ink-muted">

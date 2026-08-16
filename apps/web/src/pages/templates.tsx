@@ -95,7 +95,7 @@ export function TemplatesPage(): React.JSX.Element {
           <EmptyState
             icon={<FolderGit2 />}
             title="No templates yet"
-            hint="Install the built-in workflows, or define your own in agentos.yml."
+            hint="Install the built-in workflows or define a template in agentos.yml."
             action={
               <Button variant="solid" onClick={() => confirmInstall()}>
                 <Download />
@@ -192,8 +192,8 @@ function TemplateCard(props: {
             what={template.name}
             body={
               <>
-                Chains already instantiated from it keep running — a template is a mould, not a
-                parent. Built-in templates come back with "Install built-ins".
+                Existing task chains are not affected. You can restore built-in templates by
+                selecting Install built-ins.
               </>
             }
             onDelete={props.onDeleted}

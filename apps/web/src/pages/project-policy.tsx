@@ -82,13 +82,12 @@ export function ProjectPolicy({ projectId }: { projectId: string }): React.JSX.E
 
       <Panel>
         <PanelHeader className="border-b border-edge">
-          <PanelTitle accent="amber">Unanswered questions</PanelTitle>
+          <PanelTitle accent="amber">Response timeout</PanelTitle>
         </PanelHeader>
         <div className="space-y-4 p-4">
           <p className="text-[13px] leading-relaxed text-ink-muted">
-            A session that asks you something keeps its container alive while it waits — that is
-            what makes the answer resume the same run. This is how long it waits before giving up
-            and freeing the container. The question stays in your inbox either way.
+            Set how long a session keeps its container while awaiting your response. After the
+            timeout, the container is released and the inbox message remains available.
           </p>
           <div className="flex items-center gap-2">
             <Input
@@ -100,7 +99,7 @@ export function ProjectPolicy({ projectId }: { projectId: string }): React.JSX.E
                 setForm({ ...form, parkedSessionTimeoutMinutes: Number(event.target.value) })
               }
               className="tnum w-28"
-              aria-label="Minutes before a parked session gives up"
+              aria-label="Minutes before a waiting session releases its container"
             />
             <span className="text-[13px] text-ink-muted">minutes</span>
           </div>
@@ -121,10 +120,8 @@ export function ProjectPolicy({ projectId }: { projectId: string }): React.JSX.E
         </PanelHeader>
         <div className="space-y-4 p-4">
           <p className="text-[13px] leading-relaxed text-ink-muted">
-            If AgentOS crashes between starting a container and recording it, nothing points at that
-            container any more. This reconciles what the runtime is running against what AgentOS
-            knows about, and archives the difference. Containers younger than ten minutes are never
-            touched.
+            Compare active runtime containers with AgentOS session records and archive unmatched
+            containers. Containers less than ten minutes old are excluded.
           </p>
           <div className="flex items-center gap-2">
             <Input
@@ -150,11 +147,11 @@ export function ProjectPolicy({ projectId }: { projectId: string }): React.JSX.E
         </Button>
         {save.isError ? (
           <span className="text-[13px] text-danger">
-            {save.error instanceof ApiError ? save.error.message : "could not save"}
+            {save.error instanceof ApiError ? save.error.message : "Unable to save project settings."}
           </span>
         ) : null}
         {save.isSuccess && !save.isPending ? (
-          <span className="text-[13px] text-ink-faint">Saved. The next maintenance pass uses it.</span>
+          <span className="text-[13px] text-ink-faint">Settings saved.</span>
         ) : null}
       </div>
     </form>
@@ -163,7 +160,7 @@ export function ProjectPolicy({ projectId }: { projectId: string }): React.JSX.E
 
 function describeTimeout(minutes: number): string {
   if (minutes === 0) {
-    return "0 — a question is never given up on. The container waits indefinitely, and bills.";
+    return "No timeout. The container remains active and may continue to incur costs.";
   }
   if (minutes < 60) {
     return `${minutes} minutes.`;

@@ -44,7 +44,7 @@ export function ProjectDanger({ project }: { project: ProjectDto }): React.JSX.E
       </PanelHeader>
       <div className="space-y-3 p-4">
         <p className="text-[13px] leading-relaxed text-ink-muted">
-          Removes every agent, task, goal, session, repo, secret reference and file in{" "}
+          Deletes every agent, task, goal, session, repository, secret reference, and file in{" "}
           <span className="font-medium text-ink">{project.name}</span>. Your repositories on GitHub
           are not touched. This cannot be undone.
         </p>
@@ -66,7 +66,7 @@ export function ProjectDanger({ project }: { project: ProjectDto }): React.JSX.E
               confirm({
                 kind: "destroy",
                 title: `Delete ${project.name}?`,
-                body: <>Everything in it goes. There is no undo and no export.</>,
+                body: <>All project data will be permanently deleted. No export or undo is available.</>,
                 confirmLabel: "Delete project",
                 onConfirm: () => remove.mutate(),
               })
@@ -76,7 +76,7 @@ export function ProjectDanger({ project }: { project: ProjectDto }): React.JSX.E
           </Button>
           {remove.isError ? (
             <span className="text-[13px] text-danger">
-              {remove.error instanceof ApiError ? remove.error.message : "Could not delete it."}
+              {remove.error instanceof ApiError ? remove.error.message : "Project deletion failed."}
             </span>
           ) : null}
         </div>

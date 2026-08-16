@@ -78,12 +78,12 @@ export function ReposPage(): React.JSX.Element {
     <Page>
       <PageHeader
         icon={<GitBranch />}
-        title="Repos"
+        title="Repositories"
         meta={list.length > 0 ? `${list.length} mounted` : undefined}
         actions={
           <Button variant="solid" onClick={() => setCreating(true)}>
             <Plus />
-            New repo
+            New repository
           </Button>
         }
       />
@@ -93,12 +93,12 @@ export function ReposPage(): React.JSX.Element {
       <CreatePanel
         open={creating}
         onClose={() => setCreating(false)}
-        title="New repo"
-        description="Mounted into the session container; commits are the only thing that survives it."
+        title="New repository"
+        description="The repository is cloned into each authorized session. Persist changes by pushing commits."
         submitLabel="Create"
         pending={create.isPending}
         disabled={!name || !remoteUrl || !mountPath}
-        error={create.isError ? "Could not create it." : null}
+        error={create.isError ? "Repository creation failed." : null}
         onSubmit={async () => {
           await create.mutateAsync({
             name,
@@ -179,12 +179,12 @@ export function ReposPage(): React.JSX.Element {
         <Panel>
           <EmptyState
             icon={<GitBranch />}
-            title="No repos yet"
-            hint="Add one for agents to work in."
+            title="No repositories yet"
+            hint="Add a repository and grant access to the required agents."
             action={
               <Button variant="solid" onClick={() => setCreating(true)}>
                 <Plus />
-                New repo
+                New repository
               </Button>
             }
           />
@@ -229,9 +229,8 @@ export function ReposPage(): React.JSX.Element {
                       what={repo.name}
                       body={
                         <>
-                          The repository stays on GitHub. What goes is this mount and the grant
-                          every agent had to it, so any agent that was working in{" "}
-                          <span className="machine">{repo.mountPath}</span> will no longer see it.
+                          The remote repository will not be deleted. This removes the mount and all
+                          agent access to <span className="machine">{repo.mountPath}</span>.
                         </>
                       }
                       onDelete={() => api.deleteRepo(project.id, repo.id)}

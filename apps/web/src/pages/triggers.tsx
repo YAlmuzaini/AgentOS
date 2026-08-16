@@ -184,7 +184,7 @@ export function TriggersPage(): React.JSX.Element {
           <EmptyState
             icon={<Webhook />}
             title="No triggers"
-            hint="Create one to receive webhooks, or install the examples to see the shape."
+            hint="Create a signed webhook endpoint or install the examples."
             action={
               <div className="flex gap-2">
                 <Button onClick={() => installExamples.mutate()}>
@@ -243,8 +243,8 @@ export function TriggersPage(): React.JSX.Element {
                         what={trigger.name}
                         body={
                           <>
-                            The webhook URL stops answering immediately, and the record of its
-                            recent fires goes with it. Callers still posting to it get a 404.
+                            The webhook endpoint and its delivery history will be deleted immediately.
+                            Subsequent requests to the URL will return 404.
                           </>
                         }
                         onDelete={() => api.deleteTrigger(project.id, trigger.id)}
@@ -260,9 +260,8 @@ export function TriggersPage(): React.JSX.Element {
                             title: `Rotate the signing key for “${trigger.name}”?`,
                             body: (
                               <>
-                                The current key stops working immediately. Every caller still
-                                signing with it will be rejected until you give them the new one,
-                                which is shown once and never again.
+                                The current key will be revoked immediately. Update every caller with
+                                the replacement key, which will be displayed once.
                               </>
                             ),
                             confirmLabel: "Rotate key",
@@ -285,11 +284,11 @@ export function TriggersPage(): React.JSX.Element {
       {selected ? (
         <Panel>
           <PanelHeader className="border-b border-edge">
-            <PanelTitle accent="sky">Recent fires</PanelTitle>
+            <PanelTitle accent="sky">Recent deliveries</PanelTitle>
           </PanelHeader>
           <div className="p-4">
             {(fires.data ?? []).length === 0 ? (
-              <EmptyState title="No fires yet" />
+              <EmptyState title="No deliveries yet" />
             ) : (
               <Well className="p-0">
                 <ul className="machine divide-y divide-edge text-xs">

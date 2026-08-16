@@ -83,7 +83,7 @@ export function AgentDetail(props: {
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="truncate text-[15px] font-semibold text-ink">{data.title}</h2>
                 {data.inboxAccess ? (
-                  <StatusPill tone="idle">can ask you</StatusPill>
+                  <StatusPill tone="idle">inbox access</StatusPill>
                 ) : (
                   <StatusPill tone="neutral">no inbox</StatusPill>
                 )}
@@ -157,13 +157,13 @@ export function AgentDetail(props: {
         <Panel>
           <PanelHeader className="border-b border-edge">
             <PanelTitle icon={<ShieldCheck />}>Grants</PanelTitle>
-            <span className="text-xs text-ink-faint">anything not listed is denied</span>
+            <span className="text-xs text-ink-faint">Unlisted access is denied</span>
           </PanelHeader>
 
           <GrantRow
             icon={<Server />}
             label="Network"
-            empty="No environment — this agent reaches no host."
+            empty="No network environment assigned."
             items={
               environment
                 ? [
@@ -188,7 +188,7 @@ export function AgentDetail(props: {
           <GrantRow
             icon={<Blocks />}
             label="MCP tools"
-            empty="No MCP connections — this agent has no tools."
+            empty="No MCP connections assigned."
             items={data.mcpConnectionIds.map((id) => (
               <span key={id}>{mcps.data?.find((m) => m.id === id)?.name ?? id}</span>
             ))}
@@ -205,8 +205,8 @@ export function AgentDetail(props: {
 
           <GrantRow
             icon={<GitBranch />}
-            label="Repos"
-            empty="No repo access."
+            label="Repositories"
+            empty="No repository access."
             items={data.repoAccess.map((access) => (
               <span key={access.repoId} className="flex flex-wrap items-center gap-2">
                 {repos.data?.find((r) => r.id === access.repoId)?.name ?? access.repoId}
@@ -248,8 +248,8 @@ export function AgentDetail(props: {
           <GrantRow
             icon={<Inbox />}
             label="Inbox"
-            empty="Cannot interrupt you — it fails instead of asking."
-            items={data.inboxAccess ? [<span key="inbox">Can ask you a question</span>] : []}
+            empty="Inbox access is disabled."
+            items={data.inboxAccess ? [<span key="inbox">May request operator input</span>] : []}
             last
           />
         </Panel>
@@ -261,7 +261,7 @@ export function AgentDetail(props: {
           <PanelTitle accent="sky">Recent sessions</PanelTitle>
         </PanelHeader>
         {runs.length === 0 ? (
-          <EmptyState title="No sessions yet" hint="Assign it a task and it will appear here." />
+          <EmptyState title="No sessions yet" hint="Assign a task to this agent to start a session." />
         ) : (
           <ol className="relative space-y-4 p-4 before:absolute before:top-6 before:bottom-6 before:left-[19px] before:w-px before:bg-edge">
             {runs.slice(0, 12).map((session) => (

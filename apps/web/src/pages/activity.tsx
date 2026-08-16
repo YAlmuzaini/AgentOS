@@ -106,8 +106,8 @@ export function ActivityPage(): React.JSX.Element {
         <Panel>
           <EmptyState
             icon={<History />}
-            title="Nothing yet"
-            hint="Runs, questions, and goal progress land here as they happen."
+            title="No activity recorded"
+            hint="Session, inbox, and goal activity will appear here."
           />
         </Panel>
       ) : null}

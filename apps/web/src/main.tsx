@@ -19,29 +19,29 @@ function describe(error: unknown): { message: string; detail?: string } {
   if (error instanceof ApiError) {
     if (error.status === 0) {
       return {
-        message: "The control plane is not answering",
-        detail: "Nothing was saved. Check that the API is running, then try again.",
+        message: "Unable to connect to the control plane",
+        detail: "Confirm that the API is running, then try again.",
       };
     }
     if (error.status === 401 || error.status === 403) {
       return {
-        message: "The control plane rejected that",
+        message: "Request rejected",
         detail: "Your operator token may no longer be valid.",
       };
     }
     if (error.status === 404) {
-      return { message: "That no longer exists", detail: "It may have been removed already." };
+      return { message: "Item not found", detail: "It may have already been deleted." };
     }
     if (error.status >= 500) {
       return {
-        message: "The control plane failed",
-        detail: "The request reached the server and it errored. Nothing was saved.",
+        message: "Control plane error",
+        detail: "The server could not complete the request. Nothing was saved.",
       };
     }
-    return { message: "That did not go through", detail: error.message };
+    return { message: "Request failed", detail: error.message };
   }
   return {
-    message: "That did not go through",
+    message: "Request failed",
     detail: error instanceof Error ? error.message : undefined,
   };
 }

@@ -124,7 +124,7 @@ export function FilesPage(): React.JSX.Element {
         <InlineError>
           {uploadFile.error instanceof ApiError
             ? uploadFile.error.message
-            : "could not upload that file"}
+            : "Unable to upload the file."}
         </InlineError>
       ) : null}
 
@@ -190,11 +190,11 @@ export function FilesPage(): React.JSX.Element {
               {list.length === 0 ? (
                 <EmptyState
                   icon={<Folder />}
-                  title={path === "/" ? "This disk is empty" : "Nothing in this folder"}
+                  title={path === "/" ? "No files yet" : "This folder is empty"}
                   hint={
                     path === "/"
-                      ? "Agents write here through their filesystem tools — /agents/<name>/ appears the first time one saves something. You can upload a file yourself."
-                      : "Upload a file, or wait for an agent to write one here."
+                      ? "Upload a file or allow an agent to create one through its filesystem tools."
+                      : "Upload a file or allow an agent to create one in this folder."
                   }
                 />
               ) : null}
@@ -259,7 +259,7 @@ export function FilesPage(): React.JSX.Element {
             <EmptyState
               icon={<File />}
               title="Select a file"
-              hint="Text opens here to edit; images preview; anything else downloads."
+              hint="Text files can be edited, images can be previewed, and other files can be downloaded."
             />
           )}
         </Panel>

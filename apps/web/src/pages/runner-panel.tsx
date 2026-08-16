@@ -40,10 +40,9 @@ export function RunnerPanel({
 
       <div className="space-y-4 p-4">
         <p className="text-[13px] leading-relaxed text-ink-muted">
-          Agents that do not pin a backend themselves follow this. The cloud runner is Anthropic's
-          managed sandbox and bills your API credit per token. The local runner is a worker on a
-          machine you own, running against your Claude subscription at a flat rate — cheaper, and
-          not a sandbox.
+          This setting applies to agents without an explicit runner preference. Cloud sessions use
+          Anthropic's managed sandbox and consume API credits. Local sessions run on your configured
+          worker and are not sandboxed.
         </p>
 
         <div className="space-y-2">
@@ -72,7 +71,7 @@ export function RunnerPanel({
             way of finding out. */}
         {value !== "cloud" && !localConfigured ? (
           <p className="rounded-md border border-danger-line bg-danger-soft p-3 text-xs leading-relaxed text-ink-muted">
-            No local worker is configured, so this will run on the cloud regardless. Set{" "}
+            No local worker is configured. Sessions will use the cloud runner. Set{" "}
             <span className="machine text-ink-muted">LOCAL_RUNNER_URL</span> in{" "}
             <span className="machine text-ink-muted">.env</span> and start{" "}
             <span className="machine text-ink-muted">apps/local-runner</span>, then restart the API.
@@ -82,16 +81,16 @@ export function RunnerPanel({
         {value !== "cloud" && localConfigured && !localReachable ? (
           <p className="rounded-md border border-danger-line bg-danger-soft p-3 text-xs leading-relaxed text-ink-muted">
             A local worker is configured at{" "}
-            <span className="machine text-ink-muted">{status?.local.url}</span> but is not answering,
-            so sessions fall back to the cloud and bill your API credit.
+            <span className="machine text-ink-muted">{status?.local.url}</span> but is unavailable.
+            Sessions will use the cloud runner and consume API credits.
           </p>
         ) : null}
 
         {value !== "cloud" && localReachable ? (
           <p className="rounded-md border border-edge bg-sunken p-3 text-xs leading-relaxed text-ink-muted">
-            The local worker cannot enforce a network wall, so it <em>refuses</em> any agent whose
-            environment restricts egress, and those sessions go to the cloud instead. Give an agent
-            an <span className="machine text-ink-muted">open</span> environment to keep it local.
+            The local worker cannot enforce restricted network policies. Agents with restricted
+            egress will use the cloud runner. Assign an <span className="machine text-ink-muted">open</span>{" "}
+            environment to run them locally.
           </p>
         ) : null}
       </div>
@@ -103,16 +102,16 @@ const OPTIONS: Array<{ value: DefaultRunner; label: string; hint: string }> = [
   {
     value: "auto",
     label: "Automatic",
-    hint: "Prefer the local worker when it is reachable, fall back to the cloud when it is not. Losing the worker costs money, not availability.",
+    hint: "Use the local worker when available; otherwise use the cloud runner.",
   },
   {
     value: "local",
     label: "Local worker only",
-    hint: "Your machine, your subscription, flat rate. Still falls back to the cloud rather than failing a run when the worker is down.",
+    hint: "Prefer the local worker. The cloud runner is used when the worker is unavailable.",
   },
   {
     value: "cloud",
     label: "Anthropic managed",
-    hint: "A real sandbox with an egress firewall, billed per token against your API credit.",
+    hint: "Use Anthropic's managed sandbox with network controls and usage-based API billing.",
   },
 ];

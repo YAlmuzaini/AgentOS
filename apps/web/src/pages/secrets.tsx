@@ -86,18 +86,18 @@ export function SecretsPage(): React.JSX.Element {
       />
 
       <p className="text-[13px] text-ink-muted">
-        References only — values are never shown here or returned by the API.
+        AgentOS stores secret references only. Secret values are never displayed or returned by the API.
       </p>
 
       <CreatePanel
         open={creating}
         onClose={() => setCreating(false)}
         title="New secret"
-        description="A pointer to a value the deployment already holds."
+        description="Reference a secret already available to this deployment."
         submitLabel="Create"
         pending={create.isPending}
         disabled={!name || !providerRef}
-        error={create.isError ? "Could not create it." : null}
+        error={create.isError ? "Secret reference creation failed." : null}
         onSubmit={async () => {
           await create.mutateAsync({ name, providerRef, purpose });
           setName("");
@@ -110,7 +110,7 @@ export function SecretsPage(): React.JSX.Element {
               <Input id={id} value={name} onChange={(event) => setName(event.target.value)} />
             )}
           </Field>
-          <Field label="Provider ref" hint="e.g. the env var name">
+          <Field label="Provider reference" hint="For example, the environment variable name.">
             {(id) => (
               <Input
                 id={id}
@@ -149,7 +149,7 @@ export function SecretsPage(): React.JSX.Element {
           <EmptyState
             icon={<KeyRound />}
             title="No secrets yet"
-            hint="Add one to let agents authenticate."
+            hint="Add a secret reference for agent authentication and environment variables."
             action={
               <Button variant="solid" onClick={() => setCreating(true)}>
                 <Plus />
@@ -197,18 +197,17 @@ export function SecretsPage(): React.JSX.Element {
                           title: `Delete “${secret.name}”?`,
                           body: (
                             <>
-                              Any agent, repo, or MCP connection using this credential will stop
-                              authenticating.
+                              Agents, repositories, and MCP connections using this credential will
+                              no longer authenticate.
                               {boundKeys(bindings.data, secret.id).length > 0 ? (
                                 <>
                                   {" "}
-                                  It also <strong>deletes</strong> the environment variable
+                                  This also deletes the environment variable
                                   {boundKeys(bindings.data, secret.id).length === 1 ? " " : "s "}
                                   <span className="machine">
                                     {boundKeys(bindings.data, secret.id).join(", ")}
                                   </span>{" "}
-                                  outright — the name and its host restrictions go too, not just the
-                                  value.
+                                  and its host restrictions.
                                 </>
                               ) : null}{" "}
                               This cannot be undone.

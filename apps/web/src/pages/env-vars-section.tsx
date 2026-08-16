@@ -57,7 +57,7 @@ export function EnvVarsSection(props: {
           open={creatingBinding}
           onClose={() => setCreatingBinding(false)}
           title="New environment variable"
-          description="The environment is the grant — a variable without one reaches no session."
+          description="Bind a secret to an environment variable for authorized sessions."
           submitLabel="Create"
           pending={createBinding.isPending}
           disabled={!key || !secretId || !environmentId}
@@ -85,7 +85,7 @@ export function EnvVarsSection(props: {
                   value={environmentId}
                   onChange={(event) => setEnvironmentId(event.target.value)}
                 >
-                  <option value="">select environment…</option>
+                  <option value="">Select an environment</option>
                   {envList.map((environment) => (
                     <option key={environment.id} value={environment.id}>
                       {environment.name}
@@ -112,7 +112,7 @@ export function EnvVarsSection(props: {
                   value={secretId}
                   onChange={(event) => setSecretId(event.target.value)}
                 >
-                  <option value="">select secret…</option>
+                  <option value="">Select a secret</option>
                   {(secrets.data ?? []).map((secret) => (
                     <option key={secret.id} value={secret.id}>
                       {secret.name}
@@ -121,7 +121,7 @@ export function EnvVarsSection(props: {
                 </Select>
               )}
             </Field>
-            <Field label="Allowed hosts" hint="Comma separated.">
+            <Field label="Allowed hosts" hint="Enter comma-separated hostnames.">
               {(id) => (
                 <Input
                   id={id}
@@ -142,7 +142,7 @@ export function EnvVarsSection(props: {
           <Panel>
             <EmptyState
               title="No environment variables yet"
-              hint="Bind a secret to expose it to a session."
+              hint="Bind a secret to make it available to authorized sessions."
             />
           </Panel>
         ) : (
@@ -165,7 +165,7 @@ export function EnvVarsSection(props: {
                         // Written before bindings were environment-scoped. It
                         // reaches no session until it is assigned one.
                         <StatusPill tone="gate" dot>
-                          unassigned — never injected
+                          not assigned
                         </StatusPill>
                       ) : (
                         <span className="text-ink-muted">

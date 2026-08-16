@@ -78,7 +78,7 @@ export function GoalsPage(): React.JSX.Element {
             <EmptyState
               icon={<Target />}
               title="No goals yet"
-              hint="A goal runs its own loop until its definition of done is checked off."
+              hint="Create a goal to run agents against an approved definition of done."
             />
           ) : (
             <ul>
@@ -122,7 +122,7 @@ export function GoalsPage(): React.JSX.Element {
             <Panel>
               <EmptyState
                 title="Select a goal"
-                hint="Its definition of done, spend against the cap, and progress log open here."
+                hint="Select a goal to view its checklist, spend, and progress."
               />
             </Panel>
           )}
@@ -215,7 +215,7 @@ function CreateGoalDialog(props: {
             <div className="border-b border-edge px-5 py-4">
               <Dialog.Title className="text-[15px] font-semibold text-ink">New goal</Dialog.Title>
               <Dialog.Description className="mt-1 text-[13px] text-ink-muted">
-                Nothing runs until you approve the checklist on the next screen.
+                Define the objective and operating limits. You will approve the checklist before the goal starts.
               </Dialog.Description>
             </div>
 
@@ -230,7 +230,7 @@ function CreateGoalDialog(props: {
                   />
                 )}
               </Field>
-              <Field label="Spec" hint="What the goal is, in as much detail as you have.">
+              <Field label="Specification" hint="Describe the objective, requirements, and constraints.">
                 {(id) => (
                   <Textarea
                     id={id}
@@ -256,7 +256,7 @@ function CreateGoalDialog(props: {
                     />
                   )}
                 </Field>
-                <Field label="Max duration" hint="Minutes. Optional.">
+                <Field label="Maximum duration" hint="Optional, in minutes.">
                   {(id) => (
                     <Input
                       id={id}

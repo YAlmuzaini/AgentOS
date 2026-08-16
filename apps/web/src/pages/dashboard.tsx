@@ -145,10 +145,10 @@ export function DashboardPage(): React.JSX.Element {
           succeeded or failed yet, so counting it either way would be a lie.
         */}
         <StatCard
-          label="Sessions settled"
+          label="Session success rate"
           accent="emerald"
           value={settled === 0 ? "—" : `${Math.round((finished / settled) * 100)}%`}
-          suffix={settled === 0 ? "no runs yet" : `${finished} of ${settled} finished cleanly`}
+          suffix={settled === 0 ? "no completed sessions" : `${finished} of ${settled} successful`}
           meter={
             settled === 0
               ? undefined
@@ -167,12 +167,12 @@ export function DashboardPage(): React.JSX.Element {
           suffix={waiting === 1 ? "item" : "items"}
           footer={
             waiting === 0 ? (
-              "Nothing is parked on you."
+              "No action required."
             ) : (
               <span className="flex flex-wrap gap-x-3 gap-y-1">
-                {openQuestions > 0 ? <span>{openQuestions} inbox</span> : null}
-                {gatedInReview > 0 ? <span>{gatedInReview} gated</span> : null}
-                {unapprovedGoals > 0 ? <span>{unapprovedGoals} unapproved goal</span> : null}
+                {openQuestions > 0 ? <span>{openQuestions} inbox message{openQuestions === 1 ? "" : "s"}</span> : null}
+                {gatedInReview > 0 ? <span>{gatedInReview} approval gate{gatedInReview === 1 ? "" : "s"}</span> : null}
+                {unapprovedGoals > 0 ? <span>{unapprovedGoals} goal approval{unapprovedGoals === 1 ? "" : "s"}</span> : null}
               </span>
             )
           }
@@ -189,7 +189,7 @@ export function DashboardPage(): React.JSX.Element {
                 {uncapped} active goal{uncapped === 1 ? "" : "s"} with no spend cap
               </span>
             ) : (
-              `$${goalSpend.toFixed(2)} of it against goals`
+              `$${goalSpend.toFixed(2)} spent on goals`
             )
           }
         />
@@ -240,7 +240,7 @@ export function DashboardPage(): React.JSX.Element {
           {failed > 0 ? (
             <p className="mt-4 border-t border-edge pt-3 text-xs text-ink-muted">
               <span className="text-danger">{failed} failed</span> session
-              {failed === 1 ? "" : "s"} in the log — worth reading before the next run.
+              {failed === 1 ? "" : "s"}. Review the log before starting another run.
             </p>
           ) : null}
         </Panel>

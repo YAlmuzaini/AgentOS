@@ -128,17 +128,17 @@ function Unreachable(props: {
         </span>
         <h1 className="text-[15px] font-semibold text-ink">
           {rejected
-            ? "That token was rejected"
+            ? "Invalid operator token"
             : offline
-              ? "The control plane is not answering"
-              : "The control plane returned an error"}
+              ? "Unable to connect to the control plane"
+              : "Control plane error"}
         </h1>
         <p className="mt-1.5 text-[13px] text-ink-muted">
           {rejected
-            ? "It does not match AGENTOS_OPERATOR_TOKEN on the server. Nothing is wrong with your data."
+            ? "The token does not match AGENTOS_OPERATOR_TOKEN on the server."
             : offline
-              ? "Start it with `pnpm --filter @agentos/api dev`, then retry."
-              : "The request reached the server and it failed."}
+              ? "Start the API with `pnpm --filter @agentos/api dev`, then try again."
+              : "The server could not complete the request."}
         </p>
         <InlineError className="machine mt-4 break-words">{props.error.message}</InlineError>
         <div className="mt-5 flex gap-2">
@@ -173,8 +173,8 @@ function TokenGate(props: {
           </span>
           <h1 className="text-[15px] font-semibold text-ink">Operator token</h1>
           <p className="mt-1.5 text-[13px] text-ink-muted">
-            Paste the value of <code className="text-ink">AGENTOS_OPERATOR_TOKEN</code>. It is kept
-            in this browser only.
+            Enter <code className="text-ink">AGENTOS_OPERATOR_TOKEN</code>. The token is stored only
+            in this browser.
           </p>
           <Input
             type="password"

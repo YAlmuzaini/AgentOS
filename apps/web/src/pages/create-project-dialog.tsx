@@ -76,8 +76,7 @@ export function CreateProjectDialog(props: {
                 New project
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-[13px] leading-relaxed text-ink-muted">
-                A separate workspace with its own agents, repos, secrets, files and history. Nothing
-                in it can reach anything in another project.
+                Create an isolated workspace for agents, repositories, secrets, files, and history.
               </Dialog.Description>
             </div>
 
@@ -118,10 +117,9 @@ export function CreateProjectDialog(props: {
               </Field>
 
               <p className="text-xs leading-relaxed text-ink-faint">
-                No folder is created anywhere — a project holds agents, grants and history, and the
-                code stays in git. It starts empty: seed it with{" "}
-                <span className="machine text-ink-muted">agentos push</span>, or add a repo and an
-                agent from the rail.
+                Projects do not create a local code folder. Import configuration with{" "}
+                <span className="machine text-ink-muted">agentos push</span>, then add repositories
+                and agents as required.
               </p>
             </div>
 
@@ -132,7 +130,7 @@ export function CreateProjectDialog(props: {
                     <span className="text-danger">
                       {create.error instanceof ApiError
                         ? create.error.message
-                        : "Could not create it."}
+                        : "Project creation failed."}
                     </span>
                   ) : null
                 }

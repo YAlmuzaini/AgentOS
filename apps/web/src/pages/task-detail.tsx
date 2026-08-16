@@ -118,8 +118,8 @@ export function TaskDetail(props: {
                     title: `Delete “${task.name}”?`,
                     body: (
                       <>
-                        The card and its activity go with it. Sessions that already ran are kept —
-                        they are the record of what happened and what it cost. This cannot be undone.
+                        This deletes the task and its activity history. Existing session records are
+                        retained. This action cannot be undone.
                       </>
                     ),
                     confirmLabel: "Delete task",
@@ -170,7 +170,7 @@ export function TaskDetail(props: {
                   </Button>
                   {save.isError ? (
                     <span className="text-[13px] text-danger">
-                      {save.error instanceof ApiError ? save.error.message : "could not save"}
+                      {save.error instanceof ApiError ? save.error.message : "Unable to save the task."}
                     </span>
                   ) : null}
                 </div>
@@ -179,7 +179,7 @@ export function TaskDetail(props: {
 
             {remove.isError ? (
               <InlineError>
-                {remove.error instanceof ApiError ? remove.error.message : "could not delete"}
+                {remove.error instanceof ApiError ? remove.error.message : "Unable to delete the task."}
               </InlineError>
             ) : null}
 
@@ -234,7 +234,7 @@ export function TaskDetail(props: {
               ) : (activity.data ?? []).length === 0 ? (
                 <Well>
                   <p className="text-[13px] text-ink-faint">
-                    Nothing logged yet. Entries appear as the agent works.
+                    No activity recorded. New entries will appear while the agent works.
                   </p>
                 </Well>
               ) : (

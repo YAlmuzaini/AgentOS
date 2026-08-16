@@ -51,8 +51,8 @@ export function ActivityFeed({
         ) : (activity.data ?? []).length === 0 ? (
           <EmptyState
             icon={<Inbox />}
-            title="Nothing has happened yet"
-            hint="Runs, questions and goal progress land here."
+            title="No recent activity"
+            hint="Session, inbox, and goal activity will appear here."
           />
         ) : (
           <Table>
@@ -60,7 +60,7 @@ export function ActivityFeed({
               <tr>
                 <TH className="w-28">When</TH>
                 <TH className="w-24">Kind</TH>
-                <TH>What</TH>
+                <TH>Activity</TH>
               </tr>
             </THead>
             <tbody>

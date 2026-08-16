@@ -51,7 +51,7 @@ export function DeleteAction({
     <span className="inline-flex items-center gap-2">
       {remove.isError ? (
         <span className="text-xs text-danger">
-          {remove.error instanceof ApiError ? remove.error.message : "Could not delete it."}
+          {remove.error instanceof ApiError ? remove.error.message : "Delete operation failed."}
         </span>
       ) : null}
       <Button

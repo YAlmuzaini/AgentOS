@@ -41,8 +41,7 @@ export function FileBody(props: {
           <span className="tnum">{formatSize(props.entry?.size ?? 0)}</span>
         </p>
         <p className="text-[13px] text-ink-muted">
-          This is not a text file, so there is nothing to edit here. Agents that read it through
-          the filesystem tools are told the same thing.
+          This file type cannot be edited in AgentOS. Download it to view or modify it externally.
         </p>
         <DownloadButton projectId={props.projectId} path={props.path} />
       </Well>
@@ -78,7 +77,7 @@ function TextBody(props: {
           invited the operator to "fix" the file by saving over it with nothing. */}
       {file.isError ? (
         <InlineError>
-          {file.error instanceof ApiError ? file.error.message : "could not read this file"}
+          {file.error instanceof ApiError ? file.error.message : "Unable to read this file."}
         </InlineError>
       ) : null}
       <textarea
@@ -114,7 +113,7 @@ function ImageBody(props: {
         setUrl(objectUrl);
       })
       .catch((cause: unknown) =>
-        setError(cause instanceof ApiError ? cause.message : "could not read this file"),
+        setError(cause instanceof ApiError ? cause.message : "Unable to read this file."),
       );
     // The blob URL holds the bytes in memory until it is revoked, and a browse
     // through a folder of screenshots would otherwise keep every one of them.

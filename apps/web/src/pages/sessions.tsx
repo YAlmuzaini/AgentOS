@@ -146,7 +146,7 @@ export function SessionsPage(): React.JSX.Element {
                       }
                       title={leftContainerBehind(session) ? (session.error ?? undefined) : undefined}
                     >
-                      {leftContainerBehind(session) ? "not released" : session.status}
+                      {leftContainerBehind(session) ? "container active" : session.status}
                     </span>
                   </button>
                 </li>
@@ -168,7 +168,7 @@ export function SessionsPage(): React.JSX.Element {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  runtime trace
+                  View runtime trace
                   <ExternalLink className="size-3" />
                 </a>
               ) : null}
@@ -183,8 +183,8 @@ export function SessionsPage(): React.JSX.Element {
                   label="Delete"
                   body={
                     <>
-                      Its tool-call log, cost and commit record go with it. The container is long
-                      gone; this is only the record of what it did.
+                      This deletes the tool-call log, cost, and commit record. The completed runtime
+                      container is not affected.
                     </>
                   }
                   onDelete={async () => {
@@ -245,9 +245,9 @@ export function SessionsPage(): React.JSX.Element {
 
           <div className="p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
             {!selected ? (
-              <EmptyState title="Select a session" hint="Its tool calls stream in here." />
+              <EmptyState title="Select a session" hint="View its access details and tool-call log." />
             ) : entries.length === 0 ? (
-              <EmptyState title="No tool calls logged yet" />
+              <EmptyState title="No tool calls recorded" />
             ) : (
               <Well className="overflow-auto p-0">
                 <ol className="machine divide-y divide-edge text-xs">

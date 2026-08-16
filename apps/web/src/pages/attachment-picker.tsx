@@ -91,7 +91,7 @@ export function AttachmentPicker(props: {
         </Button>
         {add.isError ? (
           <span className="text-[13px] text-danger">
-            {add.error instanceof ApiError ? add.error.message : "could not upload that file"}
+            {add.error instanceof ApiError ? add.error.message : "Unable to upload the file."}
           </span>
         ) : (
           <span className="text-xs text-ink-faint">

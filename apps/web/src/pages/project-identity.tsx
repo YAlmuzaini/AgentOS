@@ -79,7 +79,7 @@ export function ProjectIdentity({ project }: { project: ProjectDto }): React.JSX
           </Button>
           {save.isError ? (
             <span className="text-[13px] text-danger">
-              {save.error instanceof ApiError ? save.error.message : "could not save"}
+              {save.error instanceof ApiError ? save.error.message : "Unable to save project details."}
             </span>
           ) : null}
           {save.isSuccess && !changed ? (

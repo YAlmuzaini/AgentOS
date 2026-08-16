@@ -38,7 +38,7 @@ export function GoalSharedState(props: {
   return (
     <Panel>
       <PanelHeader className="border-b border-edge">
-        <PanelTitle accent="violet">Shared inbox and folder</PanelTitle>
+        <PanelTitle accent="violet">Goal workspace</PanelTitle>
         <span className="machine flex items-center gap-1.5 text-xs text-ink-faint">
           <Folder className="size-3.5" />
           /goals/{props.goalId}/
@@ -48,8 +48,7 @@ export function GoalSharedState(props: {
         {messages.length === 0 ? (
           <Well>
             <p className="text-[13px] text-ink-faint">
-              No messages yet. Every specialist on this goal writes into one thread, and reads it
-              before asking — so an answer you give once is not asked for twice.
+              No messages recorded. All agents assigned to this goal share this thread and folder.
             </p>
           </Well>
         ) : (
@@ -69,7 +68,7 @@ export function GoalSharedState(props: {
                 </p>
                 {message.selectedChoiceId ? (
                   <p className="mt-1.5 text-[13px] text-ink-muted">
-                    answered:{" "}
+                    Response:{" "}
                     {message.choices.find((choice) => choice.id === message.selectedChoiceId)
                       ?.label ?? message.selectedChoiceId}
                   </p>
@@ -104,8 +103,7 @@ export function GoalControls(props: {
           what={props.onDelete.title}
           body={
             <>
-              Its definition of done and progress log go with it. Sessions that ran for it keep
-              their record and simply stop naming a goal.
+              This deletes the definition of done and progress log. Existing session records are retained.
             </>
           }
           onDelete={props.onDelete.run}

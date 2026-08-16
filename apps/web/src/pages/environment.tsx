@@ -129,7 +129,7 @@ export function EnvironmentPage(): React.JSX.Element {
           open={creatingEnv}
           onClose={() => setCreatingEnv(false)}
           title="New environment"
-          description="A session reaches only the hosts listed here."
+          description="Define the network access available to assigned agents."
           submitLabel="Create"
           pending={createEnvironment.isPending}
           disabled={!envName}
@@ -173,7 +173,7 @@ export function EnvironmentPage(): React.JSX.Element {
                 </Select>
               )}
             </Field>
-            <Field label="Allowed hosts" hint="Comma separated.">
+            <Field label="Allowed hosts" hint="Enter comma-separated hostnames.">
               {(id) => (
                 <Input
                   id={id}
@@ -195,7 +195,7 @@ export function EnvironmentPage(): React.JSX.Element {
             <EmptyState
               icon={<ShieldCheck />}
               title="No environments yet"
-              hint="Create one to set a network policy."
+              hint="Create an environment to define network access."
             />
           </Panel>
         ) : (
@@ -231,9 +231,8 @@ export function EnvironmentPage(): React.JSX.Element {
                           what={environment.name}
                           body={
                             <>
-                              Agents placed in it keep running but lose their environment, and an
-                              agent without one resolves no environment variables at all. Its
-                              variable bindings go with it.
+                              Assigned agents will lose this network policy in new sessions. Its
+                              environment variable bindings will also be deleted.
                             </>
                           }
                           onDelete={() => api.deleteEnvironment(project.id, environment.id)}

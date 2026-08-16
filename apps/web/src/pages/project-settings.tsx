@@ -49,10 +49,9 @@ export function ProjectSettingsPage(): React.JSX.Element {
           <ProjectCode projectId={project.id} />
           <ProjectOwns projectId={project.id} />
           <p className="px-1 text-xs leading-relaxed text-ink-faint">
-            Credentials, the operator token, the database URL and where the local worker lives are
-            deployment facts shared by every project — they live in{" "}
-            <span className="machine text-ink-muted">.env</span> and are shown under AgentOS
-            settings.
+            Shared deployment settings, including credentials, database access, and runner
+            configuration, are managed through <span className="machine text-ink-muted">.env</span>{" "}
+            and AgentOS settings.
           </p>
         </div>
       </div>

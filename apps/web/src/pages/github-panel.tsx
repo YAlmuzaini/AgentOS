@@ -72,13 +72,11 @@ export function GithubPanel({ projectId }: { projectId: string }): React.JSX.Ele
         {!configured ? (
           <>
             <p className="text-[13px] leading-relaxed text-ink-muted">
-              Connect an account instead of storing a personal access token: you approve AgentOS on
-              github.com against the repositories you choose, and each clone uses a token that
-              expires in an hour.
+              Connect a GitHub App to grant repository-specific access with short-lived tokens.
             </p>
             <Well className="space-y-1.5">
               <p className="text-xs leading-relaxed text-ink-muted">
-                No GitHub App is set up on this installation yet. Create one at{" "}
+                No GitHub App is configured. Create one at{" "}
                 <span className="machine text-ink">github.com/settings/apps/new</span> with{" "}
                 <span className="machine text-ink">Contents: read &amp; write</span> and{" "}
                 <span className="machine text-ink">Metadata: read</span>, set its callback to{" "}
@@ -89,15 +87,13 @@ export function GithubPanel({ projectId }: { projectId: string }): React.JSX.Ele
                 GITHUB_APP_ID · GITHUB_APP_SLUG · GITHUB_APP_PRIVATE_KEY
               </p>
               <p className="text-xs leading-relaxed text-ink-faint">
-                The private key is a secret reference like any other, so under Secret Manager it
-                names a resource rather than holding the PEM.
+                Configure the private key as a Secret Manager reference, not as a stored PEM value.
               </p>
             </Well>
           </>
         ) : installations.length === 0 ? (
           <p className="text-[13px] leading-relaxed text-ink-muted">
-            Not connected yet. Connecting sends you to GitHub to pick which repositories AgentOS may
-            ever see — it never gets the rest of your account.
+            Connect GitHub and select the repositories AgentOS may access.
           </p>
         ) : (
           <>
@@ -127,9 +123,8 @@ export function GithubPanel({ projectId }: { projectId: string }): React.JSX.Ele
                         title: `Disconnect ${installation.accountLogin || "this account"}?`,
                         body: (
                           <>
-                            Repos using it keep their rows but lose their credential, so their next
-                            clone fails until they are given another one. Nothing is removed on
-                            GitHub — uninstall the App there to revoke access entirely.
+                            Repositories using this installation will lose authentication until a
+                            replacement credential is assigned. GitHub data will not be deleted.
                           </>
                         ),
                         confirmLabel: "Disconnect",
@@ -152,7 +147,7 @@ export function GithubPanel({ projectId }: { projectId: string }): React.JSX.Ele
 
         {connect.isError ? (
           <p className="text-[13px] text-danger">
-            {connect.error instanceof ApiError ? connect.error.message : "Could not start it."}
+            {connect.error instanceof ApiError ? connect.error.message : "Unable to start GitHub authorization."}
           </p>
         ) : null}
       </div>

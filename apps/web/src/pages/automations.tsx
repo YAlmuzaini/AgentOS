@@ -110,7 +110,7 @@ export function AutomationsPage(): React.JSX.Element {
           <EmptyState
             icon={<CalendarClock />}
             title="No automations yet"
-            hint="Schedule a task to run on a cron."
+            hint="Create a recurring task schedule."
             action={
               <Button variant="solid" onClick={() => setCreating(true)}>
                 <Plus />
@@ -146,10 +146,9 @@ export function AutomationsPage(): React.JSX.Element {
                       title: `Enable “${automation.name}”?`,
                       body: (
                         <>
-                          This arms the schedule{" "}
+                          This enables the schedule{" "}
                           <span className="machine">{automation.cron}</span> ({automation.timezone}).
-                          Every future occurrence starts an agent and spends API credits, without
-                          asking again.
+                          Each occurrence starts an agent session and consumes API credits.
                         </>
                       ),
                       confirmLabel: "Enable",
@@ -165,8 +164,8 @@ export function AutomationsPage(): React.JSX.Element {
                       title: `Run “${automation.name}” now?`,
                       body: (
                         <>
-                          This fires the automation immediately, outside its schedule. It creates
-                          its task and starts an agent session, consuming API credits.
+                          This runs the automation outside its schedule, creates its task, and starts
+                          an agent session that consumes API credits.
                         </>
                       ),
                       confirmLabel: "Run now",
@@ -233,8 +232,7 @@ function AutomationRow(props: {
             what={automation.name}
             body={
               <>
-                The schedule stops. Tasks it already created are left alone — those are work in
-                their own right.
+                The schedule will be deleted. Existing tasks are not affected.
               </>
             }
             onDelete={props.onDeleted}

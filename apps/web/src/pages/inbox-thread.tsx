@@ -55,7 +55,7 @@ export function EarlierInThread(props: {
             <p className="text-xs text-ink-faint">Loading…</p>
           ) : earlier.length === 0 ? (
             <p className="text-xs text-ink-faint">
-              Nothing earlier — this is the first thing asked about {subject.name}.
+              No earlier messages for {subject.name}.
             </p>
           ) : (
             earlier.map((message) => (
@@ -71,7 +71,7 @@ export function EarlierInThread(props: {
                 </p>
                 {message.answers.length > 0 || message.selectedChoiceId ? (
                   <p className="text-xs text-ink-muted">
-                    you said:{" "}
+                    Your response:{" "}
                     {message.answers.length > 0
                       ? message.answers
                           .map((answer) => {

@@ -86,7 +86,7 @@ export function AgentsPage(): React.JSX.Element {
             <EmptyState
               icon={<Bot />}
               title="No agents configured"
-              hint="Install the built-in roles, create one here, or declare a fleet in agentos.yml and push it."
+              hint="Install the built-in agents, create an agent, or import a configuration from agentos.yml."
               action={
                 <Button
                   variant="solid"
@@ -139,7 +139,7 @@ export function AgentsPage(): React.JSX.Element {
             />
           ) : (
             <Panel>
-              <EmptyState title="Select an agent" hint="Its grants and recent runs open here." />
+              <EmptyState title="Select an agent" hint="View its permissions and recent sessions." />
             </Panel>
           )}
         </div>
@@ -151,11 +151,9 @@ export function AgentsPage(): React.JSX.Element {
           to it. What is worth saying is the one direction that really does
           overwrite work — pushing a file that was exported before these edits. */}
       <p className="shrink-0 text-xs text-ink-faint">
-        Edits here take effect on the next session.{" "}
-        <span className="machine text-ink-muted">agentos.yml</span> is for authoring a fleet in
-        version control — <span className="machine text-ink-muted">push</span> applies a file to
-        this project and <span className="machine text-ink-muted">pull</span> exports what is here,
-        so pull before you push if you have changed anything on this screen.
+        Changes apply to new sessions. Run <span className="machine text-ink-muted">agentos pull</span>{" "}
+        before <span className="machine text-ink-muted">agentos push</span> to avoid overwriting
+        changes made in this interface.
       </p>
     </Page>
   );

@@ -108,8 +108,8 @@ export function InboxPage(): React.JSX.Element {
         <Panel>
           <EmptyState
             icon={<Inbox />}
-            title="Nothing waiting on you"
-            hint="An agent that gets stuck or needs a decision will park its question here, and push it to your phone."
+            title="No messages require your attention"
+            hint="Agent questions and decision requests will appear here."
           />
         </Panel>
       ) : (
@@ -145,8 +145,8 @@ export function InboxPage(): React.JSX.Element {
               <Panel className="hidden lg:block">
                 <EmptyState
                   icon={<Inbox />}
-                  title="Nothing waiting on you"
-                  hint="Pick a message on the left to read what an agent asked and what you answered."
+                  title="Select a message"
+                  hint="Choose a message to review and respond."
                 />
               </Panel>
             )}

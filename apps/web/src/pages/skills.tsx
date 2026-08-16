@@ -86,11 +86,11 @@ export function SkillsPage(): React.JSX.Element {
         open={creating}
         onClose={() => setCreating(false)}
         title="New skill"
-        description="Something an agent can be handed at run time."
+        description="Add reusable instructions or a file reference for agents."
         submitLabel="Create"
         pending={create.isPending}
         disabled={!name || !slug}
-        error={create.isError ? "Could not create it." : null}
+        error={create.isError ? "Skill creation failed." : null}
         onSubmit={async () => {
           await create.mutateAsync({
             name,
@@ -147,7 +147,7 @@ export function SkillsPage(): React.JSX.Element {
                 rows={10}
                 value={body}
                 onChange={(event) => setBody(event.target.value)}
-                placeholder="What this skill tells the agent to do."
+                placeholder="Enter the instructions provided to the agent"
               />
             )}
           </Field>
@@ -175,7 +175,7 @@ export function SkillsPage(): React.JSX.Element {
           <EmptyState
             icon={<Sparkles />}
             title="No skills yet"
-            hint="Create one for agents to use."
+            hint="Create a reusable instruction or file reference for agents."
             action={
               <Button variant="solid" onClick={() => setCreating(true)}>
                 <Plus />
@@ -212,8 +212,8 @@ export function SkillsPage(): React.JSX.Element {
                       what={skill.name}
                       body={
                         <>
-                          Any agent granted this skill loses it from its prompt on the next
-                          session. A file skill's file stays on the agent filesystem.
+                          This skill will be removed from assigned agents in new sessions. Referenced
+                          files will not be deleted.
                         </>
                       }
                       onDelete={() => api.deleteSkill(project.id, skill.id)}

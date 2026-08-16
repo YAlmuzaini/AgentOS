@@ -111,17 +111,17 @@ export function AgentForm(props: {
       title={editing ? `Edit ${props.agent?.name}` : "New agent"}
       description={
         editing
-          ? "Everything a session is allowed to reach. An absent grant is an absent capability."
-          : "A slug, a role, and what it may reach. Nothing is granted by default."
+          ? "Update the agent's role, runner, and access grants."
+          : "Define the agent's role and access. All access is denied by default."
       }
       submitLabel={editing ? "Save" : "Create agent"}
       pending={save.isPending}
       disabled={!title || !rolePrompt || (!editing && !name)}
-      error={save.isError ? (save.error instanceof ApiError ? save.error.message : "could not save") : null}
+      error={save.isError ? (save.error instanceof ApiError ? save.error.message : "Unable to save the agent.") : null}
       onSubmit={() => save.mutateAsync().then(() => undefined)}
     >
       {!editing ? (
-        <Field label="Name" hint="Lowercase slug. Other agents refer to this one by it, permanently.">
+        <Field label="Name" hint="Permanent lowercase identifier used by other agents.">
           {(id) => (
             <Input
               id={id}
@@ -142,7 +142,7 @@ export function AgentForm(props: {
         <Field label="Model">
           {(id) => <Input id={id} className="machine" value={model} onChange={(e) => setModel(e.target.value)} />}
         </Field>
-        <Field label="Runs on" hint="`inherit` follows the project setting.">
+        <Field label="Runner" hint="Inherit uses the project's default runner.">
           {(id) => (
             <Select
               id={id}
@@ -163,11 +163,11 @@ export function AgentForm(props: {
 
       <Field
         label="Network environment"
-        hint="Decides which hosts a session may reach. None means deny everything."
+        hint="Controls which hosts the agent may access. None denies all network access."
       >
         {(id) => (
           <Select id={id} value={environmentId} onChange={(e) => setEnvironmentId(e.target.value)}>
-            <option value="">none — no egress</option>
+            <option value="">None — no network access</option>
             {(environments.data ?? []).map((environment) => (
               <option key={environment.id} value={environment.id}>
                 {environment.name} ({environment.networking})
@@ -177,7 +177,7 @@ export function AgentForm(props: {
         )}
       </Field>
 
-      <Field label="Role prompt" hint="The one job this agent has.">
+      <Field label="Role prompt" hint="Define the agent's responsibilities and operating instructions.">
         {(id) => (
           <Textarea id={id} rows={8} value={rolePrompt} onChange={(e) => setRolePrompt(e.target.value)} />
         )}
@@ -217,7 +217,7 @@ export function AgentForm(props: {
       />
 
       <CheckboxField
-        label="May ask you questions through the inbox"
+        label="Allow this agent to request operator input through the inbox"
         checked={inboxAccess}
         onCheckedChange={setInboxAccess}
       />

@@ -26,8 +26,8 @@ export function NoProject(): React.JSX.Element {
           title="No project yet"
           hint={
             <>
-              A project is a workspace with its own agents, repos, secrets and history. Create one
-              here, or seed the example with <code className="text-ink">pnpm db:seed</code>.
+              A project contains its own agents, repositories, secrets, tasks, and history. Create a
+              project or load sample data with <code className="text-ink">pnpm db:seed</code>.
             </>
           }
           action={

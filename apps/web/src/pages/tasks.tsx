@@ -33,9 +33,9 @@ const COLUMN_TITLE: Record<TaskStatus, string> = {
 };
 
 const EMPTY_COLUMN_TEXT: Record<TaskStatus, string> = {
-  todo: "No tasks queued. Create one.",
-  doing: "Nothing running right now.",
-  review: "Nothing waiting on review.",
+  todo: "No tasks queued.",
+  doing: "No tasks in progress.",
+  review: "No tasks awaiting review.",
   done: "No completed tasks yet.",
 };
 
@@ -99,7 +99,7 @@ export function TasksPage(): React.JSX.Element {
       api.patchTask(projectId!, input.id, { status: input.status }),
     onSuccess: (_data, input) => {
       if (input.status === "done") {
-        toast.success("Task closed", "You approved it — no agent could have.");
+        toast.success("Task approved", "The task has been marked as done.");
       }
       void queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
     },
@@ -108,7 +108,7 @@ export function TasksPage(): React.JSX.Element {
   const run = useMutation({
     mutationFn: (id: string) => api.runTask(projectId!, id),
     onSuccess: () => {
-      toast.success("Task queued", "An agent session is starting. Watch it under Sessions.");
+      toast.success("Task queued", "A new agent session is starting.");
       void queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
@@ -125,8 +125,8 @@ export function TasksPage(): React.JSX.Element {
       title: `Run “${task.name}” now?`,
       body: (
         <>
-          This starts an agent session immediately and consumes API credits. The task moves to
-          Doing and cannot be un-run.
+          This starts an agent session immediately, consumes API credits, and moves the task to
+          Doing. This action cannot be reversed.
         </>
       ),
       confirmLabel: "Run now",
@@ -147,7 +147,7 @@ export function TasksPage(): React.JSX.Element {
       title: `Approve “${task.name}”?`,
       body: (
         <>
-          This closes an approval gate and marks the task done. No agent can do this — only you.
+          This closes the approval gate and marks the task as done.
         </>
       ),
       confirmLabel: "Approve → done",
@@ -177,7 +177,7 @@ export function TasksPage(): React.JSX.Element {
         actions={
           gated > 0 ? (
             <StatusPill tone="gate" dot>
-              {gated} waiting on you
+              {gated} approval{gated === 1 ? "" : "s"} required
             </StatusPill>
           ) : null
         }

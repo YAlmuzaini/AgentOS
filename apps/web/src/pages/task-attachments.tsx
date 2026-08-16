@@ -87,15 +87,14 @@ export function TaskAttachments(props: {
 
       {add.isError ? (
         <InlineError>
-          {add.error instanceof ApiError ? add.error.message : "could not attach that file"}
+          {add.error instanceof ApiError ? add.error.message : "Unable to attach the file."}
         </InlineError>
       ) : null}
 
       {entries.length === 0 ? (
         <Well>
           <p className="text-[13px] text-ink-faint">
-            Nothing attached. Files attached here travel with the card: the next step of a chain
-            inherits them, and so does any collaborator this agent spawns.
+            No attachments. Added files are available to subsequent chain steps and collaborating agents.
           </p>
         </Well>
       ) : (

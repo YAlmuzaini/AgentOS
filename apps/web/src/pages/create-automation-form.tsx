@@ -42,7 +42,7 @@ export function CreateAutomationForm(props: {
       open={props.open}
       onClose={props.onClose}
       title="New automation"
-      description="Fires on a cron and creates the task for you."
+      description="Create tasks automatically on a cron schedule."
       submitLabel="Create"
       pending={props.pending}
       disabled={!name || !cron}
@@ -107,7 +107,7 @@ export function CreateAutomationForm(props: {
           looked at before it is trusted. */}
       <CheckboxField
         tone="gate"
-        label="Arm this schedule now — every occurrence starts an agent and spends credits"
+        label="Enable immediately. Each occurrence starts an agent session and consumes API credits."
         checked={enabled}
         onCheckedChange={setEnabled}
       />
@@ -115,10 +115,10 @@ export function CreateAutomationForm(props: {
       {/* A segmented control rather than radios: two exclusive shapes, and the
           fields below swap wholesale between them. */}
       <div>
-        <MicroLabel className="mb-1.5">Task shape</MicroLabel>
+        <MicroLabel className="mb-1.5">Task source</MicroLabel>
         <div
           role="radiogroup"
-          aria-label="Task shape"
+          aria-label="Task source"
           className="inline-flex rounded-control border border-edge bg-sunken p-0.5"
         >
           {(["inline", "template"] as const).map((option) => (
@@ -134,7 +134,7 @@ export function CreateAutomationForm(props: {
                   : "text-ink-muted hover:text-ink"
               }`}
             >
-              {option === "inline" ? "Inline task" : "From template"}
+              {option === "inline" ? "Define task" : "Use template"}
             </button>
           ))}
         </div>
@@ -145,7 +145,7 @@ export function CreateAutomationForm(props: {
           <Field label="Assign to">
             {(id) => (
               <Select id={id} value={agentId} onChange={(event) => setAgentId(event.target.value)}>
-                <option value="">assign agent…</option>
+                <option value="">Select an agent</option>
                 {props.agents.map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name}
@@ -183,7 +183,7 @@ export function CreateAutomationForm(props: {
                 value={taskTemplateId}
                 onChange={(event) => setTaskTemplateId(event.target.value)}
               >
-                <option value="">choose template…</option>
+                <option value="">Select a template</option>
                 {props.templates.map((template) => (
                   <option key={template.id} value={template.id}>
                     {template.name}

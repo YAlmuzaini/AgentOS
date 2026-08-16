@@ -73,11 +73,11 @@ export function McpsPage(): React.JSX.Element {
         open={creating}
         onClose={() => setCreating(false)}
         title="New MCP connection"
-        description="An agent reaches only the operations listed here — nothing else on the server."
+        description="Configure the server and the operations agents may access."
         submitLabel="Create"
         pending={create.isPending}
         disabled={!name || !url}
-        error={create.isError ? "Could not create it." : null}
+        error={create.isError ? "MCP connection creation failed." : null}
         onSubmit={async () => {
           await create.mutateAsync({
             name,
@@ -111,7 +111,7 @@ export function McpsPage(): React.JSX.Element {
               />
             )}
           </Field>
-          <Field label="Allowed operations" hint="Comma separated. Empty grants nothing.">
+          <Field label="Allowed operations" hint="Enter comma-separated operation names. Leave blank to deny all operations.">
             {(id) => (
               <Input
                 id={id}
@@ -128,7 +128,7 @@ export function McpsPage(): React.JSX.Element {
                 value={credentialSecretId}
                 onChange={(event) => setCredentialSecretId(event.target.value)}
               >
-                <option value="">no credential…</option>
+                <option value="">No credential</option>
                 {(secrets.data ?? []).map((secret) => (
                   <option key={secret.id} value={secret.id}>
                     {secret.name}
@@ -149,7 +149,7 @@ export function McpsPage(): React.JSX.Element {
           <EmptyState
             icon={<Blocks />}
             title="No MCP connections yet"
-            hint="Add one to give agents tools."
+            hint="Add a connection, then grant it to the required agents."
             action={
               <Button variant="solid" onClick={() => setCreating(true)}>
                 <Plus />
@@ -201,8 +201,8 @@ export function McpsPage(): React.JSX.Element {
                       what={connection.name}
                       body={
                         <>
-                          Any agent granted this connection loses those tools on its next session.
-                          Nothing is changed on the MCP server itself.
+                          This connection will be removed from assigned agents in new sessions. The
+                          MCP server will not be changed.
                         </>
                       }
                       onDelete={() => api.deleteMcpConnection(project.id, connection.id)}

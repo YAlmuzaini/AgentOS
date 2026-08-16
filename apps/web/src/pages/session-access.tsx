@@ -86,7 +86,7 @@ export function SessionAccessPanel(props: {
                       .join(", ")
                   : none()}
               </Row>
-              <Row label="Repos" icon={<GitBranch />}>
+              <Row label="Repositories" icon={<GitBranch />}>
                 {access.repos.length > 0
                   ? access.repos.map((repo) => `${repo.name} · ${repo.permissions}`).join(", ")
                   : none()}
