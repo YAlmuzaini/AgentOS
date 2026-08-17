@@ -1,10 +1,11 @@
-import { agents, type Database, skills } from "@agentos/db";
+import { agents, type Database, packInstallations, skills } from "@agentos/db";
 import {
   type AgentDto,
   builtInRoleInstalls,
   findPack,
   type CreateAgentInput,
   FOUNDATIONAL_PROMPT,
+  originalAgentosProvenance,
   type UpdateAgentInput,
 } from "@agentos/shared";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
@@ -46,6 +47,8 @@ export class AgentsService {
         ...input,
         projectId,
         foundationalPrompt: input.foundationalPrompt ?? FOUNDATIONAL_PROMPT,
+        provenance:
+          input.provenance ?? originalAgentosProvenance("Operator-authored AgentOS role."),
       })
       .returning();
     return toDto(row!);
@@ -105,10 +108,18 @@ export class AgentsService {
             const id = skillIdBySlug.get(slug);
             return id ? [id] : [];
           });
+      const recommendationsReady =
+        (role.recommendedSkills.length === 0 || recommended.length === role.recommendedSkills.length);
 
       const [row] = await this.db
         .insert(agents)
-        .values({ ...role, projectId, builtIn: true, skillIds: recommended })
+        .values({
+          ...role,
+          projectId,
+          builtIn: true,
+          skillIds: recommended,
+          recommendedSkillsInitialized: recommendationsReady,
+        })
         .onConflictDoUpdate({
           target: [agents.projectId, agents.name],
           set: {
@@ -119,6 +130,13 @@ export class AgentsService {
             category: role.category,
             foundationalPrompt: role.foundationalPrompt,
             rolePrompt: role.rolePrompt,
+            // Provenance travels with the content it describes. A row upgraded
+            // from before the column existed carries the `original` default,
+            // which is wrong for the roles whose relationship is `inspired` —
+            // and a claim about origin that is merely stale is a licensing
+            // statement nobody can rely on. Guarded by the `setWhere` below:
+            // an operator's own agent keeps its own provenance.
+            provenance: role.provenance,
             updatedAt: new Date(),
           },
           // An operator's own agent with this name keeps everything it has.
@@ -148,7 +166,23 @@ export class AgentsService {
     if (!pack) {
       throw new NotFoundException(`no catalogue pack named "${slug}"`);
     }
-    return this.installBuiltIns(projectId, pack.roles);
+    const installed = await this.installBuiltIns(projectId, pack.roles);
+    await this.recordPackInstallation(projectId, slug);
+    return installed;
+  }
+
+  async recordPackInstallation(projectId: string, slug: string): Promise<void> {
+    const pack = findPack(slug);
+    if (!pack) throw new NotFoundException(`no catalogue pack named "${slug}"`);
+    await this.db.insert(packInstallations).values({
+      projectId,
+      packSlug: pack.slug,
+      version: pack.version,
+      provenance: pack.provenance,
+    }).onConflictDoUpdate({
+      target: [packInstallations.projectId, packInstallations.packSlug],
+      set: { version: pack.version, provenance: pack.provenance, updatedAt: new Date() },
+    });
   }
 
   /** Slug → id for the skills this project has, for resolving recommendations. */
@@ -170,6 +204,7 @@ export class AgentsService {
       .update(agents)
       .set({
         ...input,
+        ...(input.skillIds !== undefined ? { recommendedSkillsInitialized: true } : {}),
         // Any config edit invalidates the pinned runtime agent version; the
         // runner re-publishes on the next session (SPEC §4 Agent versioning).
         runtimeConfigHash: null,
@@ -237,6 +272,7 @@ export function toDto(row: AgentRow): AgentDto {
     environmentId: row.environmentId,
     runnerPreference: row.runnerPreference,
     inboxAccess: row.inboxAccess,
+    provenance: row.provenance,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

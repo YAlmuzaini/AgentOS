@@ -2,10 +2,11 @@ import { Module } from "@nestjs/common";
 import { ProjectsModule } from "../projects/projects.module";
 import { QueueModule } from "../queue/queue.module";
 import { RunnerModule } from "../runner/runner.module";
-import { GOAL_EVALUATOR, ModelGoalEvaluator } from "./goal-evaluator";
+import { GOAL_EVALUATOR, RoutedGoalEvaluator } from "./goal-evaluator";
 import { GoalOrchestrator } from "./goal-orchestrator";
 import { GoalsController } from "./goals.controller";
 import { GoalsService } from "./goals.service";
+import { GoalRuns } from "./goal-runs";
 
 /**
  * Depends on the runner, never the other way round: the runner runs one
@@ -17,7 +18,8 @@ import { GoalsService } from "./goals.service";
   providers: [
     GoalsService,
     GoalOrchestrator,
-    { provide: GOAL_EVALUATOR, useClass: ModelGoalEvaluator },
+    GoalRuns,
+    { provide: GOAL_EVALUATOR, useClass: RoutedGoalEvaluator },
   ],
   exports: [GoalsService, GoalOrchestrator],
 })

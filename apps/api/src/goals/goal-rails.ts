@@ -62,6 +62,20 @@ export function checkRails(goal: GoalRow, now = Date.now()): RailBreach | null {
 }
 
 /**
+ * How many consecutive turns a goal may find the local worker unavailable
+ * before it stops itself.
+ *
+ * Waiting on a worker is not a lack of progress, so it cannot borrow the stuck
+ * counter — a busy worker stopping a goal with "no progress" was the exact bug
+ * that rail-sharing produced. But it cannot be unbounded either: with the
+ * continuity sweep re-queueing every fifteen minutes, an operator who drained a
+ * worker and forgot would leave every local goal spinning silently for ever.
+ * Twenty turns is roughly five hours of a worker being down, after which the
+ * goal stops with the true reason and a push.
+ */
+export const MAX_UNAVAILABLE_TURNS = 20;
+
+/**
  * The absolute maximum number of specialists one goal may ever dispatch.
  *
  * Deliberately not a setting and deliberately generous: it is a backstop

@@ -16,6 +16,7 @@ import { Dot, StatusPill } from "../components/ui/pill";
 import { agentIcon } from "./agent-icon";
 import { describeRunner, GrantRow, Section } from "./agent-detail-parts";
 import { reflow } from "../lib/prose";
+import { ProvenanceDetail } from "../components/provenance";
 
 /**
  * Everything the control plane knows about one agent, on one screen.
@@ -173,6 +174,9 @@ export function AgentDetail(props: {
               </Well>
             </Section>
           ) : null}
+          <Section title="Source" icon={<Fingerprint />}>
+            <ProvenanceDetail value={data.provenance} />
+          </Section>
         </Panel>
 
         {/*

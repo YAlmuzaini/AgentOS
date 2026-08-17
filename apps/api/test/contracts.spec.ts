@@ -2,6 +2,7 @@ import {
   createRepoSchema,
   documentRepoSchema,
   documentSkillSchema,
+  provenanceSchema,
   updateAgentSchema,
   updateEnvironmentSchema,
   updateMcpConnectionSchema,
@@ -130,5 +131,40 @@ describe("contracts and publishing", () => {
     // strip the rule underneath it.
     expect(updateAgentSchema.safeParse({ category: "not-a-category" }).success).toBe(false);
     expect(updateEnvironmentSchema.safeParse({ networking: "wide-open" }).success).toBe(false);
+  });
+
+  /**
+   * A provenance link is stored verbatim, returned by the API and rendered as
+   * a clickable link on three screens — exactly like an MCP endpoint. It was
+   * validated only as a URL, so a credential in one reached the database and
+   * the operator's screen. It is now held to the same rule.
+   */
+  it("refuses a credential inside a provenance link", () => {
+    const refused = [
+      "https://ghp_livetoken@github.com/acme/skills",
+      "https://user:secret@github.com/acme/skills",
+      "https://github.com/acme/skills?api_key=sk-live-1234",
+      "https://github.com/acme/skills#access_token=abc",
+      "https://registry.example.com/x?clientSecret=zzz",
+    ];
+    for (const url of refused) {
+      expect(provenanceSchema.safeParse({ relationship: "imported", repositoryUrl: url }).success).toBe(false);
+      expect(provenanceSchema.safeParse({ relationship: "imported", canonicalUrl: url }).success).toBe(false);
+      expect(provenanceSchema.safeParse({ relationship: "imported", licenseUrl: url }).success).toBe(false);
+    }
+
+    // Ordinary links, and legitimate configuration, still parse.
+    for (const url of [
+      "https://github.com/sickn33/agentic-awesome-skills",
+      "https://github.com/acme/skills/blob/main/LICENSE",
+      "https://docs.example.com/mcp?tools=docs&telemetry-enabled=false",
+    ]) {
+      expect(provenanceSchema.safeParse({ relationship: "inspired", repositoryUrl: url }).success).toBe(true);
+    }
+
+    // The documented limitation: a key hidden in a path segment is not caught.
+    expect(
+      provenanceSchema.safeParse({ relationship: "imported", repositoryUrl: "https://example.com/sk-live-1234/skills" }).success,
+    ).toBe(true);
   });
 });

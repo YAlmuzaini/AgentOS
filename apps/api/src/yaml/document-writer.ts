@@ -7,6 +7,9 @@ import {
   secretRefs,
   skills,
   taskTemplates,
+  blueprintInstallations,
+  projectResourceSlots,
+  packInstallations,
 } from "@agentos/db";
 import { type AgentosDocument, FOUNDATIONAL_PROMPT } from "@agentos/shared";
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
@@ -65,6 +68,67 @@ function sameEndpoint(
 @Injectable()
 export class DocumentWriter {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
+
+  async upsertCompany(
+    projectId: string,
+    document: AgentosDocument,
+    resources: { repoIds: Map<string, string>; mcpIds: Map<string, string>; environmentIds: Map<string, string> },
+  ): Promise<void> {
+    for (const [slug, profile] of Object.entries(document.companyProfiles)) {
+      await this.db.insert(blueprintInstallations).values({
+        projectId, blueprintSlug: slug, version: profile.version, provenance: profile.provenance,
+      }).onConflictDoUpdate({
+        target: [blueprintInstallations.projectId, blueprintInstallations.blueprintSlug],
+        set: { version: profile.version, provenance: profile.provenance, updatedAt: new Date() },
+      });
+    }
+    for (const [slug, pack] of Object.entries(document.agentPacks)) {
+      await this.db.insert(packInstallations).values({
+        projectId, packSlug: slug, version: pack.version, provenance: pack.provenance,
+      }).onConflictDoUpdate({
+        target: [packInstallations.projectId, packInstallations.packSlug],
+        set: { version: pack.version, provenance: pack.provenance, updatedAt: new Date() },
+      });
+    }
+    for (const [key, slot] of Object.entries(document.resourceSlots)) {
+      if (slot.resourceType && slot.resourceType !== slot.kind) {
+        throw new BadRequestException(`resource slot "${key}" is ${slot.kind}, not ${slot.resourceType}`);
+      }
+      const known = slot.resourceType === "repo"
+        ? resources.repoIds
+        : slot.resourceType === "environment"
+          ? resources.environmentIds
+          : slot.resourceType === "mcp" || slot.resourceType === "deployment"
+            ? resources.mcpIds
+            : new Map<string, string>();
+      if (slot.resource && slot.resourceType !== "folder") {
+        requireDefined(known, slot.resource, `resource slot "${key}"`);
+      }
+      const resourceId = slot.resource
+        ? slot.resourceType === "folder"
+          ? slot.resource
+          : known.get(slot.resource)!
+        : null;
+      await this.db.insert(projectResourceSlots).values({
+        projectId,
+        blueprintSlug: slot.blueprint,
+        slotKey: key,
+        definition: { key, label: slot.label, kind: slot.kind, required: slot.required, description: slot.description },
+        resourceType: slot.resourceType,
+        resourceId,
+        resolvedAt: resourceId ? new Date() : null,
+      }).onConflictDoUpdate({
+        target: [projectResourceSlots.projectId, projectResourceSlots.slotKey],
+        set: {
+          blueprintSlug: slot.blueprint,
+          definition: { key, label: slot.label, kind: slot.kind, required: slot.required, description: slot.description },
+          resourceType: slot.resourceType,
+          resourceId,
+          resolvedAt: resourceId ? new Date() : null,
+        },
+      });
+    }
+  }
 
   async upsertSecrets(
     projectId: string,
@@ -162,6 +226,7 @@ export class DocumentWriter {
           url: connection.url,
           allowedOperations: connection.allowedOperations,
           credentialSecretId: connection.credential ? (secretIds.get(connection.credential) ?? null) : null,
+          provenance: connection.provenance,
         })
         .onConflictDoUpdate({
           target: [mcpConnections.projectId, mcpConnections.name],
@@ -171,6 +236,7 @@ export class DocumentWriter {
             credentialSecretId: connection.credential
               ? (secretIds.get(connection.credential) ?? null)
               : null,
+            provenance: connection.provenance,
             updatedAt: new Date(),
           },
         })
@@ -252,6 +318,8 @@ export class DocumentWriter {
           kind: skill.kind,
           body: skill.body,
           filePath: skill.filePath,
+          provenance: skill.provenance,
+          builtIn: skill.builtIn,
         })
         .onConflictDoUpdate({
           target: [skills.projectId, skills.slug],
@@ -262,6 +330,8 @@ export class DocumentWriter {
             kind: skill.kind,
             body: skill.body,
             filePath: skill.filePath,
+            provenance: skill.provenance,
+            builtIn: skill.builtIn,
             updatedAt: new Date(),
           },
         })
@@ -284,6 +354,8 @@ export class DocumentWriter {
           description: template.description,
           variables: template.variables,
           steps: template.steps,
+          provenance: template.provenance,
+          builtIn: template.builtIn,
         })
         .onConflictDoUpdate({
           target: [taskTemplates.projectId, taskTemplates.name],
@@ -291,6 +363,8 @@ export class DocumentWriter {
             description: template.description,
             variables: template.variables,
             steps: template.steps,
+            provenance: template.provenance,
+            builtIn: template.builtIn,
             updatedAt: new Date(),
           },
         });
@@ -348,6 +422,9 @@ export class DocumentWriter {
         environmentId: agent.environment ? (context.environmentIds.get(agent.environment) ?? null) : null,
         runnerPreference: agent.runner,
         inboxAccess: agent.inbox,
+        provenance: agent.provenance,
+        builtIn: agent.builtIn,
+        recommendedSkillsInitialized: true,
       };
 
       await this.db

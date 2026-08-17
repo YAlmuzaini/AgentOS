@@ -5,6 +5,7 @@ import { mcpUrlSchema, mountPathSchema } from "./resources";
 import { filesystemGrantSchema } from "./agent";
 import { slugSchema } from "./project";
 import { templateStepSchema } from "./template";
+import { ORIGINAL_PROVENANCE, provenanceSchema } from "./provenance";
 
 /**
  * `agentos.yml` — the project as code (SPEC §17).
@@ -46,6 +47,16 @@ export const documentAgentSchema = z.object({
   environment: slugSchema.nullable().default(null),
   runner: z.enum(RUNNER_PREFERENCES).default("inherit"),
   inbox: z.boolean().default(true),
+  provenance: provenanceSchema.default(ORIGINAL_PROVENANCE),
+  /**
+   * Catalogue ownership. `agentos.yml` is operator-controlled, so this is a
+   * declaration, not a lock: setting it true opts the row into the built-in
+   * installer's update behaviour (title, description, category, prompts and
+   * provenance are refreshed on re-install); false keeps the row the
+   * operator's and untouched. It round-trips so that a pull → push cycle does
+   * not silently convert the shipped catalogue into operator-authored rows.
+   */
+  builtIn: z.boolean().default(false),
 });
 
 export const documentSkillSchema = z
@@ -56,6 +67,9 @@ export const documentSkillSchema = z
     kind: z.enum(["prompt", "file"]).default("prompt"),
     body: z.string().default(""),
     filePath: z.string().nullable().default(null),
+    provenance: provenanceSchema.default(ORIGINAL_PROVENANCE),
+    /** See `documentAgentSchema.builtIn`. */
+    builtIn: z.boolean().default(false),
   })
   // The same rule the REST schema enforces. A file skill with no path renders
   // in a session prompt as "no path recorded", which is a broken grant that
@@ -68,6 +82,9 @@ export const documentTemplateSchema = z.object({
   description: z.string().default(""),
   variables: z.array(z.string().min(1)).default([]),
   steps: z.array(templateStepSchema).min(1),
+  provenance: provenanceSchema.default(ORIGINAL_PROVENANCE),
+  /** See `documentAgentSchema.builtIn`. */
+  builtIn: z.boolean().default(false),
 });
 
 export const documentMcpSchema = z.object({
@@ -77,6 +94,7 @@ export const documentMcpSchema = z.object({
   allowedOperations: z.array(z.string().min(1)).default([]),
   /** Name of a secret reference, resolved by the control plane. */
   credential: slugSchema.nullable().default(null),
+  provenance: provenanceSchema.default(ORIGINAL_PROVENANCE),
 });
 
 export const documentRepoSchema = z.object({
@@ -93,6 +111,23 @@ export const documentRepoSchema = z.object({
 
 export const agentosDocumentSchema = z.object({
   project: slugSchema,
+  companyProfiles: z.record(slugSchema, z.object({
+    version: z.string().min(1),
+    provenance: provenanceSchema.default(ORIGINAL_PROVENANCE),
+  })).default({}),
+  agentPacks: z.record(slugSchema, z.object({
+    version: z.string().min(1),
+    provenance: provenanceSchema.default(ORIGINAL_PROVENANCE),
+  })).default({}),
+  resourceSlots: z.record(slugSchema, z.object({
+    blueprint: slugSchema,
+    label: z.string().min(1),
+    kind: z.enum(["repo", "mcp", "environment", "folder", "deployment"]),
+    required: z.boolean(),
+    description: z.string(),
+    resourceType: z.enum(["repo", "mcp", "environment", "folder", "deployment"]).nullable().default(null),
+    resource: z.string().nullable().default(null),
+  })).default({}),
   environments: z.record(slugSchema, documentEnvironmentSchema).default({}),
   secrets: z
     .record(

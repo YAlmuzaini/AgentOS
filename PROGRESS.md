@@ -2,7 +2,350 @@
 
 Update every session. Read on boot alongside `RECIPE.md`, `PRODUCT.md`, `SPEC.md`, `DESIGN.md`.
 
-**Last updated:** 2026-08-16
+**Last updated:** 2026-08-17
+
+---
+
+## Capability-aware company preparation, local goal control, and the reviews that shaped it
+
+This section replaces the STOP/HANDOFF record left by the previous session. That session's work is
+preserved in full; nothing was reset, discarded or committed. What follows is what the tree now
+does, verified rather than intended.
+
+### The decision this feature turns on
+
+A project can be prepared as a small company — a reusable profile installs a fleet, declares the
+resources it needs, and preflight proves the whole thing can run before anything is dispatched. The
+load-bearing decision is **who** must hold a required resource, and the first review round rejected
+the build because it got that wrong:
+
+- A **workflow** names the exact roles its steps dispatch to, so every one of those roles must hold
+  the required repository, environment and connections itself. That is the execution graph.
+- A **project or goal** has no fixed graph, so the question is whether a capable worker exists at
+  all: at least one ready, eligible agent per required resource.
+
+The original code applied the workflow rule to the entire roster, so a blueprint could not pass
+until *every* installed agent — the support agent included — held *every* required repository. That
+is the opposite of the product. A specialised fleet is now a passing fleet: the agents that hold
+nothing are reported as deliberately ineligible (`least-privilege-fleet`, severity `info`), not as
+errors. **Verified against a running server:** a 37-agent project in which exactly one agent holds
+the required repo and environment returns `ready: true`, with the other 36 holding nothing.
+
+The same resolved requirements are the *only* definition of "what this project requires"
+(`CapabilityService.requirements`, de-duplicated, consumed by both `roster()` and preflight). Two
+derivations is how preflight and the goal evaluator disagreed in the first place — preflight
+demanding blanket grants while the evaluator demanded nothing, so a support agent with no repository
+could be dispatched onto a repository goal.
+
+### Subsystems and files
+
+New: `apps/api/src/{briefing,capabilities,company,handoffs}`, `apps/api/src/goals/goal-runs.ts`,
+`apps/local-runner/src/{capacity,cleanup,decision}.ts`, `packages/db/src/schema/company.ts`,
+`packages/shared/src/catalog/blueprints.ts`, `packages/shared/src/templates/legacy.ts`, and the
+shared contracts `blueprint`/`company`, `preflight`, `provenance`, `url-safety`, `handoff`,
+`briefing`, `runner-capabilities`. Web: `company-setup.tsx`, `executive-briefing.tsx`,
+`handoff-chain.tsx`, `components/provenance.tsx`, `components/warning-gate.tsx`.
+
+Migrations `0023_giant_nightmare`, `0024_next_domino`, `0025_stale_moondragon` are additive: they add
+structured provenance, built-in installation state, blueprint/pack installations and resource slots,
+the decision audit, handoffs, persisted preflight checks and session billing mode. **No migration was
+added in this session** — every fix here is behavioural.
+
+### Exact agent and skill installation behaviour
+
+Order does not matter. A built-in agent created before its recommended skills exist is left
+explicitly pending (`recommendedSkillsInitialized = false`); a later built-in skill install merges
+the recommendations that have become available. Any explicit operator edit to `skillIds` — including
+deliberately emptying it — sets the flag and the installer never manages that list again. Reinstall
+never restores a removed skill.
+
+A **recommendation is advice, not a grant requirement.** This was a review finding: a missing
+recommended skill was counted as a readiness failure, so the removal the installer deliberately
+preserves was the same act that made the agent ineligible for every goal and blocked every workflow
+dispatching to it — a documented, supported action turned into a dead end. Missing recommendations
+are now `CapabilityCard.advisories`, reported by preflight as `agent-advisory` (`info`) on both the
+workflow and the project/goal paths, and they do not affect `ready`.
+
+**Legacy built-in workflows are adopted by exact content, never by name.** `task_templates.built_in`
+arrived in 0023 with a `false` default, so a workflow installed before it read as operator-authored
+and the installer — correctly refusing to touch operator rows — would never hand it corrected
+wiring. `matchesKnownBuiltInShape` (`packages/shared/src/templates/legacy.ts`) compares description,
+variables and every step field in a fixed order against every shape the catalogue has *actually
+shipped*, including the superseded `compound-engineer-workflow` whose code-review step dispatched to
+`review-coordinator`. One changed word anywhere, and the row stays the operator's for good. Step
+order is compared field-by-field rather than by serialising the stored object, because a `jsonb`
+round-trip does not preserve key order.
+
+### Exact local/cloud goal routing
+
+Explicit `local` never reaches the cloud. The worker being *unreachable*, *unconfigured*, or
+*draining* all fail with distinct messages and no fallback; `auto` is the only preference that
+degrades cost rather than availability. Drain was a review finding: routing tested `healthy` while
+preflight tested `ready`, so a drained worker was picked and answered `503`, surfacing as a session
+failure rather than as the state the operator had set. Routing now requires `healthy && !draining` —
+deliberately **not** `ready`, because `ready` is also false at capacity, and at capacity the worker
+queues FIFO, which is what the queue is for.
+
+**`local` chooses a machine, not a price.** The worker bills with whatever credential it holds: a
+Claude Code subscription token is flat-fee, an `ANTHROPIC_API_KEY` on the worker bills per token for
+the same run. Every session and decision records `subscription` / `metered-api` / `unknown`, and the
+briefing counts them apart. The README claim that explicit `local` "never uses the Anthropic API"
+was corrected — routing is about where the request goes, not what it costs.
+
+Decision audit rows keep backend, provider, model, the eligible and selected role names, duration,
+status and a SHA-256 digest of the prompt. Never the prompt, never a secret. The eligible roster is
+bounded once (`MAX_ELIGIBLE_AGENTS`), so the prompt, the audit row and the server-side rejection all
+read one identical list.
+
+### Goal rails, and the failure shape three review rounds kept finding
+
+The same defect appeared at three depths, and it is worth stating as one thing because that is what
+it is: **a turn that ends without settling leaves the stuck counter where it was, and a goal whose
+counter never moves is one the continuity sweep re-queues indefinitely.**
+
+1. Round 2 found it on the handoff write. `ensureForSession` validated a machine-generated session
+   summary — one line per agent message and tool call, with no ceiling — against a 4 000-character
+   cap, so any implementation turn of ordinary length threw. The throw escaped `dispatch()` before
+   `recordProgress`, the queue job died, and the sweep re-ran the identical doomed turn, provisioning
+   a container and spending real money on every pass.
+2. Round 3 found the same shape one call earlier, on the **evaluator** — and there it is worse,
+   because the failures are not all transient (a model that keeps naming an ineligible agent fails
+   identically every time) and each pass is a metered `claude-opus-5` call that no rail counts.
+3. Round 3 also found it inside the fan-out: `Promise.all` rejected on the first failing child, so
+   siblings that had genuinely finished were never accounted for while they went on writing spend
+   and handoffs into a turn nobody would settle.
+
+All three are closed the same way. `settleTurn()` is the single exit: it records whether the turn
+moved the goal, re-checks the rails, and stops with a reason and a push when one trips. The
+evaluator call and the capability-roster read are wrapped and settle as turns without progress; the
+fan-out uses `Promise.allSettled` and logs each rejection to the goal log; the handoff write is both
+**clamped** rather than validated and wrapped, in the orchestrator and in the resumer. Bookkeeping
+can no longer fail a turn that has already run and already spent money.
+
+Progress accounting is **per turn, not per child**. `progressMarks` moves in `markSatisfied` and in
+the agent-facing activity tools, so asking each child independently gave every sibling the same
+turn-level answer while incrementing the stuck counter once per child — a fruitless four-way fan-out
+tripped the stuck rail four times faster than a fruitless single dispatch. One turn, one mark.
+Stopping is idempotent: the status change is a claim on an `active` row, so two concurrent breaches
+produce one stop, one log line and one push.
+
+### Handoffs
+
+Durable project/task/goal/session rows carrying outcome, evidence, verification, attachments, commit
+SHAs, branch, risks, blockers, decisions and an authorised next role. Files and roles are checked in
+project scope; a `recommendedNextRole` must be on the writing agent's own collaboration list.
+
+Two things changed after review. **Size**: every field and array has an explicit limit, at most three
+records are rendered, and the projection has a total serialized ceiling — a record too large is
+*trimmed* in priority order (blockers and decisions before evidence), never dropped, so an oversized
+handoff shortens rather than silently disappearing. **Layer**: handoffs are no longer in the system
+prompt. They are agent-authored text, and the system prompt is the one layer only the operator
+controls; they now arrive on the first *user* turn inside a labelled untrusted-data fence. A test
+asserts the system prompt contains neither an injected instruction nor the fence, and that the
+kickoff contains both, with the warning ahead of the payload.
+
+### Blueprints, preflight, provenance
+
+Applying a profile installs only missing, inert rows and grants nothing — no repository, credential,
+MCP, folder or network policy. Reapplying preserves every existing row and every grant. Slot-key
+collisions have stated semantics: the profile that first declared a key owns the definition, a
+*resolved* resource is never repointed, and the only thing that propagates is strictness — a later
+profile declaring an existing optional slot as required makes it required. Every collision is named
+in the preview warnings.
+
+Warnings are gated server-side **and** shown. Three screens used to satisfy the gate by hard-coding
+`acknowledgeWarnings: true` while rendering nothing, which turns a deliberate gate into a formality.
+`company-setup.tsx`, `goal-detail.tsx` and `instantiate-dialog.tsx` now render every warning through
+one `WarningGate` component and disable the action until the operator ticks a box; the goal screen's
+acknowledgement also goes stale when the checklist changes.
+
+Provenance is structured and durable for agents, skills, MCP connections, packs, profiles and
+workflows, and it is refreshed on catalogue-owned rows only — an operator-owned collision keeps its
+own. Provenance URLs are held to the same credential rule as MCP endpoints (`url-safety.ts`, shared
+by both so there is one copy and no import cycle): userinfo and credential-shaped query/fragment
+parameters are refused. The RAG architect and its four skills are original AgentOS content marked
+`inspired` by research, with an explicit note that nothing was copied or adapted from
+`sickn33/agentic-awesome-skills` or MCP Market.
+
+`builtIn` now round-trips through `agentos.yml` for agents, skills and workflows, so a pull → push
+cycle no longer converts the shipped catalogue into operator-authored rows. YAML remains
+**upsert-only**: omitting a row does not delete it, and `DEPLOY.md` §6b says so.
+
+### CEO briefing
+
+Deterministic, and every item links to its source: open decisions, stopped goals, failed preflights,
+evaluator/session/publish failures, long-running work, review-ready and completed work, active goals
+that can continue, cloud cost, and local sessions split by confirmed billing mode. It creates no
+inbox noise. Persisted preflight checks are now written only when a check is *blocked*, and an
+unchanged blocked result updates the existing row's timestamp rather than inserting a duplicate —
+the screen is polled, and writing every result put ten identical failure entries in the one screen
+meant to be read unattended.
+
+### Local worker
+
+Healthy versus ready, shared session/decision capacity, active count, FIFO queueing, drain mode,
+worker identity, version, location and capability list. Teardown ends the run, publishes, **releases
+the execution permit, and only then** retries the delete: releasing after a successful delete meant a
+workspace that survived every attempt kept its permit for ever, so two of them made a two-slot worker
+permanently unready. A recoverable disk problem must not become an unrecoverable capacity one. The
+session stays listed and a retained workspace keeps its quarantine path.
+
+### Security properties this change set holds
+
+Default deny is unchanged: installing a catalogue, a pack or a profile grants nothing. Capability
+cards carry names, postures and readiness reasons — no credential values, no secret references, no
+prompt bodies; asserted by test. Decision audit rows carry a prompt digest, not the prompt. Handoffs
+are scoped by the writing session's own project/task/goal and cannot cross a boundary. Cross-project
+scoping was re-checked in the new code. Provenance and MCP URLs refuse embedded credentials, with the
+documented limitation that a credential in a *path* segment cannot be recognised by name.
+
+### Known structural limitations
+
+- **Evaluator calls are not charged to the goal spend cap.** The cap covers *session* cost. Every
+  orchestration decision is a real model call that `goals.spendUsd` never sees, on every goal, not
+  only failing ones. Pricing is not in this repository and inventing a table would be a fabricated
+  number, so this is reported rather than metered: one `goal_decisions` row per attempt, with
+  backend, provider, model and duration.
+
+  What is bounded is the *count*. A decision that comes back wrong advances the stuck counter, so a
+  persistently failing evaluator stops at `stuckThreshold` (19 by default). A decision the worker
+  would not take advances a separate counter and stops at `MAX_UNAVAILABLE_TURNS` (20). Neither path
+  runs for ever, and neither is free.
+
+  **Operator consequence:** the goal spend cap under-reports the Anthropic bill by the cost of the
+  orchestration calls. Read `goal_decisions` for the count, and treat a goal that stopped with
+  "could not decide this turn" or "unable to take an orchestration decision" as having spent a
+  small, uncapped amount on top of its session spend.
+- **`handoffs` has no unique index on `session_id`.** `ensureForSession` is find-then-insert, so two
+  concurrent closers could write two rows. Harmless today — reads are bounded and ordered — but the
+  method's contract reads as idempotent and is not.
+- **A stopped goal cannot be restarted.** The availability rail stops a goal after 20 consecutive
+  turns in which the worker could not take a decision — roughly five hours. `resume()` accepts only
+  a `paused` goal, so recovery is to create a new goal for the outstanding checklist; the progress
+  log and the old goal's record are kept, but its ticked checklist and accumulated spend are not
+  carried over. For a worker outage longer than five hours this is a real cost, and it is the
+  operator's call whether to make availability stops resumable. **The stop message says so rather
+  than promising a restart that does not exist.**
+- **A database outage during `settleTurn` reproduces the original shape.** If the write that records
+  the turn cannot happen, the counter cannot move. Nothing else works during an outage either, so
+  this is a boundary rather than a bug.
+- **Pending publishes are not resumed after a worker restart.** Retained work is quarantined and
+  needs operator recovery. Unchanged from before; still true.
+- **The briefing's failure window is time-based.** A blocked preflight stays listed until the window
+  rolls past it, even after the project starts passing.
+- Everything in "Four limits that a fix cannot close" below still applies, unchanged.
+
+### Commands run, and what they returned
+
+```
+pnpm exec turbo run typecheck --force     # 8/8 tasks passed
+pnpm exec turbo run build --force         # 6/6 tasks passed (known 888 KB Vite chunk warning)
+pnpm exec turbo run test --force          # 327 API + 54 worker + 4 CLI = 385 tests, all passing
+git diff --check                          # clean
+```
+
+`pnpm lint --force` has no configured lint tasks in this repository.
+
+Migrations, both directions:
+
+- **Clean from zero.** Fresh database, `pnpm --filter @agentos/db run migrate` → 27 application
+  tables.
+- **Upgrade from schema 22 with representative data.** A database built by applying migrations
+  0000–0022 by hand, seeded with a pre-0023 `compound-engineer-workflow` row (`built_in = false`,
+  step 6 dispatching to `review-coordinator`), an operator-authored `bugfix-workflow`, a shipped RAG
+  skill and role carrying the default `original` provenance, and an operator-authored agent. After
+  0023–0025 and the installers: the legacy workflow was **adopted and rewired** to
+  `code-review-coordinator`; the operator's `bugfix-workflow` kept its single step and its
+  description; the RAG skill and role were refreshed to `inspired` with the shipped body unchanged;
+  the operator's agent was untouched on every field.
+
+Secret scan: a regex sweep for `sk-ant-`, `ghp_`, `github_pat_`, AWS keys, private-key headers,
+Slack and Google API key shapes over the complete change set — tracked diff and every new file —
+found nothing. `gitleaks` and `trufflehog` are not installed, so no claim is made for them.
+
+### Browser verification — done this session, and its limits
+
+The previous session recorded that browser tooling was unavailable. It is available now, and was
+used. Against a **disposable** database (`agentos_ui`, since dropped) with the API on `:3001` and
+Vite on `:5173`, both since stopped:
+
+- **1440×900**: company setup renders its warnings, the acknowledgement checkbox is present, and
+  **Apply profile is disabled until it is ticked** — the server gate and the screen agree. The
+  executive briefing renders real linked items. Goal preflight runs from the goal screen and reports
+  "Fleet ready".
+- **390×844, Inbox** (the one screen with a mobile contract): no horizontal overflow, and **no
+  control under 44px** — after a fix. Measurement found five top-bar controls at 34px, contradicting
+  the claim in this file that the Phone Rule was met; `topbar.tsx` now raises them to 44px below
+  `lg`. Re-measured empty and populated: zero controls under 44px. Choice rows are 16px radios
+  inside 44px labels, and the free-text field is 44px.
+- **Keyboard focus**: a real `Tab` produces a visible 2px solid ring at 1px offset, per `DESIGN.md`.
+- **One primary action**: the open message pane carries exactly one solid button (`Send answer`),
+  and the reply is refused until every question is answered.
+
+Re-checked after the last round of fixes, on the same disposable database: the Inbox still has no
+control under 44px and no horizontal overflow at 390×844; company setup still disables **Apply
+profile** until the box is ticked; and the project now reports `ready` with warnings and a
+`least-privilege-fleet` info line rather than a wall of `repo-not-granted` errors — the whole point
+of High 1, seen on a screen. Both dev servers were then stopped and the disposable database dropped.
+
+What this is **not**: a founder's visual pass. Colour judgement, rhythm, and whether the screens read
+well are `RECIPE.md` A1.6 work and belong to the founder's own eyes.
+
+### Live workflow — still not run
+
+No live acceptance workflow ran. There was no disposable authorised GitHub repository and no ready
+local worker available, and the rule against reaching a live runner from a test environment stands.
+**No metered model call was made in this session**; the UI environment used a deliberately invalid
+`ANTHROPIC_API_KEY`, and the resulting 401 in the log is the evidence. Every `CLAUDE.md` sacred path
+therefore remains unverified by this session: container isolation, the approval-gate 403 on a real
+runtime, the real Anthropic bill against a cap, inbox pause/resume on a live container, and a live
+`compound-engineer-workflow`. `FakeRunner` green is not evidence for any of them.
+
+### External Claude review rounds
+
+Every round was run from the repository root with the installed CLI (`claude --help` checked first),
+non-interactive `claude -p`, `--effort high`, `--permission-mode plan`, and read-only tools only
+(`Read`, `Grep`, `Glob`, and read-only `git diff`/`status`/`log`), explicitly told to review and not
+modify. No repository file was modified by any round. Round 1 was run by the previous session; its
+raw output was not captured to a file, and the normalized findings are recorded below. Rounds 2–4
+are saved verbatim under `docs/reviews/`.
+
+| Round | Verdict | Headline |
+|---|---|---|
+| 1 (previous session) | **NO-GO** | 3 High: fleet-wide preflight, legacy built-ins frozen as operator-owned, unbounded handoffs in the system prompt |
+| 2 | **NO-GO** | All three previous Highs verified **fixed**. One new High: every goal specialist turn died on the handoff size cap and the loop retried it for ever |
+| 3 | **NO-GO** | Handoff High fixed. One **Critical**: the same shape one call earlier, on the evaluator, burning metered tokens no rail counts |
+| 4 | **NO-GO** | Critical and High fixed. Three Mediums, one of which was that the `preflight_checks` dedupe never matched because `jsonb` reorders keys — confirmed empirically against this project's own Postgres |
+| 5 | **NO-GO** | One High: the round-4 busy-worker fix opened the inverse hole — waiting on a worker advanced no counter at all, so a drained worker left local goals spinning for ever |
+| 6 | **GO** | All four remedies verified; the loop is bounded on every path. One Medium (a stop message promising a restart the product does not have), five Lows |
+
+Rounds 2–5 raised eleven Mediums and eighteen Lows between them. Every finding was independently
+verified against the code before being acted on — two were narrower than described and are noted as
+such in `docs/reviews/README.md` — and every valid one was fixed with a regression test: least-
+privilege preflight, legacy adoption, handoff bounds and prompt layer, the turn-settling contract,
+drain routing, advisory semantics, preflight persistence and its canonical comparison, provenance URL
+validation, YAML ownership round-trip, the acknowledgement gates, the availability rail and both of
+its joints.
+
+The reviews were worth their cost twice over, and the pattern in them is worth recording: **the same
+defect kept reappearing one call earlier.** Round 2 found it on the handoff write, round 3 on the
+evaluator, round 5 on the fix for round 4. Each round's remedy was correct and each was too narrow,
+because the shape — *a turn that ends without advancing any counter is a turn the recovery sweep
+repeats for ever* — was never named until round 5. It is named now, in `settleTurn`, and the round-6
+verification is a table of every turn outcome against the counter it advances.
+
+### Remaining operator actions
+
+1. **Read the diff and decide whether to commit.** Nothing is committed; that gate is yours.
+2. **Verify the sacred paths yourself.** Isolation on a real container, an approval-gate 403 from an
+   agent session token, a real bill against a real cap, inbox pause/resume on a live container, the
+   Inbox at 390px in your own browser, and one live `compound-engineer-workflow`.
+3. **Decide the evaluator-spend question.** Either accept the uncapped-but-count-bounded evaluator
+   cost documented above, or ask for token accounting on `goal_decisions` (an additive migration).
+4. **Decide whether an availability stop should be resumable.** Today it is terminal, like every
+   other rail. A five-hour worker outage therefore ends a local goal permanently.
+5. **If you want local to mean flat-fee, give the worker a subscription token** and check the
+   briefing says `subscription` rather than `metered-api`.
 
 ---
 
@@ -343,14 +686,18 @@ suite is **38 seconds**.
 ## Where we are
 
 **All eight phases of `SPEC.md` §21 are built, the nine gaps found by a spec audit are closed, and
-agents actually run.** 166 automated tests pass (144 control plane, 18 worker, 4 CLI), and the cloud runner,
-the network wall, the inbox pause/resume cycle, vault cleanup, the local runner and its credential
-proxy have each been exercised against real containers. Six
-independent review rounds have each found real defects in the previous round's fixes — round six's
-headline finding was that round five's session deadline could not actually stop a silent session,
-and round seven was the first to clear the thing it was pointed at. Both backends were run end to
-end on real containers, and the whole vault lifecycle was watched from outside AgentOS. Error
-reporting (`RECIPE.md` A8) is wired and off by default.
+agents actually run.** 379 automated tests pass (321 control plane, 54 worker, 4 CLI). The cloud
+runner, the network wall, the inbox pause/resume cycle, vault cleanup, the local runner and its
+credential proxy have each been exercised against real containers in earlier sessions. Both backends
+were run end to end on real containers, and the whole vault lifecycle was watched from outside
+AgentOS. Error reporting (`RECIPE.md` A8) is wired and off by default.
+
+**The capability-aware company work sits on top of that, uncommitted.** Its state, the four external
+review rounds it went through, and the limits it still has are the first section of this file. The
+short version: the three High findings from the first review are fixed and tested; the failure shape
+those reviews kept surfacing — a goal turn that ends without settling, so the stuck rail never moves
+and the continuity sweep re-queues for ever — is closed at every level it was found; and the
+outstanding items are documented limitations rather than open defects. Nothing is committed.
 
 | Phase | State |
 |---|---|

@@ -1,4 +1,4 @@
-import type { DodItem } from "@agentos/shared";
+import type { DodItem, PreflightReport } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
@@ -34,6 +34,8 @@ import {
   GoalStopped,
   goalState,
 } from "./goal-detail-parts";
+import { HandoffChain } from "./handoff-chain";
+import { WarningGate } from "../components/warning-gate";
 
 let nextDraftId = 0;
 
@@ -61,6 +63,27 @@ export function GoalDetail(props: {
   });
 
   const [draft, setDraft] = useState<DodItem[]>([]);
+  const draftSignature = JSON.stringify(draft.map((item) => item.text.trim()).filter(Boolean));
+  const [preflight, setPreflight] = useState<PreflightReport | null>(null);
+  // Reset on every fresh check: an acknowledgement is of the warnings the
+  // operator just read, not a standing permission.
+  const [acknowledged, setAcknowledged] = useState(false);
+  // The signature of what was checked. An acknowledgement belongs to the report
+  // the operator actually read: edit the checklist afterwards and both the
+  // report and the tick go stale, exactly as the workflow dialog behaves.
+  const [checkedSignature, setCheckedSignature] = useState("");
+  const check = useMutation({
+    mutationFn: () => api.preflightWithInputs(props.projectId, { subjectType: "goal", subjectId: props.goalId, inputs: {} }),
+    onSuccess: (report) => {
+      setPreflight(report);
+      setAcknowledged(false);
+      setCheckedSignature(draftSignature);
+    },
+  });
+  const preflightWarnings = (preflight?.findings ?? [])
+    .filter((finding) => finding.severity === "warning")
+    .map((finding) => finding.message);
+  const preflightIsCurrent = Boolean(preflight) && checkedSignature === draftSignature;
 
   // Seed the editable draft once, from whatever checklist the API returned
   // (the heuristic first pass, or an empty list to hand-author from scratch).
@@ -77,7 +100,10 @@ export function GoalDetail(props: {
 
   const approve = useMutation({
     mutationFn: (items: DodItem[]) =>
-      api.approveGoalDod(props.projectId, props.goalId, { definitionOfDone: items }),
+      // What the operator ticked, never a constant: the server gate exists so
+      // an unread warning cannot be waved through, and sending `true`
+      // unconditionally is exactly how it gets waved through.
+      api.approveGoalDod(props.projectId, props.goalId, { definitionOfDone: items, acknowledgePreflightWarnings: acknowledged }),
     onSuccess: invalidate,
   });
   const pause = useMutation({
@@ -258,19 +284,35 @@ export function GoalDetail(props: {
               </Button>
             </div>
 
+            {preflightIsCurrent && preflightWarnings.length > 0 ? (
+              <div className="border-t border-edge px-4 py-3.5">
+                <WarningGate
+                  warnings={preflightWarnings}
+                  acknowledged={acknowledged}
+                  onAcknowledge={setAcknowledged}
+                  label="I have read every preflight warning and want to start this goal anyway."
+                />
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap items-center justify-end gap-3 border-t border-edge px-4 py-3.5">
               {approve.isError ? (
                 <InlineError className="min-w-0 flex-1">
                   {errorText(approve.error, "The checklist was not approved.")}
                 </InlineError>
               ) : null}
+              {preflightIsCurrent && preflight ? <span className={preflight.ready ? "text-xs text-ink-muted" : "min-w-0 flex-1 text-xs text-danger"}>{preflight.ready ? `Fleet ready · ${preflight.roster.filter((agent) => agent.ready).length} eligible agents` : preflight.findings.filter((finding) => finding.severity === "error").map((finding) => finding.message).join(" ")}</span> : null}
               <span className="tnum text-xs text-ink-faint">
                 {usable.length} {usable.length === 1 ? "criterion" : "criteria"}
               </span>
               <Button
                 variant="solid"
-                disabled={usable.length === 0 || approve.isPending}
-                onClick={() =>
+                disabled={usable.length === 0 || approve.isPending || check.isPending || (preflightIsCurrent && Boolean(preflight?.ready) && preflightWarnings.length > 0 && !acknowledged)}
+                onClick={() => {
+                  if (!preflightIsCurrent || !preflight?.ready) {
+                    check.mutate();
+                    return;
+                  }
                   confirm({
                     kind: "spend",
                     title: `Approve and start “${data.title}”?`,
@@ -285,11 +327,11 @@ export function GoalDetail(props: {
                     ),
                     confirmLabel: "Approve and start",
                     onConfirm: () => approve.mutate(usable),
-                  })
-                }
+                  });
+                }}
               >
                 <Check />
-                {approve.isPending ? "Approving…" : "Approve and start"}
+                {check.isPending ? "Checking fleet…" : approve.isPending ? "Approving…" : preflightIsCurrent && preflight?.ready ? "Approve and start" : "Run preflight"}
               </Button>
             </div>
           </Panel>
@@ -358,6 +400,7 @@ export function GoalDetail(props: {
             </Panel>
 
             <GoalSharedState projectId={props.projectId} goalId={props.goalId} />
+            <HandoffChain projectId={props.projectId} goalId={props.goalId} />
 
             <Panel>
               <PanelHeader className="border-b border-edge">

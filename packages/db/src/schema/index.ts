@@ -10,3 +10,4 @@ export * from "./sessions";
 export * from "./inbox";
 export * from "./push";
 export * from "./settings";
+export * from "./company";

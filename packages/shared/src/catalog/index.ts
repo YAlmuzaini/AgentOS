@@ -23,11 +23,13 @@ import { CRAFT_SKILL_SEEDS } from "./skills-craft";
 import { RAG_SKILL_SEEDS } from "./skills-rag";
 import { PROCESS_SKILL_SEEDS } from "./skills-process";
 import type { McpSeed, RoleSeed, SkillSeed } from "./types";
+import { originalAgentosProvenance, type Provenance } from "../contracts/provenance";
 
 export * from "./categories";
 export * from "./types";
 export * from "./mcp";
 export * from "./packs";
+export * from "./blueprints";
 
 /**
  * Every role AgentOS ships, core first.
@@ -93,6 +95,7 @@ export interface RoleInstall {
    */
   runnerPreference: "inherit";
   inboxAccess: boolean;
+  provenance: Provenance;
 }
 
 /**
@@ -118,5 +121,21 @@ export function builtInRoleInstalls(): RoleInstall[] {
     recommendedSkills: role.recommendedSkills ?? [],
     runnerPreference: "inherit" as const,
     inboxAccess: true,
+    provenance:
+      role.provenance ??
+      originalAgentosProvenance("Original AgentOS role prompt reconstructed under SPEC.md."),
   }));
+}
+
+export function skillProvenance(skill: SkillSeed): Provenance {
+  return skill.provenance ?? originalAgentosProvenance("Original AgentOS inline prompt skill.");
+}
+
+export function mcpProvenance(entry: McpSeed): Provenance {
+  return (
+    entry.provenance ??
+    originalAgentosProvenance(
+      "Original AgentOS connection metadata based on the vendor's canonical documentation; the vendor did not author AgentOS copy.",
+    )
+  );
 }

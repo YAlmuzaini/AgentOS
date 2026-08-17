@@ -10,6 +10,8 @@ import { Field, FormActions, Input } from "../components/ui/form";
 import { PanelTitle, Well } from "../components/ui/panel";
 import { StatusPill } from "../components/ui/pill";
 import { ArrowRight, User } from "lucide-react";
+import type { PreflightReport } from "@agentos/shared";
+import { WarningGate } from "../components/warning-gate";
 
 /** Turning a template into nine real cards, with its variables filled in. */
 export function InstantiateDialog(props: {
@@ -25,12 +27,26 @@ export function InstantiateDialog(props: {
   // Which variables the operator has already been in. A dialog that opens with
   // every field already red is telling them off for not having typed yet.
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [preflight, setPreflight] = useState<PreflightReport | null>(null);
+  const [checkedSignature, setCheckedSignature] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const signature = JSON.stringify(values);
+  const check = useMutation({
+    mutationFn: () => api.preflightWithInputs(props.projectId, { subjectType: "template", subjectId: props.template.id, inputs: values }),
+    onSuccess: (report) => { setPreflight(report); setCheckedSignature(signature); setAcknowledged(false); },
+  });
+  const preflightWarnings = (preflight?.findings ?? [])
+    .filter((finding) => finding.severity === "warning")
+    .map((finding) => finding.message);
 
   const instantiate = useMutation({
     mutationFn: () =>
       api.instantiateTemplate(props.projectId, props.template.id, {
         variables: values,
         titlePrefix,
+        // The operator's own tick. The server rejects an unacknowledged
+        // warning; answering its question for it defeats the gate.
+        acknowledgePreflightWarnings: acknowledged,
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["tasks", props.projectId] });
@@ -124,6 +140,19 @@ export function InstantiateDialog(props: {
                 />
               )}
             </Field>
+            {preflight && checkedSignature === signature ? (
+              <div className="space-y-2 border-t border-edge pt-4" aria-live="polite">
+                <PanelTitle>Fleet preflight</PanelTitle>
+                <p className={preflight.ready ? "text-xs text-ink-muted" : "text-xs text-danger"}>{preflight.ready ? "Fleet is ready for this workflow." : "Dispatch is blocked."}</p>
+                {preflight.findings.filter((finding) => finding.severity === "error").map((finding, index) => <p key={`${finding.code}:${index}`} className="text-xs leading-relaxed text-ink-muted"><span className="text-danger">error:</span> {finding.message}</p>)}
+                <WarningGate
+                  warnings={preflightWarnings}
+                  acknowledged={acknowledged}
+                  onAcknowledge={setAcknowledged}
+                  label="I have read every warning above and want to run this workflow anyway."
+                />
+              </div>
+            ) : null}
           </div>
 
           <div className="border-t border-edge px-5 py-3.5">
@@ -143,8 +172,12 @@ export function InstantiateDialog(props: {
               </Button>
               <Button
                 variant="solid"
-                disabled={missing.length > 0 || instantiate.isPending}
-                onClick={() =>
+                disabled={missing.length > 0 || instantiate.isPending || check.isPending || (Boolean(preflight?.ready) && checkedSignature === signature && preflightWarnings.length > 0 && !acknowledged)}
+                onClick={() => {
+                  if (!preflight || checkedSignature !== signature || !preflight.ready) {
+                    check.mutate();
+                    return;
+                  }
                   confirm({
                     kind: "spend",
                     title: `Create ${props.template.steps.length} tasks from this template?`,
@@ -157,11 +190,13 @@ export function InstantiateDialog(props: {
                     ),
                     confirmLabel: `Create ${props.template.steps.length} tasks`,
                     onConfirm: () => instantiate.mutate(),
-                  })
-                }
+                  });
+                }}
               >
-                {instantiate.isPending
+                {check.isPending ? "Checking fleet…" : instantiate.isPending
                   ? "Creating…"
+                  : !preflight || checkedSignature !== signature || !preflight.ready
+                    ? "Run preflight"
                   : `Create ${props.template.steps.length} tasks`}
                 <ArrowRight />
               </Button>

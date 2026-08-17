@@ -5,6 +5,7 @@ import { api, ApiError } from "../api";
 import { Button } from "../components/ui/button";
 import { Field, FormActions, Input } from "../components/ui/form";
 import { selectProject } from "../hooks/use-project";
+import { useNavigate } from "@tanstack/react-router";
 
 /**
  * A second workspace (SPEC §4, §17).
@@ -30,6 +31,7 @@ export function CreateProjectDialog(props: {
   // when the fields are allowed to complain.
   const [touched, setTouched] = useState(false);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const effectiveSlug = slugTouched ? slug : slugify(name);
 
@@ -43,6 +45,7 @@ export function CreateProjectDialog(props: {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
       reset();
       props.onOpenChange(false);
+      void navigate({ to: "/project" });
     },
   });
 

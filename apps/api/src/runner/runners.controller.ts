@@ -1,5 +1,6 @@
 import type { RunnerStatusDto } from "@agentos/shared";
-import { Controller, Get, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
+import { LocalVmRunner } from "./local-runner";
 import { OperatorGuard } from "../auth/operator.guard";
 import { RunnerRouter } from "./runner-router";
 
@@ -18,10 +19,16 @@ import { RunnerRouter } from "./runner-router";
 @Controller("runners")
 @UseGuards(OperatorGuard)
 export class RunnersController {
-  constructor(private readonly router: RunnerRouter) {}
+  constructor(private readonly router: RunnerRouter, private readonly local: LocalVmRunner) {}
 
   @Get()
   status(): Promise<RunnerStatusDto> {
     return this.router.status();
+  }
+
+  @Post("local/drain")
+  async drain(@Body() body: { draining?: boolean }): Promise<RunnerStatusDto["local"]> {
+    await this.local.setDraining(body.draining !== false);
+    return this.local.status();
   }
 }

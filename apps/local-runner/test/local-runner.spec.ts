@@ -115,6 +115,10 @@ describe("network acceptance", () => {
     expect(loadConfig({ ...base, LOCAL_RUNNER_MAX_SESSION_REQUESTS: "0" }).maxSessionRequests).toBe(500);
     expect(loadConfig({ ...base, LOCAL_RUNNER_MAX_SESSION_REQUESTS: "abc" }).maxSessionRequests).toBe(500);
     expect(loadConfig({ ...base, LOCAL_RUNNER_MAX_SESSION_REQUESTS: "7" }).maxSessionRequests).toBe(7);
+    expect(loadConfig({ ...base, LOCAL_RUNNER_MAX_CONCURRENCY: "0" }).maxConcurrency).toBe(2);
+    expect(loadConfig({ ...base, LOCAL_RUNNER_MAX_CONCURRENCY: "4" }).maxConcurrency).toBe(4);
+    expect(loadConfig({ ...base, LOCAL_RUNNER_LOCATION: "personal-vps" }).location).toBe("personal-vps");
+    expect(loadConfig({ ...base, LOCAL_RUNNER_DRAIN: "1" }).drain).toBe(true);
   });
 });
 

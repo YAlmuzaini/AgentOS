@@ -36,10 +36,16 @@ services:
       # A hard ceiling this worker enforces itself. If the control plane dies
       # mid-run, nothing else will stop Claude Code.
       - LOCAL_RUNNER_MAX_SESSION_MINUTES=${LOCAL_RUNNER_MAX_SESSION_MINUTES:-120}
+      - LOCAL_RUNNER_MAX_SESSION_REQUESTS=${LOCAL_RUNNER_MAX_SESSION_REQUESTS:-500}
+      - LOCAL_RUNNER_MAX_CONCURRENCY=${LOCAL_RUNNER_MAX_CONCURRENCY:-2}
+      - LOCAL_RUNNER_WORKER_ID=${LOCAL_RUNNER_WORKER_ID:-}
+      - LOCAL_RUNNER_VERSION=${LOCAL_RUNNER_VERSION:-}
+      - LOCAL_RUNNER_LOCATION=${LOCAL_RUNNER_LOCATION:-personal-vps}
+      - LOCAL_RUNNER_DRAIN=${LOCAL_RUNNER_DRAIN:-}
       # This process cannot enforce an egress firewall, so by default it
-      # REFUSES sessions whose agent asks for a limited network, and those fall
-      # back to the cloud runner. Set to 1 only if you have firewalled this
-      # container yourself.
+      # REFUSES sessions whose agent asks for a limited network. Only `auto`
+      # may fall back to cloud; explicit `local` fails. Set to 1 only if you
+      # have firewalled this container yourself.
       - LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=${LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK:-}
     volumes:
       # Session workspaces. A named volume keeps repo clones out of the

@@ -13,6 +13,7 @@ import { useProjectGate } from "../hooks/use-project";
 import { NoProject, ProjectPending } from "./project-states";
 import { Figure, FiguresSkeleton, NoFigure } from "./dashboard-figures";
 import { ActivityFeed } from "./activity-feed";
+import { ExecutiveBriefing } from "./executive-briefing";
 
 /**
  * The operator's opening screen.
@@ -70,6 +71,12 @@ export function DashboardPage(): React.JSX.Element {
     enabled: Boolean(projectId),
     refetchInterval: 10_000,
   });
+  const briefing = useQuery({
+    queryKey: ["briefing", projectId],
+    queryFn: () => api.briefing(projectId!),
+    enabled: Boolean(projectId),
+    refetchInterval: 10_000,
+  });
 
   if (absent) {
     return <NoProject />;
@@ -118,7 +125,7 @@ export function DashboardPage(): React.JSX.Element {
   // One failed request is enough to make every number on the page a stale
   // claim, so the page says so once rather than letting six cards quietly
   // render the last good answer as if it were current.
-  const unreachable = [tasks, sessions, inbox, goals, agents, activity].some(
+  const unreachable = [tasks, sessions, inbox, goals, agents, activity, briefing].some(
     (query) => query.isError,
   );
   const counting =
@@ -149,6 +156,8 @@ export function DashboardPage(): React.JSX.Element {
           Unable to reach the control plane. The figures below may be outdated.
         </InlineError>
       ) : null}
+
+      {briefing.data ? <ExecutiveBriefing briefing={briefing.data} /> : null}
 
       {counting ? (
         <FiguresSkeleton />

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { hostname } from "node:os";
 /**
  * Worker configuration.
  *
@@ -54,6 +55,13 @@ export interface WorkerConfig {
    * shell can call the proxy directly, and this is the ceiling on that.
    */
   maxSessionRequests: number;
+  /** Maximum concurrently running agent or orchestration model calls. */
+  maxConcurrency: number;
+  workerId: string;
+  version: string;
+  location: "local-computer" | "personal-vps";
+  /** A draining worker remains healthy but accepts no new work. */
+  drain: boolean;
 }
 
 export interface Credential {
@@ -91,6 +99,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       readIfPresent(env.GROK_API_KEY_FILE) ?? env.GROK_API_KEY ?? env.XAI_API_KEY ?? "",
     maxSessionMinutes: positive(env.LOCAL_RUNNER_MAX_SESSION_MINUTES, 120, "LOCAL_RUNNER_MAX_SESSION_MINUTES"),
     maxSessionRequests: positive(env.LOCAL_RUNNER_MAX_SESSION_REQUESTS, 500, "LOCAL_RUNNER_MAX_SESSION_REQUESTS"),
+    maxConcurrency: positive(env.LOCAL_RUNNER_MAX_CONCURRENCY, 2, "LOCAL_RUNNER_MAX_CONCURRENCY"),
+    workerId: env.LOCAL_RUNNER_WORKER_ID?.trim() || hostname(),
+    version: env.LOCAL_RUNNER_VERSION?.trim() || "development",
+    location: env.LOCAL_RUNNER_LOCATION === "personal-vps" ? "personal-vps" : "local-computer",
+    drain: env.LOCAL_RUNNER_DRAIN === "1",
     // A retained workspace holds work that reached no remote, so it is kept —
     // but "kept" without a horizon is a disk that fills up on a machine nobody
     // is watching. Two weeks is long enough to notice and act; `0` disables the

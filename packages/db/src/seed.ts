@@ -1,4 +1,10 @@
-import { builtInRoleInstalls, BUILT_IN_SKILLS, BUILT_IN_TEMPLATES } from "@agentos/shared";
+import {
+  builtInRoleInstalls,
+  BUILT_IN_SKILLS,
+  BUILT_IN_TEMPLATES,
+  originalAgentosProvenance,
+  skillProvenance,
+} from "@agentos/shared";
 import { eq } from "drizzle-orm";
 import { createDatabase, requireDatabaseUrl } from "./client";
 import { agents, environments, projects, skills, taskTemplates } from "./schema";
@@ -50,7 +56,13 @@ async function main(): Promise<void> {
   for (const skill of BUILT_IN_SKILLS) {
     await db
       .insert(skills)
-      .values({ ...skill, projectId: project.id, filePath: null, builtIn: true })
+      .values({
+        ...skill,
+        projectId: project.id,
+        filePath: null,
+        builtIn: true,
+        provenance: skillProvenance(skill),
+      })
       .onConflictDoUpdate({
         target: [skills.projectId, skills.slug],
         // Metadata only. The body is the operator's to edit, exactly as the
@@ -84,6 +96,8 @@ async function main(): Promise<void> {
           const id = skillIdBySlug.get(slug);
           return id ? [id] : [];
         });
+    const recommendationsReady =
+      role.recommendedSkills.length === 0 || recommended.length === role.recommendedSkills.length;
     await db
       .insert(agents)
       .values({
@@ -92,6 +106,7 @@ async function main(): Promise<void> {
         // Marks provenance: the installer only refreshes rows it created.
         builtIn: true,
         skillIds: recommended,
+        recommendedSkillsInitialized: recommendationsReady,
       })
       .onConflictDoUpdate({
         target: [agents.projectId, agents.name],
@@ -121,7 +136,12 @@ async function main(): Promise<void> {
   for (const template of BUILT_IN_TEMPLATES) {
     await db
       .insert(taskTemplates)
-      .values({ ...template, projectId: project.id })
+      .values({
+        ...template,
+        projectId: project.id,
+        builtIn: true,
+        provenance: originalAgentosProvenance("Original AgentOS built-in workflow."),
+      })
       .onConflictDoUpdate({
         target: [taskTemplates.projectId, taskTemplates.name],
         set: {
@@ -130,6 +150,7 @@ async function main(): Promise<void> {
           steps: template.steps,
           updatedAt: new Date(),
         },
+        setWhere: eq(taskTemplates.builtIn, true),
       });
   }
 

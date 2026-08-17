@@ -9,6 +9,7 @@ import type {
   RunnerHandle,
   RuntimeSessionSummary,
 } from "./runner.types";
+import type { RunnerStatusDto } from "@agentos/shared";
 
 /**
  * The cheap backend (SPEC §16): a worker on a VM the operator owns, running a
@@ -28,6 +29,46 @@ import type {
  * Everything above the Runner interface is identical to the cloud path, which
  * is the point of having the interface at all.
  */
+/**
+ * The local worker could not take this decision *now* — busy, draining, or
+ * unreachable. Separate from a decision that came back wrong, because the goal
+ * loop treats them differently: this one costs nothing and is worth retrying,
+ * and it must not be counted against the stuck rail.
+ */
+export class LocalDecisionUnavailableError extends Error {
+  override readonly name = "LocalDecisionUnavailableError";
+}
+
+function isAbort(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+}
+
+/** A non-OK response from the worker, carrying the status so callers can
+ * classify on it rather than on the text of a message. */
+export class LocalRunnerHttpError extends Error {
+  override readonly name = "LocalRunnerHttpError";
+  constructor(
+    readonly route: string,
+    readonly status: number,
+    readonly body: string,
+  ) {
+    super(`local runner ${route}: ${status} ${body}`);
+  }
+}
+
+/**
+ * How long the control plane allows for the worker's own admission queue on top
+ * of the decision timeout.
+ *
+ * Must be at least `DECISION_QUEUE_WAIT_MS` in `apps/local-runner/src/main.ts`
+ * (20s today). The worker is a separate deployable with no shared package, so
+ * this is a protocol constant kept in step by hand — and getting it wrong is
+ * not cosmetic: an abort that fires while the worker is *running* a decision
+ * discards a call that has already been billed, and the goal records that the
+ * turn cost nothing.
+ */
+const DECISION_QUEUE_ALLOWANCE_MS = 30_000;
+
 @Injectable()
 export class LocalVmRunner implements Runner {
   readonly name = "local" as const;
@@ -47,17 +88,43 @@ export class LocalVmRunner implements Runner {
   }
 
   async healthy(): Promise<boolean> {
+    return (await this.status()).healthy;
+  }
+
+  async status(): Promise<RunnerStatusDto["local"]> {
     if (!this.configured) {
-      return false;
+      return emptyStatus(null);
     }
     try {
       const response = await fetch(`${this.base()}/health`, {
         headers: this.headers(),
         signal: AbortSignal.timeout(2000),
       });
-      return response.ok;
+      if (!response.ok) return emptyStatus(this.endpointForDisplay());
+      const body = (await response.json()) as Record<string, unknown>;
+      const capacity = finiteNumber(body.capacity);
+      const activeSessions = finiteNumber(body.activeSessions) ?? finiteNumber(body.sessions) ?? 0;
+      const draining = body.draining === true;
+      return {
+        configured: true,
+        healthy: true,
+        ready: body.ready === undefined ? !draining : body.ready === true,
+        url: this.endpointForDisplay(),
+        activeSessions,
+        capacity,
+        draining,
+        workerId: stringOrNull(body.workerId),
+        version: stringOrNull(body.version),
+        location:
+          body.location === "local-computer" || body.location === "personal-vps"
+            ? body.location
+            : null,
+        capabilities: Array.isArray(body.capabilities)
+          ? body.capabilities.filter((item): item is string => typeof item === "string")
+          : [],
+      };
     } catch {
-      return false;
+      return emptyStatus(this.endpointForDisplay());
     }
   }
 
@@ -77,8 +144,15 @@ export class LocalVmRunner implements Runner {
         budgetUsd: input.budgetUsd,
       }),
     });
-    const body = (await response.json()) as { id: string };
-    return { runtimeSessionId: body.id, traceUrl: null };
+    const body = (await response.json()) as {
+      id: string;
+      billingMode?: "subscription" | "metered-api" | "unknown";
+    };
+    return {
+      runtimeSessionId: body.id,
+      traceUrl: null,
+      billingMode: body.billingMode ?? "unknown",
+    };
   }
 
   async *streamEvents(
@@ -287,6 +361,61 @@ export class LocalVmRunner implements Runner {
     });
   }
 
+  async setDraining(draining: boolean): Promise<void> {
+    await this.call("/drain", { method: "POST", body: JSON.stringify({ draining }) });
+  }
+
+  /**
+   * Asks the worker to make one orchestration decision.
+   *
+   * A worker that is *busy* is not a decision that *failed*. The worker answers
+   * 503 rather than queueing a short interactive call behind hour-long
+   * sessions, and that answer becomes `LocalDecisionUnavailableError` so the
+   * goal loop can tell "try again later, this cost nothing" from "this
+   * evaluation is broken". Conflating them stopped goals with "no progress"
+   * when the truth was "the worker was busy".
+   */
+  async decide(input: {
+    systemPrompt: string;
+    prompt: string;
+    schema: Record<string, unknown>;
+    model: string;
+    timeoutMs: number;
+  }): Promise<{ output: unknown; model: string; durationMs: number; billingMode?: "subscription" | "metered-api" }> {
+    let response: Response;
+    try {
+      response = await this.call("/decisions", {
+        method: "POST",
+        body: JSON.stringify(input),
+        // The worker may spend up to its queue wait before the decision even
+        // starts, so the budget covers both. Aborting at `timeoutMs + 5s` cut
+        // off decisions the worker was actually running — which then looked
+        // like "busy, nothing spent" while a real model call was billed.
+        signal: AbortSignal.timeout(
+          Math.min(input.timeoutMs + DECISION_QUEUE_ALLOWANCE_MS, 180_000),
+        ),
+      });
+    } catch (error) {
+      // Classified on the worker's own status code, never on the text of an
+      // error. Matching `/503/` against a message matched any 500 whose *body*
+      // happened to mention 503 — an upstream Anthropic overload relayed
+      // verbatim, for instance — so a permanently broken evaluator was read as
+      // a temporarily busy one and retried instead of converging.
+      if (error instanceof LocalRunnerHttpError && error.status === 503) {
+        throw new LocalDecisionUnavailableError(
+          `the local worker declined an orchestration decision: ${error.body.slice(0, 300)}`,
+        );
+      }
+      if (isAbort(error)) {
+        throw new LocalDecisionUnavailableError(
+          "the local worker did not answer an orchestration decision within its budget",
+        );
+      }
+      throw error;
+    }
+    return (await response.json()) as { output: unknown; model: string; durationMs: number; billingMode?: "subscription" | "metered-api" };
+  }
+
   private base(): string {
     return this.config.LOCAL_RUNNER_URL.replace(/\/$/, "");
   }
@@ -313,8 +442,32 @@ export class LocalVmRunner implements Runner {
       headers: { ...this.headers(), ...(init.headers ?? {}) },
     });
     if (!response.ok && !(allowNotFound && response.status === 404)) {
-      throw new Error(`local runner ${route}: ${response.status} ${await response.text()}`);
+      throw new LocalRunnerHttpError(route, response.status, await response.text());
     }
     return response;
   }
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function emptyStatus(url: string | null): RunnerStatusDto["local"] {
+  return {
+    configured: url !== null,
+    healthy: false,
+    ready: false,
+    url,
+    activeSessions: 0,
+    capacity: null,
+    draining: false,
+    workerId: null,
+    version: null,
+    location: null,
+    capabilities: [],
+  };
 }

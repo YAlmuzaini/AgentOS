@@ -28,6 +28,7 @@ export const sessions = pgTable(
     goalId: uuid("goal_id"),
 
     runner: runnerEnum("runner").notNull().default("cloud"),
+    billingMode: text("billing_mode").notNull().default("unknown"),
     status: sessionStatusEnum("status").notNull().default("starting"),
 
     /** Managed Agents session id for the cloud runner. */

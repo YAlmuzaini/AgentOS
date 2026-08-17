@@ -6,6 +6,7 @@
 // ones written around that.
 
 import type { RoleSeed } from "./types";
+import { provenanceSchema } from "../contracts/provenance";
 
 export const DATA_ROLE_SEEDS: RoleSeed[] = [
   {
@@ -54,6 +55,12 @@ answer this" when that is the answer.`,
   },
   {
     name: "rag-engineering-architect",
+    provenance: provenanceSchema.parse({
+      relationship: "inspired",
+      repositoryUrl: "https://github.com/sickn33/agentic-awesome-skills",
+      notes:
+        "Original AgentOS role informed by general RAG research. It was not copied or adapted from sickn33/agentic-awesome-skills or MCP Market; neither contains this AgentOS prompt.",
+    }),
     recommendedSkills: ["rag-architecture", "retrieval-evaluation", "rag-security", "document-ingestion-discipline"],
     planner: true,
     title: "RAG engineering architect",

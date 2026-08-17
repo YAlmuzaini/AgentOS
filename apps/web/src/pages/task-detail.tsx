@@ -26,6 +26,7 @@ import { Time } from "../components/ui/time";
 import { cn } from "../lib/cn";
 import { TaskAttachments } from "./task-attachments";
 import { reflow } from "../lib/prose";
+import { HandoffChain } from "./handoff-chain";
 
 /**
  * Everything the control plane knows about one task.
@@ -287,6 +288,10 @@ export function TaskDetail(props: {
             </Section>
 
             <Section title="History">
+              <HandoffChain projectId={props.projectId} taskId={task.id} embedded />
+            </Section>
+
+            <Section title="Activity">
               {activity.isLoading ? (
                 <SkeletonRows rows={3} />
               ) : (activity.data ?? []).length === 0 ? (

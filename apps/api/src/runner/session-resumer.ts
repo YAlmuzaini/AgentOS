@@ -6,6 +6,7 @@ import { FilesService } from "../files/files.service";
 import { GoalLogService } from "../goals/goal-log.service";
 import { TasksService } from "../tasks/tasks.service";
 import { GoalLeases } from "../goals/goal-leases";
+import { HandoffsService } from "../handoffs/handoffs.service";
 import { InboxService } from "../inbox/inbox.service";
 import { SessionQueue } from "../queue/session.queue";
 import { SessionsService } from "../sessions/sessions.service";
@@ -42,6 +43,7 @@ export class SessionResumer {
     private readonly goalLog: GoalLogService,
     private readonly queue: SessionQueue,
     private readonly leases: GoalLeases,
+    private readonly handoffs: HandoffsService,
   ) {}
 
   async resume(sessionId: string, inboxMessageId: string): Promise<void> {
@@ -112,6 +114,21 @@ export class SessionResumer {
 
       if (!result.parked) {
         const costUsd = await this.teardown.finish(runner, handle, session.id, result.failure);
+        // The chain has to close here too. A specialist that parked, was
+        // answered, and then finished is exactly where the operator
+        // intervened — leaving no handoff put a hole in the record at the one
+        // point a human touched the work. Wrapped for the same reason the
+        // direct dispatch path is: bookkeeping must not fail a finished turn.
+        try {
+          await this.handoffs.ensureForSession(
+            session.id,
+            result.summary.trim() || `${agent.name} finished after your inbox answer.`,
+          );
+        } catch (error) {
+          this.logger.error(
+            `session ${session.id}: could not record the resumed handoff: ${String(error)}`,
+          );
+        }
         // The goal loop stopped when this session parked. Now that its answer
         // has landed and the turn is over, the loop is owed both the spend and
         // its next iteration — otherwise a goal quietly stalls forever the

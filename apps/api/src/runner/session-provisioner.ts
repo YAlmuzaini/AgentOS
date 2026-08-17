@@ -6,7 +6,8 @@ import { EnvironmentPolicyResolver } from "./environment-policy";
 import { ManifestResolver } from "./manifest";
 import type { Runner, RunnerHandle } from "./runner.types";
 import { SessionsService } from "../sessions/sessions.service";
-import { buildKickoff, buildSystemPrompt, describeFolders } from "./session-prompt";
+import { buildKickoff, buildSystemPrompt, describeFolders, withHandoffContext } from "./session-prompt";
+import { HandoffsService } from "../handoffs/handoffs.service";
 import { TOOL_TASK_UPDATE, toolsForAgent } from "./tools";
 
 /**
@@ -24,6 +25,7 @@ export class SessionProvisioner {
     private readonly environmentPolicy: EnvironmentPolicyResolver,
     private readonly files: FilesService,
     private readonly sessions: SessionsService,
+    private readonly handoffs: HandoffsService,
   ) {}
 
   async provision(input: {
@@ -45,6 +47,11 @@ export class SessionProvisioner {
     const attachments = input.task
       ? await this.files.pathsByIds(input.task.projectId, input.task.attachmentIds)
       : [];
+    const handoffs = await this.handoffs.latestFor(
+      input.agent.projectId,
+      input.task?.id ?? null,
+      input.goalId ?? null,
+    );
     // Resolved after the grants, because whether the wall permits MCP at all
     // is decided by whether this agent was granted an MCP server.
     const policy = await this.environmentPolicy.resolve(
@@ -89,7 +96,10 @@ export class SessionProvisioner {
         attachments,
         goalId: input.goalId ?? null,
       }),
-      kickoff: input.kickoff ?? buildKickoff(input.task, { update: TOOL_TASK_UPDATE }),
+      // Untrusted, bounded, and on the user turn — never in the system prompt.
+      kickoff: input.kickoff
+        ? withHandoffContext(input.kickoff, handoffs)
+        : buildKickoff(input.task, { update: TOOL_TASK_UPDATE }, handoffs),
       budgetUsd: input.budgetUsd,
       onVaultsCreated: input.onVaultsCreated,
       ...grants,

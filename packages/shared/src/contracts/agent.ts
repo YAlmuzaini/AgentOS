@@ -4,6 +4,7 @@ import { RUNNER_PREFERENCES, REPO_PERMISSIONS } from "../enums";
 import { patchSchema } from "./patch";
 import { slugSchema } from "./project";
 import { mountPathSchema } from "./resources";
+import { provenanceSchema, type Provenance } from "./provenance";
 
 /**
  * Grants are default-deny (SPEC §5.1): anything absent from these arrays is
@@ -61,6 +62,7 @@ export const createAgentSchema = z.object({
   environmentId: z.string().uuid().nullable().default(null),
   runnerPreference: z.enum(RUNNER_PREFERENCES).default("inherit"),
   inboxAccess: z.boolean().default(true),
+  provenance: provenanceSchema.optional(),
 });
 export type CreateAgentInput = z.infer<typeof createAgentSchema>;
 
@@ -85,6 +87,7 @@ export interface AgentDto {
   environmentId: string | null;
   runnerPreference: (typeof RUNNER_PREFERENCES)[number];
   inboxAccess: boolean;
+  provenance: Provenance;
   createdAt: string;
   updatedAt: string;
 }

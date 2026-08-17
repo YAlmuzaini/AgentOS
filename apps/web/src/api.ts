@@ -47,6 +47,16 @@ import type {
   UpdateEnvironmentInput,
   UpdateSettingsInput,
   WriteFileInput,
+  CompanyBlueprint,
+  BlueprintPreview,
+  BlueprintInstallationDto,
+  ApplyBlueprintInput,
+  ResourceSlotDto,
+  ResolveResourceSlotInput,
+  PreflightReport,
+  HandoffDto,
+  ExecutiveBriefingDto,
+  RunPreflightInput,
 } from "@agentos/shared";
 import { request, requestBlob, upload } from "./api-client";
 
@@ -74,6 +84,25 @@ export const api = {
   // a rename that silently did nothing.
   updateProject: (id: string, body: UpdateProjectInput) =>
     request<ProjectDto>(`/projects/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  companyBlueprints: () => request<CompanyBlueprint[]>("/company-blueprints"),
+  blueprintPreview: (projectId: string, slug: string) =>
+    request<BlueprintPreview>(`/projects/${projectId}/company-blueprints/${slug}/preview`),
+  applyBlueprint: (projectId: string, slug: string, body: ApplyBlueprintInput) =>
+    request<BlueprintInstallationDto>(`/projects/${projectId}/company-blueprints/${slug}/apply`, { method: "POST", body: JSON.stringify(body) }),
+  blueprintInstallations: (projectId: string) =>
+    request<BlueprintInstallationDto[]>(`/projects/${projectId}/company-blueprints`),
+  resourceSlots: (projectId: string) =>
+    request<ResourceSlotDto[]>(`/projects/${projectId}/resource-slots`),
+  resolveResourceSlot: (projectId: string, key: string, body: ResolveResourceSlotInput) =>
+    request<ResourceSlotDto>(`/projects/${projectId}/resource-slots/${key}`, { method: "PUT", body: JSON.stringify(body) }),
+  preflight: (projectId: string, subjectType: "project" | "template" | "goal" = "project", subjectId?: string) =>
+    request<PreflightReport>(`/projects/${projectId}/capabilities/preflight${query({ subjectType, subjectId })}`),
+  preflightWithInputs: (projectId: string, body: RunPreflightInput) =>
+    request<PreflightReport>(`/projects/${projectId}/capabilities/preflight`, { method: "POST", body: JSON.stringify(body) }),
+  handoffs: (projectId: string, scope: { taskId?: string; goalId?: string } = {}) =>
+    request<HandoffDto[]>(`/projects/${projectId}/handoffs${query(scope)}`),
+  briefing: (projectId: string, since?: string) =>
+    request<ExecutiveBriefingDto>(`/projects/${projectId}/briefing${query({ since })}`),
   agents: (projectId: string) => request<AgentDto[]>(`/projects/${projectId}/agents`),
   createAgent: (projectId: string, body: CreateAgentInput) =>
     request<AgentDto>(`/projects/${projectId}/agents`, {
@@ -237,6 +266,8 @@ export const api = {
    * local worker lives is one env var for the whole process.
    */
   runnerStatus: () => request<RunnerStatusDto>("/runners"),
+  setLocalRunnerDrain: (draining: boolean) =>
+    request<RunnerStatusDto["local"]>("/runners/local/drain", { method: "POST", body: JSON.stringify({ draining }) }),
   updateSettings: (projectId: string, body: UpdateSettingsInput) =>
     request<SettingsDto>(`/projects/${projectId}/settings`, {
       method: "PUT",

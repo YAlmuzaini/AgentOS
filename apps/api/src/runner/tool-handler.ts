@@ -15,6 +15,7 @@ import type { RunnerToolCall } from "./runner.types";
 import { deny, type ToolContext, type ToolOutcome } from "./tool-types";
 import {
   TOOL_ATTACH_FILE,
+  TOOL_CREATE_HANDOFF,
   TOOL_FS_DELETE,
   TOOL_FS_LIST,
   TOOL_FS_MKDIR,
@@ -30,6 +31,7 @@ import {
   TOOL_TASK_UPDATE,
 } from "./tools";
 import { CollaborationService } from "./collaboration";
+import { HandoffsService } from "../handoffs/handoffs.service";
 
 /** Re-exported so existing callers keep importing from the handler. */
 export type { ToolContext, ToolOutcome } from "./tool-types";
@@ -59,6 +61,7 @@ export class AgentToolHandler {
     private readonly collaboration: CollaborationService,
     private readonly catalog: CatalogService,
     private readonly sessions: SessionsService,
+    private readonly handoffs: HandoffsService,
   ) {}
 
   /**
@@ -86,6 +89,10 @@ export class AgentToolHandler {
           return await this.attachFile(ctx, call.input);
         case TOOL_RECORD_COMMIT:
           return await this.recordCommit(ctx, call.input);
+        case TOOL_CREATE_HANDOFF: {
+          const handoff = await this.handoffs.createForSession(ctx.sessionId, call.input);
+          return { kind: "result", text: `handoff ${handoff.id} recorded` };
+        }
         case TOOL_INBOX_SEND:
           return await this.inbox.send(ctx, call.input);
         case TOOL_INBOX_ASK:

@@ -5,7 +5,8 @@ AgentOS starts a throwaway container, clones the allowed repo, injects allowed s
 agent work. When it needs you, you get an inbox push. When it's done, the container is gone and a
 commit or a PR is left behind. Recurring jobs and webhooks use the same path.
 
-A feature template runs spec (you approve) → plan → four-lens plan review → revise → implement with
+A reusable company profile prepares the fleet, resource slots and workflows; preflight proves the
+project can run before anything is dispatched. A feature template runs spec (you approve) → plan → four-lens plan review → revise → implement with
 E2E → code review → fixes → wiki → you merge. A goal loop keeps dispatching specialists until the
 definition of done is checked, or the spend, time, or stuck rail stops it.
 
@@ -19,7 +20,7 @@ Single operator. Not a SaaS.
 | `PROGRESS.md` | Where the build actually is, including what is unverified |
 | `DEPLOY.md` | Shipping it |
 | `RECIPE.md` | The founder's engineering contract |
-| `agentos.yml` | This project as code |
+| `agentos.yml` | This project as code, including provenance, company profiles and resource slots |
 
 ## Layout
 
@@ -45,7 +46,7 @@ Its whole toolset, and every one of them is granted rather than assumed:
 |---|---|
 | `agentos_update_task` · `agentos_add_activity` | Move the card, record what happened |
 | `agentos_attach_file` | Attach a file it wrote, so the next step and every collaborator inherit it |
-| `agentos_record_commit` | Record a commit, because the container is about to be destroyed |
+| `agentos_record_commit` · `agentos_create_handoff` | Record durable commits and a scoped work product before the container is destroyed |
 | `agentos_spawn_collaborators` · `agentos_read_subtask` | Spawn agents **on its collaboration list only**, in parallel, and read their reports |
 | `inbox_send` · `inbox_ask` · `inbox_read` | The only channel to you. `ask` carries up to four questions at once, so an agent that needs three decisions parks once rather than three times |
 | `fs_list` · `fs_read` · `fs_write` · `fs_mkdir` · `fs_delete` | The persistent filesystem, per-folder and per-verb |
@@ -102,7 +103,7 @@ pnpm --filter @agentos/local-runner test  # the worker's egress wall and Grok en
 pnpm --filter @agentos/cli test           # the CLI's capability flags
 ```
 
-228 control-plane tests, 18 worker tests and 4 CLI tests, covering all fourteen acceptance tests in `SPEC.md`
+312 control-plane tests, 54 worker tests and 4 CLI tests, covering the original fourteen acceptance tests in `SPEC.md`
 §22. The control-plane suite runs against a real Postgres
 and a `FakeRunner` that implements the `Runner` contract, so the whole control plane — gates,
 grants, chains, rails, webhooks, resume, spawning, attachments, commits — is exercised **without an
@@ -156,8 +157,13 @@ product/content, operations/support, mobile. Packs overlap and installing twice 
 
 Twenty roles carry a **recommended skill list** — `senior-dev` gets commit discipline, the
 verification loop, no-fake-completion and change hygiene; `db-architect` gets schema-change safety.
-Those are applied **when the agent is first created and never again**: remove one and re-running the
-installer leaves it removed, for the same reason a re-seed never rewrites a role prompt you edited.
+Those are applied when a built-in agent is created. Installation order does not matter: if the
+agent arrives first, it remains explicitly pending and later built-in skill installation merges the
+recommendations that have become available. Once all recommendations were initialized—or the
+operator edits the skill list, including intentionally making it empty—the installer never manages
+that list again. Reinstalling an agent does not restore a removed skill. An operator-authored agent
+that collides with a built-in name, and a built-in with an operator-curated non-empty list, are both
+preserved.
 
 Nothing that reaches outside AgentOS is granted by installing: no repository, MCP connection,
 filesystem folder, secret, environment, or network access. Two things a *newly created* agent does
@@ -222,13 +228,86 @@ not implement Anthropic's `SKILL.md` progressive disclosure, so there is no "loa
 triggered" here — which is why every shipped skill is short, and why a long one belongs on the agent
 filesystem as a `file` skill whose path the agent reads on demand.
 
+## Preparing a project as a company
+
+Project setup is a deliberate seven-step path: create the project, connect/select a GitHub
+repository, choose one of seven company profiles, choose Local/VPS, Cloud or Hybrid (`auto`),
+resolve resource slots, run fleet preflight, and act on the ready/blocker report. Profiles cover
+full-stack, frontend, backend/API, data/RAG, DevOps/infrastructure, mobile and minimal engineering.
+
+A profile preview lists exactly what will be created and what existing rows will be preserved.
+Applying it installs only missing inert agents, skills, pack records and workflow templates. It does
+not grant a repository, credential, MCP, folder or network policy, and reinstalling never overwrites
+project customization. Profile and pack versions and provenance are persisted and round-trip in
+`agentos.yml`.
+
+Preflight is one service shared by project setup, template dispatch and goal activation, and the
+question it asks depends on whether the execution graph is known.
+
+A **workflow** names the exact roles its steps dispatch to, so every one of those roles must itself
+hold the required repository, environment and connections. A **project or goal** has no fixed graph,
+so the test is that a capable worker exists at all: at least one ready, eligible agent per required
+resource. That distinction is the point of the whole feature — a fleet where the support agent
+holds nothing and one implementer holds the production repository is a *passing* fleet, not a
+blocked one. Verified against a running server: a 37-agent project in which exactly one agent is
+granted the required repo and environment passes preflight, and the other 36 are reported as
+deliberately ineligible rather than as errors.
+
+It also checks recommended capabilities, authorized collaborators, MCP configuration and
+verification, workflow inputs, explicit human gates, runner compatibility and local-worker
+readiness. Errors block on the server. Warnings require an explicit acknowledgement — the operator
+sees every warning and ticks a box; no screen sends that acknowledgement on their behalf. Reports
+contain no credential values, and failed checks are retained for the executive briefing.
+
+Every installed agent, skill, MCP connection, pack, company profile and workflow carries structured
+provenance: relationship (`original`, `imported`, `adapted`, `inspired`), source/repository paths and
+versions where applicable, immutable commit and license metadata when known, content hash, check
+timestamps and attribution notes. AgentOS never auto-updates installed prompts from upstream. The
+RAG architect and RAG skills are original AgentOS prompts marked **inspired** by research—not copied
+from MCP Market or `sickn33/agentic-awesome-skills`.
+
+Goal routing uses bounded capability cards, not prompt bodies: role identity, skill slugs, repo/MCP
+grants, environment posture, runner compatibility, collaboration list and concrete readiness
+reasons. The eligible roster is computed from the *same* resolved requirements preflight uses and
+bounded once, so the prompt, the audit row and the server-side rejection all read one identical
+list — an agent lacking the goal's required repository is never offered and never accepted. Goal decisions are routed too: explicit `local` goes to the worker's own decision
+endpoint and the control plane never calls the Anthropic API for it; `cloud` uses the metered API;
+only `auto` may choose cloud when local is not ready. Backend, provider, model, eligible/selected
+role names, duration and a prompt hash—not the prompt or secrets—are retained for audit.
+
+**One honest caveat about what `local` costs.** Routing is about *where the request goes*, not about
+what it is billed as, and the worker holds its own credential. Configure the worker with a Claude
+Code subscription OAuth token and local work is flat-fee, which is the point of it. Configure it
+with an `ANTHROPIC_API_KEY` — a supported worker setup — and the *worker* bills per token for the
+same run. AgentOS does not hide this: the worker reports its billing mode, sessions and decisions
+record `subscription`, `metered-api` or `unknown`, and the executive briefing counts local metered
+sessions separately from local subscription ones. A runner named `local` is never presented as proof
+of subscription billing.
+
+Parallel goal work is bounded orchestrator fan-out, not recursive peer chat. Up to four specialists
+in a turn share the goal deadline and cancellation signal, reserve iterations before provisioning,
+split the remaining budget, and persist goal-scoped handoffs. A handoff records outcome, evidence,
+verification, files, commits/branch, risks, blockers, decisions and the authorized next role. It is
+durable project/task/goal data. Every field and array has an explicit size limit, at most three
+records are rendered, and the whole projection is capped — a record too large is *trimmed*, never
+dropped, so an oversized handoff shortens rather than silently disappearing. It reaches the
+recipient on the first **user** turn inside a labelled untrusted-data fence, and never in the
+system prompt, which is the one layer only the operator controls.
+
+The dashboard's executive briefing is deterministic. It groups operator decisions, stopped goals,
+failed preflights/decisions/sessions/publishes, unusually long work, review-ready and completed work,
+and active goals that can continue. It reports cloud cost plus local worker sessions by confirmed
+subscription, metered-API or unknown billing mode; runner name alone is never presented as proof of
+subscription billing.
+
 ## The five properties that are the product
 
 0. **Local means local.** An agent, goal, or project set to the `local` runner is never sent to
-   the cloud. The local worker runs under a flat-fee subscription; cloud sessions are billed per
-   token, so an unreachable worker **fails the session with an explanation** rather than quietly
-   spending money nobody is watching. `auto` is the only setting that falls back, and it says so.
-   The failure is recorded as a session row, not just a log line.
+   the cloud. Cloud sessions are billed per token, so an unreachable worker — or one you have put
+   into drain — **fails the session with an explanation** rather than quietly spending money nobody
+   is watching. `auto` is the only setting that falls back, and it says so. The failure is recorded
+   as a session row, not just a log line. What `local` does *not* promise is a price: that depends
+   on the credential the worker holds, and the billing mode is reported rather than assumed.
 
 1. **Least privilege, default deny.** An agent gets no MCP, repo, env var, filesystem write, network
    host, or spawn right that is not listed on it. Four independent walls, and the spawn list is the

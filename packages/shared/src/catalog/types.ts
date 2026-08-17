@@ -1,4 +1,5 @@
 import type { Category } from "./categories";
+import type { Provenance } from "../contracts/provenance";
 
 /**
  * A role AgentOS ships. Installing one writes an `agents` row with
@@ -41,6 +42,8 @@ export interface RoleSeed {
    * in either order.
    */
   recommendedSkills?: string[];
+  /** Defaults to original AgentOS content; set explicitly for research relationships. */
+  provenance?: Provenance;
 }
 
 /** A skill AgentOS ships. Unique per project by slug. */
@@ -52,6 +55,7 @@ export interface SkillSeed {
   description: string;
   kind: "prompt" | "file";
   body: string;
+  provenance?: Provenance;
 }
 
 /** Everything both runners can currently speak. Kept as a union so adding
@@ -146,4 +150,5 @@ export interface McpSeed {
   allowedOperations: string[];
   /** Where the credential comes from, and anything surprising. */
   docs: string;
+  provenance?: Provenance;
 }

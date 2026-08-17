@@ -1,4 +1,4 @@
-import type { FilesystemGrant, RepoAccess } from "@agentos/shared";
+import type { FilesystemGrant, Provenance, RepoAccess } from "@agentos/shared";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -25,6 +25,12 @@ export const agents = pgTable(
      * created; anything else is left alone.
      */
     builtIn: boolean("built_in").notNull().default(false),
+    provenance: jsonb("provenance")
+      .$type<Provenance>()
+      .notNull()
+      .default(sql`'{"relationship":"original"}'::jsonb`),
+    /** False only while a new built-in is waiting for skills installed later. */
+    recommendedSkillsInitialized: boolean("recommended_skills_initialized").notNull().default(true),
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),

@@ -23,6 +23,10 @@ import { TemplatesModule } from "./templates/templates.module";
 import { TriggersModule } from "./triggers/triggers.module";
 import { YamlModule } from "./yaml/yaml.module";
 import { WorkerModule } from "./worker/worker.module";
+import { CapabilitiesModule } from "./capabilities/capabilities.module";
+import { CompanyModule } from "./company/company.module";
+import { HandoffsModule } from "./handoffs/handoffs.module";
+import { BriefingModule } from "./briefing/briefing.module";
 
 @Module({
   imports: [
@@ -42,6 +46,10 @@ import { WorkerModule } from "./worker/worker.module";
     FilesModule,
     GoalLogModule,
     RunnerModule,
+    CapabilitiesModule,
+    CompanyModule,
+    HandoffsModule,
+    BriefingModule,
     GoalsModule,
     TriggersModule,
     AutomationsModule,

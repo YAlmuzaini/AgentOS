@@ -11,6 +11,8 @@ export interface RunnerHandle {
   runtimeSessionId: string;
   /** Operator-visible trace URL, when the backend exposes one. */
   traceUrl: string | null;
+  /** How this runtime's model calls are billed; never inferred from runner name. */
+  billingMode?: "subscription" | "metered-api" | "unknown";
   /**
    * Runtime objects minted for this session that destroy must also remove.
    * Vaults hold resolved secret values; archiving the session does not delete

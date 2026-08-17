@@ -62,6 +62,7 @@ export class SessionsService {
         taskId: sessions.taskId,
         goalId: sessions.goalId,
         runner: sessions.runner,
+        billingMode: sessions.billingMode,
         status: sessions.status,
         runtimeHandle: sessions.runtimeHandle,
         traceUrl: sessions.traceUrl,
@@ -89,6 +90,7 @@ export class SessionsService {
 
     return rows.map((row) => ({
       ...row,
+      billingMode: row.billingMode as SessionSummaryDto["billingMode"],
       access: row.access ?? null,
       publish: row.publish ?? null,
       costUsd: row.costUsd != null ? Number(row.costUsd) : null,
@@ -118,6 +120,7 @@ export class SessionsService {
         taskId: input.taskId ?? null,
         goalId: input.goalId ?? null,
         runner: input.runner,
+        billingMode: input.runner === "cloud" ? "metered-api" : "unknown",
         status: "starting",
       })
       .returning();
@@ -267,6 +270,7 @@ export class SessionsService {
     runtimeHandle: string,
     traceUrl: string | null,
     runtimeVaultIds: string[] = [],
+    billingMode: "subscription" | "metered-api" | "unknown" = "unknown",
   ): Promise<void> {
     await this.db
       .update(sessions)
@@ -274,6 +278,7 @@ export class SessionsService {
         runtimeHandle,
         traceUrl,
         runtimeVaultIds,
+        billingMode,
         status: "running",
         runtimeReleasedAt: null,
       })

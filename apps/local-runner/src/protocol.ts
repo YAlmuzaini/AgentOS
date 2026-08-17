@@ -38,6 +38,15 @@ export interface ProvisionBody {
   budgetUsd: number | null;
 }
 
+/** A bounded, tool-free orchestration decision. Never carries project secrets. */
+export interface DecisionBody {
+  systemPrompt: string;
+  prompt: string;
+  schema: Record<string, unknown>;
+  model: string;
+  timeoutMs: number;
+}
+
 /** One repository's outcome from the publish step. */
 export interface PublishRecord {
   repo: string;

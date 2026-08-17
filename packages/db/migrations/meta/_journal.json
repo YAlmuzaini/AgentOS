@@ -162,6 +162,27 @@
       "when": 1786913015062,
       "tag": "0022_mcp_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786954541849,
+      "tag": "0023_giant_nightmare",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786956565205,
+      "tag": "0024_next_domino",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786957517463,
+      "tag": "0025_stale_moondragon",
+      "breakpoints": true
     }
   ]
 }

@@ -22,6 +22,7 @@ import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useProjectGate } from "../hooks/use-project";
 import { LocalToolNote, LocalToolWarning, McpRisks, McpStateRow } from "./mcp-status";
 import { NoProject, ProjectPending } from "./project-states";
+import { ProvenanceInline } from "../components/provenance";
 
 export function McpsPage(): React.JSX.Element {
   const { project, pending, absent } = useProjectGate();
@@ -385,6 +386,7 @@ export function McpsPage(): React.JSX.Element {
                           >
                             {connection.url}
                           </p>
+                          <span className="mt-1 block"><ProvenanceInline value={connection.provenance} /></span>
                         </div>
                       </div>
                     </TD>

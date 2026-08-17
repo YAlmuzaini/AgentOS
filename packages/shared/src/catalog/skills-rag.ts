@@ -23,12 +23,21 @@
  */
 
 import type { SkillSeed } from "./types";
+import { provenanceSchema } from "../contracts/provenance";
+
+const RAG_RESEARCH_PROVENANCE = provenanceSchema.parse({
+  relationship: "inspired",
+  repositoryUrl: "https://github.com/sickn33/agentic-awesome-skills",
+  notes:
+    "Original AgentOS content informed by general RAG research. No prompt or skill was copied or adapted from this repository or MCP Market, and the referenced repository contains no rag-engineering-architect artifact.",
+});
 
 export const RAG_SKILL_SEEDS: SkillSeed[] = [
   {
     slug: "rag-architecture",
     name: "RAG architecture",
     category: "data",
+    provenance: RAG_RESEARCH_PROVENANCE,
     description:
       "Decide whether retrieval is warranted, then choose chunking, retrieval mode and assembly from the document structure rather than by default. Grant it to agents designing or reviewing a RAG system.",
     kind: "prompt",
@@ -54,6 +63,7 @@ step at the end.`,
     slug: "retrieval-evaluation",
     name: "Retrieval evaluation",
     category: "data",
+    provenance: RAG_RESEARCH_PROVENANCE,
     description:
       "Measure retrieval and answers separately against a fixed question set, and use recall@k before touching the prompt. Grant it to agents building or tuning a RAG system.",
     kind: "prompt",
@@ -82,6 +92,7 @@ you make silently.`,
     slug: "rag-security",
     name: "RAG security",
     category: "security",
+    provenance: RAG_RESEARCH_PROVENANCE,
     description:
       "Treat retrieved documents as untrusted input, enforce access control in the retrieval filter, and keep tenants apart at the index. Grant it alongside any RAG work that touches private or user-supplied content.",
     kind: "prompt",
@@ -108,6 +119,7 @@ the vector store, the keyword index, and every cache, or "deleted" means
     slug: "document-ingestion-discipline",
     name: "Document ingestion discipline",
     category: "data",
+    provenance: RAG_RESEARCH_PROVENANCE,
     description:
       "Parse and normalise documents without silently destroying structure, and version the pipeline so a reindex is reproducible. Grant it to agents building ingestion for a retrieval system.",
     kind: "prompt",

@@ -59,7 +59,20 @@ export interface SettingsDto {
  */
 export interface RunnerStatusDto {
   cloud: { configured: boolean };
-  local: { configured: boolean; healthy: boolean; url: string | null };
+  local: {
+    configured: boolean;
+    healthy: boolean;
+    /** Healthy but not draining and with at least one free execution slot. */
+    ready: boolean;
+    url: string | null;
+    activeSessions: number;
+    capacity: number | null;
+    draining: boolean;
+    workerId: string | null;
+    version: string | null;
+    location: "local-computer" | "personal-vps" | null;
+    capabilities: string[];
+  };
 }
 
 /** Applied to a project that has never saved settings. */

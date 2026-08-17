@@ -4,9 +4,11 @@ import {
   type CreateTemplateInput,
   type InstantiateTemplateInput,
   interpolate,
+  matchesKnownBuiltInShape,
   missingVariables,
   type TaskDto,
   type TaskTemplateDto,
+  originalAgentosProvenance,
 } from "@agentos/shared";
 import {
   BadRequestException,
@@ -19,6 +21,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 import { ProjectsService } from "../projects/projects.service";
+import { PreflightService } from "../capabilities/preflight.service";
 import { SessionQueue } from "../queue/session.queue";
 import { TasksService } from "../tasks/tasks.service";
 
@@ -31,6 +34,7 @@ export class TemplatesService {
     private readonly projects: ProjectsService,
     private readonly tasks: TasksService,
     private readonly queue: SessionQueue,
+    private readonly preflight: PreflightService,
   ) {}
 
   async list(projectId: string): Promise<TaskTemplateDto[]> {
@@ -53,31 +57,88 @@ export class TemplatesService {
     }
     const [row] = await this.db
       .insert(taskTemplates)
-      .values({ ...input, projectId })
+      .values({
+        ...input,
+        projectId,
+        provenance:
+          input.provenance ?? originalAgentosProvenance("Operator-authored AgentOS workflow."),
+      })
       .returning();
     return toDto(row!);
   }
 
-  /** Installs the built-in workflows. Idempotent. */
-  async installBuiltIns(projectId: string): Promise<TaskTemplateDto[]> {
+  /**
+   * Installs the built-in workflows. Idempotent.
+   *
+   * Runs the legacy-adoption pass first (see `adoptLegacyBuiltIn`), so a
+   * shipped workflow installed before the ownership column existed picks up
+   * corrected catalogue wiring instead of being frozen as the operator's.
+   */
+  async installBuiltIns(projectId: string, onlyNames?: string[]): Promise<TaskTemplateDto[]> {
     const installed: TaskTemplateDto[] = [];
-    for (const template of BUILT_IN_TEMPLATES) {
+    const wanted = onlyNames ? new Set(onlyNames) : null;
+    const provenance = originalAgentosProvenance("Original AgentOS built-in workflow.");
+    for (const template of BUILT_IN_TEMPLATES.filter((entry) => !wanted || wanted.has(entry.name))) {
+      await this.adoptLegacyBuiltIn(projectId, template.name);
       const [row] = await this.db
         .insert(taskTemplates)
-        .values({ ...template, projectId })
+        .values({
+          ...template,
+          projectId,
+          builtIn: true,
+          provenance,
+        })
         .onConflictDoUpdate({
           target: [taskTemplates.projectId, taskTemplates.name],
           set: {
             description: template.description,
             variables: template.variables,
             steps: template.steps,
+            // Refreshed with the content it describes, and only on a row this
+            // installer owns — the `setWhere` below is what keeps an
+            // operator-authored workflow's own provenance intact.
+            provenance,
             updatedAt: new Date(),
           },
+          setWhere: eq(taskTemplates.builtIn, true),
         })
         .returning();
-      installed.push(toDto(row!));
+      const present =
+        row ??
+        (await this.db.query.taskTemplates.findFirst({
+          where: and(
+            eq(taskTemplates.projectId, projectId),
+            eq(taskTemplates.name, template.name),
+          ),
+        }));
+      if (present) installed.push(toDto(present));
     }
     return installed;
+  }
+
+  /**
+   * Marks an unedited pre-0023 built-in row as catalogue-owned.
+   *
+   * Ownership is decided by content, never by name. The row is adopted only if
+   * its description, variables and every step match a shape the catalogue has
+   * actually shipped (`matchesKnownBuiltInShape`). A workflow the operator
+   * wrote that happens to share a built-in's name, and a shipped workflow with
+   * one word changed in one prompt, both fail that test and stay theirs — the
+   * update below is a no-op for them, and the installer's `setWhere` then
+   * refuses to touch them for good.
+   */
+  private async adoptLegacyBuiltIn(projectId: string, name: string): Promise<void> {
+    const row = await this.db.query.taskTemplates.findFirst({
+      where: and(eq(taskTemplates.projectId, projectId), eq(taskTemplates.name, name)),
+    });
+    if (!row || row.builtIn) return;
+    if (!matchesKnownBuiltInShape(row)) return;
+    await this.db
+      .update(taskTemplates)
+      .set({ builtIn: true })
+      // Re-checked in the predicate: two installs racing must not both decide
+      // they are the one adopting the row.
+      .where(and(eq(taskTemplates.id, row.id), eq(taskTemplates.builtIn, false)));
   }
 
   /**
@@ -93,11 +154,18 @@ export class TemplatesService {
     input: InstantiateTemplateInput,
   ): Promise<TaskDto[]> {
     const template = await this.require(projectId, templateId);
-
     const missing = missingVariables(template.variables, input.variables);
     if (missing.length > 0) {
       throw new BadRequestException(`missing template variables: ${missing.join(", ")}`);
     }
+
+    await this.preflight.assertReady(
+      projectId,
+      "template",
+      templateId,
+      input.acknowledgePreflightWarnings,
+      input.variables,
+    );
 
     const roster = await this.db
       .select({ id: agents.id, name: agents.name })
@@ -177,5 +245,6 @@ function toDto(row: TemplateRow): TaskTemplateDto {
     description: row.description,
     variables: row.variables,
     steps: row.steps,
+    provenance: row.provenance,
   };
 }

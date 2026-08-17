@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { slugSchema } from "./project";
+import { provenanceSchema, type Provenance } from "./provenance";
 
 /**
  * A template is a chain of follow-up tasks (SPEC §9.4). Instantiating it
@@ -22,6 +23,7 @@ export const createTemplateSchema = z.object({
   description: z.string().default(""),
   variables: z.array(z.string().min(1)).default([]),
   steps: z.array(templateStepSchema).min(1),
+  provenance: provenanceSchema.optional(),
 });
 export type CreateTemplateInput = z.infer<typeof createTemplateSchema>;
 
@@ -30,8 +32,12 @@ export const instantiateTemplateSchema = z.object({
   variables: z.record(z.string(), z.string()).default({}),
   /** Optional prefix so a chain is identifiable on the board. */
   titlePrefix: z.string().default(""),
+  acknowledgePreflightWarnings: z.boolean().default(false),
 });
-export type InstantiateTemplateInput = z.infer<typeof instantiateTemplateSchema>;
+export type InstantiateTemplateInput = Omit<
+  z.infer<typeof instantiateTemplateSchema>,
+  "acknowledgePreflightWarnings"
+> & { acknowledgePreflightWarnings?: boolean };
 
 export interface TaskTemplateDto {
   id: string;
@@ -40,6 +46,7 @@ export interface TaskTemplateDto {
   description: string;
   variables: string[];
   steps: TemplateStep[];
+  provenance: Provenance;
 }
 
 /** `{{name}}` is the only interpolation form; unknown names are left intact. */

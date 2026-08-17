@@ -28,6 +28,7 @@ import { useProjectGate } from "../hooks/use-project";
 import { useUrlSelection } from "../hooks/use-url-selection";
 import { matchesAll, queryTerms } from "../lib/search";
 import { NoProject, ProjectPending } from "./project-states";
+import { ProvenanceInline } from "../components/provenance";
 
 /**
  * Skills are reusable instruction blocks, so the index is a table rather than a
@@ -402,6 +403,7 @@ export function SkillsPage(): React.JSX.Element {
                   >
                     {skill.description ||
                       (skill.kind === "prompt" ? skill.body : skill.filePath)}
+                    <span className="mt-1 block"><ProvenanceInline value={skill.provenance} /></span>
                   </TD>
                   <TD className="w-0 text-right">
                     <DeleteAction

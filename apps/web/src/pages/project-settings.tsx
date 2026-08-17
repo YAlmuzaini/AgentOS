@@ -8,6 +8,7 @@ import { ProjectIdentity } from "./project-identity";
 import { ProjectOwns } from "./project-owns";
 import { ProjectPolicy } from "./project-policy";
 import { NoProject, ProjectPending } from "./project-states";
+import { CompanySetup } from "./company-setup";
 
 /**
  * The gear beside the project name.
@@ -41,6 +42,7 @@ export function ProjectSettingsPage(): React.JSX.Element {
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-5">
+          <CompanySetup projectId={project.id} />
           <ProjectIdentity project={project} />
           <ProjectPolicy projectId={project.id} />
 

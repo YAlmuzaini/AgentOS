@@ -20,11 +20,25 @@ describe("runner routing", () => {
     // Configured-but-unhealthy and not-configured-at-all are different
     // operator mistakes and get different sentences, so they are separable here.
     configured: boolean = localHealthy,
+    draining: boolean = false,
   ): RunnerRouter {
     const local = {
       name: "local",
       configured,
       healthy: async () => localHealthy,
+      status: async () => ({
+        configured,
+        healthy: localHealthy,
+        ready: localHealthy && !draining,
+        url: configured ? "http://localhost:4001" : null,
+        activeSessions: 0,
+        capacity: 2,
+        draining,
+        workerId: configured ? "test-worker" : null,
+        version: configured ? "test" : null,
+        location: configured ? ("local-computer" as const) : null,
+        capabilities: configured ? ["sessions", "decisions"] : [],
+      }),
       endpointForDisplay: () => (configured ? "http://localhost:4001" : null),
     } as unknown as LocalVmRunner;
     const settings = {
@@ -150,6 +164,48 @@ describe("runner routing", () => {
   });
 
   /** `auto` is the only effective preference allowed to spend money on a fallback. */
+  /**
+   * Drain means "this worker takes no new work". Routing to it anyway produced
+   * a `503 this worker is draining` that surfaced as a session failure rather
+   * than as the state the operator deliberately set. It still does not fall
+   * back to cloud — explicit local never does — it fails with the real reason.
+   */
+  it("refuses a drained worker under explicit local, and says so", async () => {
+    await expect(router(true, "local", true, true).pick({ agent: agent("inherit") })).rejects.toThrow(/draining/);
+    await expect(router(true, "local", true, true).pick({ agent: agent("inherit") })).rejects.toThrow(/not sent to the cloud/);
+  });
+
+  /**
+   * At capacity is *not* drain. The worker queues admissions FIFO, so refusing
+   * here would defeat the queue — which is why routing tests `!draining`
+   * rather than `ready`.
+   */
+  it("still routes to a busy-but-not-draining worker under explicit local", async () => {
+    const local = {
+      name: "local",
+      configured: true,
+      healthy: async () => true,
+      status: async () => ({
+        configured: true,
+        healthy: true,
+        // At capacity: ready is false, draining is false.
+        ready: false,
+        draining: false,
+        url: "http://localhost:4001",
+        activeSessions: 2,
+        capacity: 2,
+        workerId: "busy",
+        version: "test",
+        location: "local-computer" as const,
+        capabilities: ["sessions"],
+      }),
+      endpointForDisplay: () => "http://localhost:4001",
+    } as unknown as LocalVmRunner;
+    const settings = { read: async () => ({ defaultRunner: "local" as DefaultRunner }) } as unknown as SettingsService;
+    const picked = await new RunnerRouter(cloud, local, settings).pick({ agent: agent("inherit") });
+    expect(picked.name).toBe("local");
+  });
+
   it("degrades to cloud only when the effective preference is auto", async () => {
     const effectivelyAuto = await router(false, "auto", true).pick({ agent: agent("inherit") });
     expect(effectivelyAuto.name).toBe("cloud");

@@ -31,6 +31,7 @@ describe("pinned to local", () => {
           name: "local",
           configured: true,
           healthy: async () => true,
+          status: async () => ({ configured: true, healthy: true, ready: true, url: "https://worker.test", activeSessions: 0, capacity: 1, draining: false, workerId: "test", version: "test", location: "personal-vps", capabilities: ["publish"] }),
           provision: async () => {
             throw new Error(
               "local runner /sessions: 409 this session requires a limited network",

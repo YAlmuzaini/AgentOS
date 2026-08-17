@@ -3,6 +3,7 @@ import type { AgentRow } from "../agents/agents.service";
 import type { TaskRow } from "../tasks/tasks.service";
 import type { ResolvedGrants } from "./manifest";
 import type { CustomToolDefinition, EnvironmentPolicy } from "./runner.types";
+import { type HandoffDto, renderHandoffContext } from "@agentos/shared";
 
 /**
  * Composes the session prompt exactly as SPEC §8 describes:
@@ -59,7 +60,11 @@ export function buildSystemPrompt(input: {
         : `## Skill: ${skill.name}\n${skill.body}`,
     )
     .join("\n\n");
-
+  // Handoffs are deliberately absent here. They are agent-authored text, and
+  // the system prompt is the one layer in a session that the operator alone
+  // controls — putting untrusted prose at that priority is the whole of the
+  // prompt-injection problem. They travel on the first *user* turn instead;
+  // see `buildKickoff`.
   return [
     input.agent.foundationalPrompt,
     "",
@@ -91,16 +96,31 @@ export function describeFolders(agent: AgentRow, goalId: string | null): string[
   return [...(home ? [home] : []), ...shared, ...explicit];
 }
 
-/** The first user turn. Starts the run; the manifest already carries context. */
-export function buildKickoff(task: TaskRow | null, toolNames: { update: string }): string {
-  if (!task) {
-    return "Begin. Follow your role prompt and finish.";
-  }
-  return [
-    `Work the task "${task.name}".`,
-    "",
-    task.description.trim() || "(no description was given — use the task name.)",
-    "",
-    `Call ${toolNames.update} with status "doing" when you start, and again when the work reaches its end state.`,
-  ].join("\n");
+/**
+ * The first user turn. Starts the run; the manifest already carries context.
+ *
+ * Prior handoffs are appended here rather than to the system prompt: they are
+ * written by other agents, and this is the layer that already holds every
+ * other piece of agent-authored text a session reads.
+ */
+export function buildKickoff(
+  task: TaskRow | null,
+  toolNames: { update: string },
+  handoffs: readonly HandoffDto[] = [],
+): string {
+  const base = task
+    ? [
+        `Work the task "${task.name}".`,
+        "",
+        task.description.trim() || "(no description was given — use the task name.)",
+        "",
+        `Call ${toolNames.update} with status "doing" when you start, and again when the work reaches its end state.`,
+      ].join("\n")
+    : "Begin. Follow your role prompt and finish.";
+  return `${base}${renderHandoffContext(handoffs)}`;
+}
+
+/** Appends the same bounded untrusted block to a brief the orchestrator wrote. */
+export function withHandoffContext(kickoff: string, handoffs: readonly HandoffDto[]): string {
+  return `${kickoff}${renderHandoffContext(handoffs)}`;
 }

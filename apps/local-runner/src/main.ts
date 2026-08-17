@@ -2,9 +2,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { mkdir, readdir, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { runSession } from "./agent.js";
+import { runDecision } from "./decision.js";
 import { isGrokModel, runGrokSession } from "./grok-agent.js";
 import { acceptsNetworking, loadConfig, resolveCredential, type WorkerConfig } from "./config.js";
-import { frame, type ProvisionBody } from "./protocol.js";
+import { CapacityGate } from "./capacity.js";
+import { endAndClean } from "./cleanup.js";
+import { frame, type DecisionBody, type ProvisionBody } from "./protocol.js";
 import { LocalSession } from "./session.js";
 import {
   collectCommits,
@@ -29,6 +32,8 @@ import {
 const config = loadConfig();
 const credential = resolveCredential();
 const sessions = new Map<string, LocalSession>();
+const capacity = new CapacityGate(config.maxConcurrency, config.drain);
+const sessionCapacity = new Map<string, () => void>();
 
 const server = createServer((request, response) => {
   handle(request, response).catch((error: unknown) => {
@@ -51,8 +56,14 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     send(response, 200, {
       ok: true,
       credential: credential.kind,
-      sessions: sessions.size,
-      capabilities: ["publish"],
+      ready: capacity.ready,
+      activeSessions: capacity.active,
+      capacity: config.maxConcurrency,
+      draining: capacity.isDraining,
+      workerId: config.workerId,
+      version: config.version,
+      location: config.location,
+      capabilities: ["publish", "capacity", "drain", "decisions"],
     });
     return;
   }
@@ -62,8 +73,43 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     return;
   }
 
+  if (path === "/drain" && request.method === "POST") {
+    const body = (await readJson(request)) as { draining?: unknown };
+    capacity.setDraining(body.draining !== false);
+    send(response, 200, { draining: capacity.isDraining, activeSessions: capacity.active });
+    return;
+  }
+
   if (path === "/sessions" && request.method === "POST") {
     await provision(request, response);
+    return;
+  }
+
+  if (path === "/decisions" && request.method === "POST") {
+    // A decision is a short interactive call, not a session, so it waits for a
+    // slot only briefly and then says so. Waiting indefinitely behind two
+    // 120-minute specialist sessions meant the control plane's own 95-second
+    // abort fired instead, and a *busy* worker was indistinguishable from a
+    // *failed* decision — which the goal loop then counted against the stuck
+    // rail, eventually stopping the goal with "no progress" when the truth was
+    // "the worker was busy".
+    const release = await acquireCapacity(request, DECISION_QUEUE_WAIT_MS);
+    if (!release) {
+      send(response, 503, {
+        error: capacity.isDraining
+          ? "this worker is draining and accepts no new decisions"
+          : "this worker is at capacity; retry the decision later",
+        busy: !capacity.isDraining,
+        retryable: true,
+      });
+      return;
+    }
+    try {
+      const body = (await readJson(request)) as DecisionBody;
+      send(response, 200, await runDecision(body, credential, config));
+    } finally {
+      release();
+    }
     return;
   }
 
@@ -127,8 +173,15 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     case "DELETE ":
       // Ends the run, then removes the workspace — and if removal fails, the
       // session stays listed so this can be retried rather than forgotten.
-      await session.destroy();
-      sessions.delete(session.id);
+      // The execution permit is released either way: the run and its publish
+      // are over, and holding a slot for a directory nobody can delete makes
+      // an undeletable workspace into a permanent capacity loss.
+      try {
+        await session.destroy();
+        sessions.delete(session.id);
+      } finally {
+        releaseCapacity(session.id);
+      }
       send(response, 204, null);
       return;
     default:
@@ -138,6 +191,19 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 
 async function provision(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const input = (await readJson(request)) as ProvisionBody;
+
+  const release = await acquireCapacity(request);
+  if (!release) {
+    send(response, 503, {
+      error: capacity.isDraining
+        ? "this worker is draining and accepts no new sessions"
+        : "the queued provision request was disconnected before capacity became available",
+    });
+    return;
+  }
+
+  let retained = false;
+  try {
 
   // Fail closed on the promise this process cannot keep. The cloud runner has
   // an egress firewall; a VM has whatever the operator configured, which this
@@ -182,6 +248,8 @@ async function provision(request: IncomingMessage, response: ServerResponse): Pr
   const workspace = await createWorkspace(config.workRoot, input);
   const session = new LocalSession(input, workspace, abort);
   sessions.set(session.id, session);
+  sessionCapacity.set(session.id, release);
+  retained = true;
 
   // Two engines behind one contract (SPEC §16): Claude Code, or Grok in yolo
   // mode. The agent's model decides, and everything above this line — grants,
@@ -193,7 +261,17 @@ async function provision(request: IncomingMessage, response: ServerResponse): Pr
     : runSession(session, credential, config, abort.signal));
   expireLater(session, config);
 
-  send(response, 200, { id: session.id });
+  send(response, 200, {
+    id: session.id,
+    billingMode: isGrokModel(input.model)
+      ? "metered-api"
+      : credential.kind === "oauth"
+        ? "subscription"
+        : "metered-api",
+  });
+  } finally {
+    if (!retained) release();
+  }
 }
 
 function streamEvents(session: LocalSession, response: ServerResponse): void {
@@ -232,64 +310,46 @@ function expireLater(session: LocalSession, worker: WorkerConfig): void {
 }
 
 /**
- * Ends a timed-out session and keeps trying to remove its workspace.
+ * Ends a timed-out session and removes its workspace.
  *
- * The run itself stops immediately — `destroy` closes the event stream first,
- * so the control plane's consumer is never left blocked on a session that has
- * already been abandoned. Only the directory removal is retried, because that
- * is the part that fails transiently: an agent's own tooling writing under the
- * workspace as it is torn down produced `ENOTEMPTY` on a real run.
- *
- * A session whose workspace survives every attempt stays in the map on
- * purpose. It remains visible to `GET /sessions`, which is what the control
- * plane's orphan sweep reads, so the operator gets a retry rather than a
- * directory nothing remembers.
+ * The ordering guarantee — publish, then release the execution permit, then
+ * retry the delete — lives in `cleanup.ts`, where it is unit-tested without a
+ * workspace or a git remote.
  */
 async function cleanUp(session: LocalSession): Promise<void> {
-  // Stop the agent *first*. It is still running at this point — this is the
-  // worker's own hard ceiling firing — and publishing while it works snapshots
-  // a moving target: a commit made after the push and before the deletion
-  // would reach no remote and then be deleted with the directory. Ending the
-  // run also releases the event stream, so the control plane is not left
-  // waiting on a session that is being torn down.
-  session.endRunOnly();
-
-  // Then publish, because nothing else will ever ask for these commits: the
-  // control plane is not driving this path. `publish` memoises, so a later
-  // teardown gets the same answer rather than a second attempt, and the git
-  // calls underneath it have their own timeout — a stalled push must not hold
-  // the ceiling open that this function exists to enforce.
-  try {
-    await session.publish();
-  } catch (error) {
-    console.error(`session ${session.id}: could not publish before cleanup: ${String(error)}`);
-  }
-
-  for (let attempt = 1; attempt <= CLEANUP_ATTEMPTS; attempt += 1) {
-    try {
-      await session.destroy();
-      sessions.delete(session.id);
-      return;
-    } catch (error) {
-      console.error(
-        `session ${session.id}: cleanup attempt ${attempt}/${CLEANUP_ATTEMPTS} failed: ${String(error)}`,
-      );
-      if (attempt < CLEANUP_ATTEMPTS) {
-        await new Promise((resolve) => {
-          const timer = setTimeout(resolve, attempt * CLEANUP_BACKOFF_MS);
-          timer.unref?.();
-        });
-      }
-    }
-  }
-  console.error(
-    `session ${session.id}: workspace ${session.dir} could not be removed; ` +
-      "it stays listed so the control plane can retry the delete",
-  );
+  await endAndClean(session, {
+    releaseCapacity,
+    forget: (id) => sessions.delete(id),
+    log: (message) => console.error(message),
+  });
 }
 
-const CLEANUP_ATTEMPTS = 4;
-const CLEANUP_BACKOFF_MS = 2_000;
+/** Gives back this session's execution permit. Idempotent — the gate's own
+ * release is, and the map entry is dropped so a later call finds nothing. */
+function releaseCapacity(sessionId: string): void {
+  sessionCapacity.get(sessionId)?.();
+  sessionCapacity.delete(sessionId);
+}
+
+/** How long a decision waits for a slot before the worker answers 503. */
+const DECISION_QUEUE_WAIT_MS = 20_000;
+
+async function acquireCapacity(
+  request: IncomingMessage,
+  maxWaitMs?: number,
+): Promise<(() => void) | null> {
+  const disconnected = new AbortController();
+  const abort = () => disconnected.abort();
+  request.socket.once("close", abort);
+  const timer = maxWaitMs === undefined ? null : setTimeout(abort, maxWaitMs);
+  timer?.unref?.();
+  try {
+    return await capacity.acquire(disconnected.signal);
+  } finally {
+    if (timer) clearTimeout(timer);
+    request.socket.off("close", abort);
+  }
+}
 
 /**
  * Clears leftover session directories at boot.
@@ -442,6 +502,7 @@ server.listen(config.port, () => {
   console.log(
     `agentos local runner on :${config.port} — auth: ${credential.kind}, ` +
       `workspaces: ${config.workRoot}, engines: claude-code${config.grokApiKey ? " + grok" : ""}, ` +
+      `capacity: ${config.maxConcurrency}, location: ${config.location}, ` +
       `network enforcement: ${describeEgress(config)}`,
   );
 });

@@ -7,7 +7,15 @@ import {
   repos,
   skills,
 } from "@agentos/db";
-import { BUILT_IN_MCP, BUILT_IN_SKILLS, findRoleSeed, normaliseRemote } from "@agentos/shared";
+import {
+  BUILT_IN_MCP,
+  BUILT_IN_SKILLS,
+  findRoleSeed,
+  mcpProvenance,
+  normaliseRemote,
+  originalAgentosProvenance,
+  skillProvenance,
+} from "@agentos/shared";
 import type {
   CreateEnvBindingInput,
   CreateMcpConnectionInput,
@@ -70,6 +78,7 @@ export class CatalogService {
       verifiedAt: row.verifiedAt?.toISOString() ?? null,
       verifiedTools: row.verifiedTools,
       verifyError: row.verifyError,
+      provenance: row.provenance,
     }));
   }
 
@@ -85,7 +94,12 @@ export class CatalogService {
     await this.assertFree(mcpConnections, projectId, input.name, "MCP connection");
     const [row] = await this.db
       .insert(mcpConnections)
-      .values({ ...input, projectId })
+      .values({
+        ...input,
+        projectId,
+        provenance:
+          input.provenance ?? originalAgentosProvenance("Operator-authored MCP connection."),
+      })
       .returning();
     return {
       id: row!.id,
@@ -97,6 +111,7 @@ export class CatalogService {
       verifiedAt: row!.verifiedAt?.toISOString() ?? null,
       verifiedTools: row!.verifiedTools,
       verifyError: row!.verifyError,
+      provenance: row!.provenance,
     };
   }
 
@@ -165,6 +180,7 @@ export class CatalogService {
       verifiedAt: row!.verifiedAt?.toISOString() ?? null,
       verifiedTools: row!.verifiedTools,
       verifyError: row!.verifyError,
+      provenance: row!.provenance,
     };
   }
 
@@ -228,6 +244,7 @@ export class CatalogService {
         verifiedAt: current.verifiedAt?.toISOString() ?? null,
         verifiedTools: current.verifiedTools,
         verifyError: current.verifyError,
+        provenance: current.provenance,
       };
     }
 
@@ -241,6 +258,7 @@ export class CatalogService {
       verifiedAt: updated!.verifiedAt?.toISOString() ?? null,
       verifiedTools: updated!.verifiedTools,
       verifyError: updated!.verifyError,
+      provenance: updated!.provenance,
     };
   }
 
@@ -333,6 +351,7 @@ export class CatalogService {
           url: seed.url,
           allowedOperations: seed.allowedOperations,
           credentialSecretId: null,
+          provenance: mcpProvenance(seed),
         })
         .onConflictDoNothing({ target: [mcpConnections.projectId, mcpConnections.name] })
         .returning();
@@ -352,6 +371,7 @@ export class CatalogService {
           verifiedAt: present.verifiedAt?.toISOString() ?? null,
           verifiedTools: present.verifiedTools,
           verifyError: present.verifyError,
+          provenance: present.provenance,
         });
       }
     }
@@ -436,6 +456,7 @@ export class CatalogService {
       kind: row.kind as SkillDto["kind"],
       body: row.body,
       filePath: row.filePath,
+      provenance: row.provenance,
     }));
   }
 
@@ -449,7 +470,12 @@ export class CatalogService {
     }
     const [row] = await this.db
       .insert(skills)
-      .values({ ...input, projectId })
+      .values({
+        ...input,
+        projectId,
+        provenance:
+          input.provenance ?? originalAgentosProvenance("Operator-authored inline skill."),
+      })
       .returning();
     return {
       id: row!.id,
@@ -461,6 +487,7 @@ export class CatalogService {
       kind: row!.kind as SkillDto["kind"],
       body: row!.body,
       filePath: row!.filePath,
+      provenance: row!.provenance,
     };
   }
 
@@ -484,18 +511,31 @@ export class CatalogService {
    * description after the columns were added. A skill the operator wrote is
    * untouched on every field, exactly as before.
    */
-  async installBuiltInSkills(projectId: string): Promise<SkillDto[]> {
+  async installBuiltInSkills(projectId: string, onlySlugs?: string[]): Promise<SkillDto[]> {
     await this.projects.require(projectId);
     const installed: SkillDto[] = [];
-    for (const skill of BUILT_IN_SKILLS) {
+    const wanted = onlySlugs ? new Set(onlySlugs) : null;
+    for (const skill of BUILT_IN_SKILLS.filter((entry) => !wanted || wanted.has(entry.slug))) {
       const [row] = await this.db
         .insert(skills)
-        .values({ ...skill, projectId, filePath: null, builtIn: true })
+        .values({
+          ...skill,
+          projectId,
+          filePath: null,
+          builtIn: true,
+          provenance: skillProvenance(skill),
+        })
         .onConflictDoUpdate({
           target: [skills.projectId, skills.slug],
           set: {
             description: skill.description,
             category: skill.category,
+            // Refreshed with the metadata it belongs to, on catalogue-owned
+            // rows only. The four RAG skills upgraded from before this column
+            // existed carried the `original` default; their true relationship
+            // is `inspired`, and leaving that stale is an attribution claim
+            // that is quietly wrong.
+            provenance: skillProvenance(skill),
             updatedAt: new Date(),
           },
           setWhere: eq(skills.builtIn, true),
@@ -520,10 +560,11 @@ export class CatalogService {
           kind: present.kind as SkillDto["kind"],
           body: present.body,
           filePath: present.filePath,
+          provenance: present.provenance,
         });
       }
     }
-    await this.grantRecommendedSkills(projectId, installed);
+    await this.grantRecommendedSkills(projectId);
     return installed;
   }
 
@@ -540,20 +581,31 @@ export class CatalogService {
    *
    * The moment the skills arrive is the one moment where "this agent has no
    * skills" is unambiguous — there were none to grant when it was made. So the
-   * backfill lives here rather than there, and it only ever writes onto an
-   * empty list: a built-in holding one skill is a curated agent and is left
-   * exactly as the operator left it.
+   * backfill lives here rather than there.
+   *
+   * What bounds it is ownership, not emptiness. The guard is
+   * `recommendedSkillsInitialized`: false only while a built-in is still
+   * waiting for recommendations that did not exist when it was created. Any
+   * explicit operator edit to `skillIds` — including deliberately emptying it —
+   * sets that flag, and this method never touches the agent again. Until then
+   * the write is a *union* onto whatever the agent already holds, so a
+   * recommendation arriving later is added rather than replacing curation.
    */
-  private async grantRecommendedSkills(projectId: string, present: SkillDto[]): Promise<void> {
+  private async grantRecommendedSkills(projectId: string): Promise<void> {
+    const present = await this.db.select({ id: skills.id, slug: skills.slug }).from(skills).where(eq(skills.projectId, projectId));
     const idBySlug = new Map(present.map((skill) => [skill.slug, skill.id]));
-    // `skillIds` is `jsonb`, so "is it empty" is a predicate the driver would
-    // have to spell in raw SQL; the built-in rows of one project are a short
-    // list and filtering them here is clearer than that.
+    // Ownership is a boolean column, but the built-in rows of one project are a
+    // short list and filtering them here is clearer than a partial index.
     const builtIns = await this.db
-      .select({ id: agents.id, name: agents.name, skillIds: agents.skillIds })
+      .select({
+        id: agents.id,
+        name: agents.name,
+        skillIds: agents.skillIds,
+        initialized: agents.recommendedSkillsInitialized,
+      })
       .from(agents)
       .where(and(eq(agents.projectId, projectId), eq(agents.builtIn, true)));
-    for (const agent of builtIns.filter((row) => row.skillIds.length === 0)) {
+    for (const agent of builtIns.filter((row) => !row.initialized)) {
       const role = findRoleSeed(agent.name);
       if (!role) {
         continue;
@@ -562,15 +614,26 @@ export class CatalogService {
         const id = idBySlug.get(slug);
         return id ? [id] : [];
       });
-      if (recommended.length === 0) {
+      if (recommended.length === 0 && (role.recommendedSkills ?? []).length > 0) {
         continue;
       }
+      const complete = (role.recommendedSkills ?? []).every((slug) => idBySlug.has(slug));
       await this.db
         .update(agents)
         // The pinned runtime agent version is invalidated exactly as it is for
         // any other config edit (SPEC §4): the next session re-publishes.
-        .set({ skillIds: recommended, runtimeConfigHash: null, updatedAt: new Date() })
-        .where(eq(agents.id, agent.id));
+        .set({
+          skillIds: [...new Set([...agent.skillIds, ...recommended])],
+          recommendedSkillsInitialized: complete,
+          runtimeConfigHash: null,
+          updatedAt: new Date(),
+        })
+        // The ownership flag is re-checked in the predicate, not just in the
+        // filter above. An operator edit landing between the read and this
+        // write sets the flag, and without this the union would put the skill
+        // they just removed straight back — the one thing the installer goes
+        // out of its way never to do.
+        .where(and(eq(agents.id, agent.id), eq(agents.recommendedSkillsInitialized, false)));
     }
   }
 

@@ -13,6 +13,7 @@ export function toDto(row: SessionRow, agentName: string | null = null): Session
     taskId: row.taskId,
     goalId: row.goalId,
     runner: row.runner,
+    billingMode: row.billingMode as SessionDto["billingMode"],
     status: row.status,
     runtimeHandle: row.runtimeHandle,
     traceUrl: row.traceUrl,

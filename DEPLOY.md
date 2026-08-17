@@ -127,15 +127,18 @@ you own, running Claude Code instead of Anthropic's managed sandbox. The control
 plane talks to it through the same `Runner` interface, so tasks, gates, the
 inbox, and goals behave identically. Two things are *not* identical.
 
-**It is off unless you turn it on.** Leave `LOCAL_RUNNER_URL` blank and every
-session goes to the cloud runner. Everything below is the price of turning it on.
+**It is off unless you turn it on.** Leave `LOCAL_RUNNER_URL` blank and `auto`
+uses cloud; an explicit `local` request fails because there is no local worker.
+Everything below is the price of turning it on.
 
 **Turning it on takes three things, and two of them are invisible.** Settings →
 *Where sessions run* chooses `auto`, `local` or `cloud` for every agent that
 does not pin a backend itself, and the screen shows whether a worker is actually
 reachable. But the switch only governs an agent whose own preference is
 `inherit`, and the worker **refuses** any agent whose environment restricts
-egress — those sessions fall back to the cloud and bill for it. So: set
+egress. Under `auto`, and only under `auto`, that refusal may fall back to cloud
+and bill for it. Explicit `local` fails visibly and never falls back—for
+specialist sessions or goal decisions. So: set
 `LOCAL_RUNNER_URL` and run the worker, choose `local` in Settings, and give the
 agent an `open` environment (or set
 `LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=1`, which accepts the risk globally).
@@ -197,7 +200,7 @@ which the worker cannot see. Three settings, in order of how much they promise:
 
 | Setting | Behaviour |
 |---|---|
-| both unset (default) | A `limited`-network session is **refused**, and the router sends it to the cloud runner. Nothing is promised that is not kept |
+| both unset (default) | A `limited`-network session is **refused**. `auto` may send it to cloud; explicit `local` fails without cloud spend. Nothing is promised that is not kept |
 | `LOCAL_RUNNER_ALLOW_UNENFORCED_NETWORK=1` | Accepts the session, on **your** assertion that this machine is confined — a container network policy, or a host firewall scoped to this worker's unix user |
 | `LOCAL_RUNNER_EGRESS_MODE=proxy` | Adds a loopback proxy per session that opens **only** the environment's allow-listed hosts, and hands the child `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`. What it refuses is written into the session log |
 
@@ -278,6 +281,12 @@ CLAUDE_CODE_OAUTH_TOKEN_FILE=/etc/agentos/claude-token   # 0600, owned by this u
 LOCAL_RUNNER_TOKEN=$(openssl rand -hex 32)
 LOCAL_RUNNER_WORK_ROOT=/var/lib/agentos-local
 LOCAL_RUNNER_MAX_SESSION_MINUTES=120
+LOCAL_RUNNER_MAX_SESSION_REQUESTS=500
+LOCAL_RUNNER_MAX_CONCURRENCY=2
+LOCAL_RUNNER_WORKER_ID=home-mac
+LOCAL_RUNNER_VERSION=1.0.0
+LOCAL_RUNNER_LOCATION=local-computer # or personal-vps
+# LOCAL_RUNNER_DRAIN=1               # healthy, but accepts no new work
 LOCAL_RUNNER_QUARANTINE_DAYS=14
 LOCAL_RUNNER_PORT=4600
 node apps/local-runner/dist/main.js  # :4600
@@ -286,6 +295,89 @@ node apps/local-runner/dist/main.js  # :4600
 Then set an agent's `runner` to `local` in `agentos.yml`, or a goal's runner
 preference. `auto` prefers local when it is healthy and falls back to cloud when
 it is not — including when it refuses a limited-network session.
+
+**`local` chooses a machine, not a price.** The worker bills with whatever
+credential you gave it. `CLAUDE_CODE_OAUTH_TOKEN[_FILE]` is the flat-fee
+subscription this backend exists for; an `ANTHROPIC_API_KEY` on the worker is
+supported and bills per token for the same run. The worker reports which, every
+session and decision records `subscription` / `metered-api` / `unknown`, and the
+executive briefing counts them apart. If you want local to mean flat-fee, give
+the worker a subscription token and check the briefing says so.
+
+**Drain refuses explicit `local` rather than diverting it.** With the worker
+draining, a `local`-pinned session fails with "the worker is draining" and is
+still not sent to the cloud. A worker that is merely *at capacity* is different:
+the request queues at the worker FIFO, because that is what the queue is for.
+
+Capacity is shared by specialist sessions and local goal-decision calls, and what a busy worker does
+depends on what is asking.
+
+A **session** under explicit `local` queues at the worker FIFO, because local means local and a
+session is long-running anyway. Under `auto` a busy worker reports itself not-ready and the session
+goes to the metered cloud — that is what `auto` is for, and it is the only preference that does it.
+
+A **goal decision** is a short interactive call, so it waits about 20 seconds for a slot and then
+the worker answers `503`. That answer is deliberately distinguishable from a decision that *failed*:
+the goal logs that the worker could not take the turn, changes nothing, and is retried later. It
+does **not** advance the stuck rail — a busy worker stopping a goal with "no progress" is the wrong
+sentence, and it is what queueing indefinitely produced, because the control plane's own timeout
+fired instead and a busy worker looked identical to a broken evaluator.
+
+Waiting has its own bound. After **20 consecutive turns** in which the worker could not take a
+decision — roughly five hours at the fifteen-minute recovery interval — the goal stops itself with
+that reason and sends a push. It is not sent to the cloud: it is pinned to local. Drain a worker and
+forget, and your local goals stop and tell you, rather than spinning silently for ever.
+
+One honest caveat about cost on this path. The control-plane budget (120s) covers the worker's
+queue wait (20s) plus the decision timeout (90s), so a decision the worker actually ran is not
+normally discarded as "busy". The 10s of margin has to absorb TCP connect, request parsing and
+credential-proxy startup — all of which sit outside both timers — so the guarantee is "with room to
+spare in practice", not "provably never". If the worker is killed mid-decision, or that margin is
+exhausted, a call it had already started may still have been billed while the control plane recorded
+only that the turn did not happen.
+
+The two constants live in two deployables (`DECISION_QUEUE_ALLOWANCE_MS` in the control plane,
+`DECISION_QUEUE_WAIT_MS` in the worker) with only a comment binding them. The worker has no shared
+package by design; if you change one, change the other.
+
+Drain mode stops new admissions while existing work finishes; an explicit-`local` session is refused
+outright with the real reason rather than diverted to cloud. `/health` distinguishes healthy from ready and reports active count,
+capacity, drain state, worker identity/version/capabilities and whether the worker is this computer
+or a personal VPS. The operator UI displays those facts.
+
+**An undeletable workspace costs you a directory, not a slot.** Teardown ends the run, publishes,
+then **releases the execution permit — and only then** retries the delete. That ordering is
+load-bearing: releasing after a successful delete meant a workspace that survived every attempt
+kept its permit for ever, so two of them made a two-slot worker permanently unready. A recoverable
+disk problem must not become an unrecoverable capacity one. The session stays listed and a retained
+workspace keeps its quarantine path, so the orphan sweep and you can still find it. Covered by
+`apps/local-runner/test/capacity.spec.ts` — repeated cleanup failure, publish failure, and the
+successful path.
+
+A restart still relies on the existing workspace boot sweep and control-plane orphan reconciliation;
+retained unpublished work is kept in quarantine, but **pending pushes are not automatically
+resumed** — that remains unbuilt, and a worker restarted between a run ending and its push needs
+operator recovery.
+
+## 6b. `agentos.yml` and what a round-trip does not carry
+
+`agentos push` is **upsert-only**. Omitting a row from the document does not
+delete it — pulling, deleting a block, and pushing leaves the database row in
+place. Provenance and company-profile records follow the same rule, so nothing
+in this file should be read as "the complete list"; it is the set of things the
+file asserts.
+
+Two specifics worth knowing before you hand-edit it:
+
+- `builtIn` round-trips for agents, skills and workflows so that a pull → push
+  cycle does not quietly turn the shipped catalogue into operator-authored rows.
+  It is operator-settable in both directions: set it true and the row opts into
+  the built-in installer's update behaviour; set it false and the installer
+  stops touching it. That is a real decision, not a formality.
+- A resource slot pointing at a resource that has since been deleted pulls as
+  unresolved, and pushing that back writes it as unresolved. The slot is not
+  silently repointed — but the round-trip is where a dangling reference becomes
+  a cleared one.
 
 ## 7. Error reporting (wired in — set one variable)
 

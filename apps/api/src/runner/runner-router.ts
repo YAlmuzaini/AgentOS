@@ -53,14 +53,9 @@ export class RunnerRouter {
    * able to say so.
    */
   async status(): Promise<RunnerStatusDto> {
-    const configured = this.local.configured;
     return {
       cloud: { configured: true },
-      local: {
-        configured,
-        healthy: configured ? await this.local.healthy() : false,
-        url: this.local.endpointForDisplay(),
-      },
+      local: await this.local.status(),
     };
   }
 
@@ -105,8 +100,23 @@ export class RunnerRouter {
     }
 
     if (preference === "local") {
-      if (await this.local.healthy()) {
+      // `healthy && !draining`, deliberately not `ready`. `ready` is also false
+      // when the worker is merely *at capacity*, and at capacity the worker
+      // queues the request FIFO — refusing there would defeat the queue. Drain
+      // is the other case: the operator has said this worker takes no new work,
+      // so routing to it produced a 503 that surfaced as a session failure
+      // rather than as "the worker you drained is draining".
+      const status = await this.local.status();
+      if (status.healthy && !status.draining) {
         return this.local;
+      }
+      if (status.healthy && status.draining) {
+        throw new LocalRunnerUnavailableError(
+          "the local runner is set for this session but the worker is draining, so it accepts no " +
+            "new work. This was not sent to the cloud, because cloud sessions are billed per " +
+            "token. Take the worker out of drain, or switch this agent, goal, or the project " +
+            "default to `auto` to allow a cloud fallback.",
+        );
       }
       throw new LocalRunnerUnavailableError(
         this.local.configured
@@ -121,7 +131,7 @@ export class RunnerRouter {
     }
 
     // `auto`, and only `auto`, degrades cost rather than availability.
-    return (await this.local.healthy()) ? this.local : this.cloud;
+    return (await this.local.status()).ready ? this.local : this.cloud;
   }
 
   /**

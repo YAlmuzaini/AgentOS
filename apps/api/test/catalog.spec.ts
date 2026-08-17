@@ -1,4 +1,4 @@
-import { agents as agentsTable, mcpConnections, skills as skillsTable } from "@agentos/db";
+import { agents as agentsTable, mcpConnections, packInstallations, skills as skillsTable } from "@agentos/db";
 import {
   BUILT_IN_MCP,
   BUILT_IN_TEMPLATES,
@@ -521,6 +521,15 @@ describe("the shipped catalogue", () => {
       .from(agentsTable)
       .where(eq(agentsTable.projectId, projectId));
     expect(rows).toHaveLength(pack.roles.length);
+    const [installation] = await harness.db
+      .select()
+      .from(packInstallations)
+      .where(eq(packInstallations.projectId, projectId));
+    expect(installation).toMatchObject({
+      packSlug: "mobile",
+      version: pack.version,
+      provenance: pack.provenance,
+    });
 
     // A pack grants nothing that reaches outside the control plane: no
     // repository, no MCP connection, no folder, no environment (and therefore
@@ -635,6 +644,33 @@ describe("the shipped catalogue", () => {
     expect(seniorDev.skillIds).toContain(skillsBySlug.get("commit-discipline"));
   });
 
+  it("merges partial recommendation installs, invalidates runtime config, and stops after operator curation", async () => {
+    const [project] = await harness.db.execute<{ id: string }>(
+      sql`INSERT INTO projects (name, slug) VALUES ('Partial', 'partial') RETURNING id`,
+    );
+    const projectId = project!.id;
+    await agents.installBuiltIns(projectId, ["senior-dev"]);
+    await catalog.installBuiltInSkills(projectId, ["commit-discipline"]);
+    let senior = await harness.db.query.agents.findFirst({
+      where: and(eq(agentsTable.projectId, projectId), eq(agentsTable.name, "senior-dev")),
+    });
+    expect(senior!.skillIds).toHaveLength(1);
+    expect(senior!.recommendedSkillsInitialized).toBe(false);
+
+    await harness.db.update(agentsTable).set({ runtimeConfigHash: "published-config" }).where(eq(agentsTable.id, senior!.id));
+    await catalog.installBuiltInSkills(projectId, ["verification-loop"]);
+    senior = await harness.db.query.agents.findFirst({ where: eq(agentsTable.id, senior!.id) });
+    expect(senior!.skillIds).toHaveLength(2);
+    expect(senior!.runtimeConfigHash).toBeNull();
+
+    // Editing the list marks it operator-owned, including the intentional empty list.
+    await agents.update(projectId, senior!.id, { skillIds: [] });
+    await catalog.installBuiltInSkills(projectId);
+    senior = await harness.db.query.agents.findFirst({ where: eq(agentsTable.id, senior!.id) });
+    expect(senior!.skillIds).toEqual([]);
+    expect(senior!.recommendedSkillsInitialized).toBe(true);
+  });
+
   /** …but it never overrules a curated agent. */
   it("leaves an agent that already holds a skill alone when skills are installed", async () => {
     const [project] = await harness.db.execute<{ id: string }>(
@@ -664,6 +700,8 @@ describe("the shipped catalogue", () => {
     expect(role).toBeDefined();
     expect(role.category).toBe("data");
     expect(role.collaboration ?? []).toEqual([]);
+    expect(role.provenance?.relationship).toBe("inspired");
+    expect(role.provenance?.notes).toMatch(/original AgentOS/i);
 
     for (const slug of [
       "rag-architecture",
@@ -676,6 +714,8 @@ describe("the shipped catalogue", () => {
       // Inlined into every session that holds it, so it stays short.
       expect(skill.body.length, slug).toBeLessThan(2000);
       expect(role.recommendedSkills, slug).toContain(slug);
+      expect(skill.provenance?.relationship).toBe("inspired");
+      expect(skill.provenance?.notes).toMatch(/copied/i);
     }
 
     // It is in the data pack, and in no pack that would put it near production.

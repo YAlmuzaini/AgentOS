@@ -54,6 +54,7 @@ export class CloudManagedAgentsRunner implements Runner {
       return {
         runtimeSessionId: session.id,
         traceUrl: `https://platform.claude.com/workspaces/${this.config.ANTHROPIC_WORKSPACE}/sessions/${session.id}`,
+        billingMode: "metered-api",
         vaultIds,
       };
     } catch (error) {

@@ -1,4 +1,4 @@
-import { type Database, goals, sessions } from "@agentos/db";
+import { type Database, goalDecisions, goals, sessions } from "@agentos/db";
 import { TERMINAL_SESSION_STATUSES } from "@agentos/shared";
 import {
   type ApproveDodInput,
@@ -15,12 +15,14 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 import { ProjectsService } from "../projects/projects.service";
+import { PreflightService } from "../capabilities/preflight.service";
 import { SessionQueue } from "../queue/session.queue";
 import { GoalLeases, LEASE_MINUTES } from "./goal-leases";
-import { checkRails, type RailBreach } from "./goal-rails";
+import { checkRails, MAX_UNAVAILABLE_TURNS, type RailBreach } from "./goal-rails";
+import { GoalRuns } from "./goal-runs";
 
 export type { RailBreach };
 
@@ -35,6 +37,8 @@ export class GoalsService {
     private readonly projects: ProjectsService,
     private readonly queue: SessionQueue,
     private readonly leases: GoalLeases,
+    private readonly preflight: PreflightService,
+    private readonly runs: GoalRuns,
   ) {}
 
   async list(projectId: string): Promise<GoalDto[]> {
@@ -91,6 +95,7 @@ export class GoalsService {
     if (goal.dodApproved) {
       throw new BadRequestException("this goal's definition of done is already approved");
     }
+    await this.preflight.assertReady(projectId, "goal", id, input.acknowledgePreflightWarnings);
 
     const [row] = await this.db
       .update(goals)
@@ -113,6 +118,7 @@ export class GoalsService {
     if (goal.status !== "active") {
       throw new BadRequestException(`goal is ${goal.status}, not active`);
     }
+    this.runs.cancel(id);
     return this.setStatus(id, "paused", null);
   }
 
@@ -133,6 +139,47 @@ export class GoalsService {
       .where(eq(goals.id, id))
       .returning();
     return toDto(row!);
+  }
+
+  /**
+   * Stops an *active* goal, once.
+   *
+   * The claim is in the predicate, so two concurrent rail breaches cannot both
+   * decide they were the one that stopped it — only the row-winner gets a
+   * result back, and only the row-winner sends the notification. Returns null
+   * when the goal was already stopped by somebody else.
+   */
+  async stopIfActive(id: string, status: GoalStatus, reason: string): Promise<GoalDto | null> {
+    const [row] = await this.db
+      .update(goals)
+      .set({ status, stoppedReason: reason, updatedAt: new Date() })
+      .where(and(eq(goals.id, id), eq(goals.status, "active")))
+      .returning();
+    return row ? toDto(row) : null;
+  }
+
+  /**
+   * How many decision attempts in a row have found the worker unavailable.
+   *
+   * Counted from the durable audit rather than a new column: the evaluator
+   * already writes one `goal_decisions` row per attempt, with `unavailable`
+   * kept distinct from `failed`. Anything that is not `unavailable` — a
+   * success, or a genuine decision failure — resets the count, because it
+   * proves the worker answered.
+   */
+  async consecutiveUnavailableDecisions(goalId: string): Promise<number> {
+    const rows = await this.db
+      .select({ status: goalDecisions.status })
+      .from(goalDecisions)
+      .where(eq(goalDecisions.goalId, goalId))
+      .orderBy(desc(goalDecisions.createdAt))
+      .limit(MAX_UNAVAILABLE_TURNS + 1);
+    let streak = 0;
+    for (const row of rows) {
+      if (row.status !== "unavailable") break;
+      streak += 1;
+    }
+    return streak;
   }
 
   /** The safety rails (SPEC §11), evaluated in `goal-rails.ts`. */
@@ -245,6 +292,12 @@ export class GoalsService {
     return row;
   }
 
+  /** Whether this goal is still there. Checked immediately before a dispatch. */
+  async exists(id: string): Promise<boolean> {
+    const [row] = await this.db.select({ id: goals.id }).from(goals).where(eq(goals.id, id));
+    return Boolean(row);
+  }
+
   /**
    * Removes one goal.
    *
@@ -261,12 +314,6 @@ export class GoalsService {
    *
    * Finished sessions keep their record and are left alone.
    */
-  /** Whether this goal is still there. Checked immediately before a dispatch. */
-  async exists(id: string): Promise<boolean> {
-    const [row] = await this.db.select({ id: goals.id }).from(goals).where(eq(goals.id, id));
-    return Boolean(row);
-  }
-
   async remove(projectId: string, id: string): Promise<void> {
     const [row] = await this.db
       .select({ id: goals.id, status: goals.status })

@@ -1,7 +1,10 @@
-import type { DefaultRunner, RunnerStatusDto } from "@agentos/shared";
+import { RUNNER_CAPABILITIES, type DefaultRunner, type RunnerStatusDto } from "@agentos/shared";
 import { InlineError } from "../components/ui/feedback";
 import { StatusPill } from "../components/ui/pill";
 import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "../api";
+import { Button } from "../components/ui/button";
 
 /**
  * The money switch.
@@ -30,6 +33,11 @@ export function RunnerPanel({
 }): React.JSX.Element {
   const localReachable = Boolean(status?.local.healthy);
   const localConfigured = Boolean(status?.local.configured);
+  const client = useQueryClient();
+  const drain = useMutation({
+    mutationFn: (draining: boolean) => api.setLocalRunnerDrain(draining),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["runner-status"] }),
+  });
 
   return (
     <Panel>
@@ -47,6 +55,9 @@ export function RunnerPanel({
           This setting applies to agents without an explicit runner preference. Cloud sessions use
           Anthropic's managed sandbox and consume API credits. Local sessions run on your configured
           worker and are not sandboxed.
+        </p>
+        <p className="text-xs leading-relaxed text-ink-faint">
+          Cloud: {RUNNER_CAPABILITIES.cloud.enforceableEgress ? "enforced egress" : "unenforced egress"}, {RUNNER_CAPABILITIES.cloud.mcpPerToolFiltering ? "per-tool MCP grants" : "whole-server MCP grants"}. Local/VPS: {RUNNER_CAPABILITIES.local.enforceableEgress ? "enforced egress" : "network policy must be enforced outside AgentOS"}, {RUNNER_CAPABILITIES.local.mcpPerToolFiltering ? "per-tool MCP grants" : "whole-server MCP attachment only"}.
         </p>
 
         <div className="space-y-2">
@@ -108,7 +119,14 @@ export function RunnerPanel({
         ) : null}
 
         {value !== "cloud" && localReachable ? (
-          <Well className="text-xs leading-relaxed text-ink-muted">
+          <Well className="space-y-3 text-xs leading-relaxed text-ink-muted">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="font-medium text-ink">{status?.local.location === "personal-vps" ? "Personal VPS" : "Local computer"}{status?.local.workerId ? ` · ${status.local.workerId}` : ""}</p>
+                <p className="tabular-nums">{status?.local.activeSessions ?? 0} active of {status?.local.capacity ?? "unknown"} capacity · {status?.local.draining ? "draining" : status?.local.ready ? "ready" : "at capacity"}{status?.local.version ? ` · ${status.local.version}` : ""}</p>
+              </div>
+              {status?.local.capabilities.includes("drain") ? <Button size="sm" variant="outline" disabled={drain.isPending} onClick={() => drain.mutate(!status.local.draining)}>{status.local.draining ? "Resume intake" : "Drain worker"}</Button> : null}
+            </div>
             The local worker cannot enforce restricted network policies. Under{" "}
             <span className="machine text-ink">auto</span>, agents with restricted egress use the
             cloud runner; under <span className="machine text-ink">local</span> the worker refuses

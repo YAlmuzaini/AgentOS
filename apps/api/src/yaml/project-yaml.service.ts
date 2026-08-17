@@ -8,6 +8,9 @@ import {
   secretRefs,
   skills,
   taskTemplates,
+  blueprintInstallations,
+  projectResourceSlots,
+  packInstallations,
 } from "@agentos/db";
 import {
   type AgentosDocument,
@@ -47,7 +50,7 @@ export class ProjectYamlService {
   }
 
   async read(projectId: string, slug: string): Promise<AgentosDocument> {
-    const [environmentRows, secretRows, mcpRows, repoRows, skillRows, agentRows, templateRows] =
+    const [environmentRows, secretRows, mcpRows, repoRows, skillRows, agentRows, templateRows, profileRows, packRows, slotRows] =
       await Promise.all([
         this.db.select().from(environments).where(eq(environments.projectId, projectId)),
         this.db.select().from(secretRefs).where(eq(secretRefs.projectId, projectId)),
@@ -56,6 +59,9 @@ export class ProjectYamlService {
         this.db.select().from(skills).where(eq(skills.projectId, projectId)),
         this.db.select().from(agents).where(eq(agents.projectId, projectId)),
         this.db.select().from(taskTemplates).where(eq(taskTemplates.projectId, projectId)),
+        this.db.select().from(blueprintInstallations).where(eq(blueprintInstallations.projectId, projectId)),
+        this.db.select().from(packInstallations).where(eq(packInstallations.projectId, projectId)),
+        this.db.select().from(projectResourceSlots).where(eq(projectResourceSlots.projectId, projectId)),
       ]);
 
     const secretName = new Map(secretRows.map((row) => [row.id, row.name]));
@@ -67,6 +73,25 @@ export class ProjectYamlService {
 
     return agentosDocumentSchema.parse({
       project: slug,
+      companyProfiles: Object.fromEntries(profileRows.map((row) => [row.blueprintSlug, { version: row.version, provenance: row.provenance }])),
+      agentPacks: Object.fromEntries(packRows.map((row) => [row.packSlug, { version: row.version, provenance: row.provenance }])),
+      resourceSlots: Object.fromEntries(slotRows.map((row) => [row.slotKey, {
+        blueprint: row.blueprintSlug,
+        label: row.definition.label,
+        kind: row.definition.kind,
+        required: row.definition.required,
+        description: row.definition.description,
+        resourceType: row.resourceType,
+        resource: row.resourceId
+          ? row.resourceType === "repo"
+            ? (repoName.get(row.resourceId) ?? null)
+            : row.resourceType === "environment"
+              ? (environmentName.get(row.resourceId) ?? null)
+              : row.resourceType === "mcp" || row.resourceType === "deployment"
+                ? (mcpName.get(row.resourceId) ?? null)
+                : row.resourceId
+          : null,
+      }])),
       environments: Object.fromEntries(
         environmentRows.map((row) => [
           row.name,
@@ -83,6 +108,7 @@ export class ProjectYamlService {
             url: row.url,
             allowedOperations: row.allowedOperations,
             credential: row.credentialSecretId ? (secretName.get(row.credentialSecretId) ?? null) : null,
+            provenance: row.provenance,
           },
         ]),
       ),
@@ -107,6 +133,8 @@ export class ProjectYamlService {
             kind: row.kind,
             body: row.body,
             filePath: row.filePath,
+            provenance: row.provenance,
+            builtIn: row.builtIn,
           },
         ]),
       ),
@@ -137,13 +165,21 @@ export class ProjectYamlService {
             environment: row.environmentId ? (environmentName.get(row.environmentId) ?? null) : null,
             runner: row.runnerPreference,
             inbox: row.inboxAccess,
+            provenance: row.provenance,
+            builtIn: row.builtIn,
           },
         ]),
       ),
       templates: Object.fromEntries(
         templateRows.map((row) => [
           row.name,
-          { description: row.description, variables: row.variables, steps: row.steps },
+          {
+            description: row.description,
+            variables: row.variables,
+            steps: row.steps,
+            provenance: row.provenance,
+            builtIn: row.builtIn,
+          },
         ]),
       ),
     });
@@ -189,6 +225,7 @@ export class ProjectYamlService {
     const environmentIds = await this.writer.upsertEnvironments(projectId, document);
     const mcpIds = await this.writer.upsertMcp(projectId, document, secretIds, endpointsBefore);
     const repoIds = await this.writer.upsertRepos(projectId, document, secretIds);
+    await this.writer.upsertCompany(projectId, document, { repoIds, mcpIds, environmentIds });
     const skillIds = await this.writer.upsertSkills(projectId, document);
     await this.writer.upsertTemplates(projectId, document);
     await this.writer.upsertAgents(projectId, document, {
@@ -222,6 +259,9 @@ export class ProjectYamlService {
  */
 function classify(before: AgentosDocument, after: AgentosDocument, result: PushResult): void {
   const groups: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
+    ["company-profile", before.companyProfiles, after.companyProfiles],
+    ["agent-pack", before.agentPacks, after.agentPacks],
+    ["resource-slot", before.resourceSlots, after.resourceSlots],
     ["secret", before.secrets, after.secrets],
     ["environment", before.environments, after.environments],
     ["mcp", before.mcp, after.mcp],

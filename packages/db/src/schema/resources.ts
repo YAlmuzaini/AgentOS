@@ -11,6 +11,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { environments, projects } from "./projects";
+import type { Provenance } from "@agentos/shared";
 
 /**
  * Everything an agent can be *granted*. Each row is inert on its own — it only
@@ -45,6 +46,10 @@ export const mcpConnections = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    provenance: jsonb("provenance")
+      .$type<Provenance>()
+      .notNull()
+      .default(sql`'{"relationship":"original"}'::jsonb`),
     url: text("url").notNull(),
     /** Which tools of the server the agent may call; empty means all of them. */
     allowedOperations: jsonb("allowed_operations")
@@ -160,6 +165,10 @@ export const skills = pgTable(
      * category column arrived.
      */
     builtIn: boolean("built_in").notNull().default(false),
+    provenance: jsonb("provenance")
+      .$type<Provenance>()
+      .notNull()
+      .default(sql`'{"relationship":"original"}'::jsonb`),
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),

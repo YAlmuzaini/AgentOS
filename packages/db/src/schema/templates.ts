@@ -1,6 +1,6 @@
-import type { TemplateStep } from "@agentos/shared";
+import type { Provenance, TemplateStep } from "@agentos/shared";
 import { sql } from "drizzle-orm";
-import { jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { projects } from "./projects";
 
 /**
@@ -15,8 +15,13 @@ export const taskTemplates = pgTable(
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    builtIn: boolean("built_in").notNull().default(false),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
+    provenance: jsonb("provenance")
+      .$type<Provenance>()
+      .notNull()
+      .default(sql`'{"relationship":"original"}'::jsonb`),
     variables: jsonb("variables")
       .$type<string[]>()
       .notNull()

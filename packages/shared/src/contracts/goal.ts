@@ -51,8 +51,11 @@ export type CreateGoalInput = z.infer<typeof createGoalSchema>;
 /** The operator's sign-off on the checklist. Nothing runs before this. */
 export const approveDodSchema = z.object({
   definitionOfDone: z.array(dodItemSchema).min(1),
+  acknowledgePreflightWarnings: z.boolean().default(false),
 });
-export type ApproveDodInput = z.infer<typeof approveDodSchema>;
+export type ApproveDodInput = Omit<z.infer<typeof approveDodSchema>, "acknowledgePreflightWarnings"> & {
+  acknowledgePreflightWarnings?: boolean;
+};
 
 export interface GoalDto {
   id: string;

@@ -16,6 +16,7 @@
  */
 
 import type { Category } from "./categories";
+import { originalAgentosProvenance, type Provenance } from "../contracts/provenance";
 
 export interface CatalogPack {
   slug: string;
@@ -25,10 +26,19 @@ export interface CatalogPack {
   category: Category;
   /** Role names, resolved against the shipped catalogue at install time. */
   roles: string[];
+  version: string;
+  provenance: Provenance;
 }
 
+const packProvenance = originalAgentosProvenance("Original AgentOS catalog pack.");
+const pack = (input: Omit<CatalogPack, "version" | "provenance">): CatalogPack => ({
+  ...input,
+  version: "1.0.0",
+  provenance: packProvenance,
+});
+
 export const CATALOG_PACKS: CatalogPack[] = [
-  {
+  pack({
     slug: "core-engineering",
     name: "Core engineering",
     category: "engineering",
@@ -54,62 +64,62 @@ export const CATALOG_PACKS: CatalogPack[] = [
       "verifier",
       "librarian",
     ],
-  },
-  {
+  }),
+  pack({
     slug: "frontend-design",
     name: "Frontend & design",
     category: "frontend",
     description:
       "Interface implementation and the visual system that governs it. Pair with core engineering; on its own it can build a screen but not review or ship one.",
     roles: ["frontend-engineer", "ui-designer", "test-engineer"],
-  },
-  {
+  }),
+  pack({
     slug: "data-rag",
     name: "Data, databases & RAG",
     category: "data",
     description:
       "Schema and migration work, analysis, and retrieval-augmented generation design. The RAG architect designs and reviews; it is not granted a vector store or a corpus by installing this.",
     roles: ["db-architect", "data-analyst", "rag-engineering-architect"],
-  },
-  {
+  }),
+  pack({
     slug: "devops-release",
     name: "DevOps & release",
     category: "devops",
     description:
       "Containers, pipelines, and getting a reviewed branch out of the door with a rollback written down.",
     roles: ["devops-engineer", "release-manager", "dependency-auditor"],
-  },
-  {
+  }),
+  pack({
     slug: "research-docs",
     name: "Research & documentation",
     category: "research",
     description:
       "Finding out what is true and writing it down. Useful in every project and required in none, which is why it is its own pack.",
     roles: ["researcher", "docs-writer", "librarian"],
-  },
-  {
+  }),
+  pack({
     slug: "product-content",
     name: "Product & content",
     category: "content",
     description:
       "Deciding what to build before a spec exists, and writing the outward-facing words afterwards.",
     roles: ["product-strategist", "content-writer", "linkedin-content"],
-  },
-  {
+  }),
+  pack({
     slug: "operations-support",
     name: "Operations & support",
     category: "operations",
     description:
       "Inbound work from humans. The support agent is the one role in the catalogue that must never hold a repository — grant it a support connection and nothing else.",
     roles: ["customer-support", "triage", "diagnostic"],
-  },
-  {
+  }),
+  pack({
     slug: "mobile",
     name: "Mobile",
     category: "mobile",
     description: "Application work for iOS, Android, and cross-platform codebases.",
     roles: ["mobile-engineer", "test-engineer"],
-  },
+  }),
 ];
 
 export function findPack(slug: string): CatalogPack | undefined {

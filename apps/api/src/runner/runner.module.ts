@@ -71,6 +71,6 @@ import { AgentToolHandler } from "./tool-handler";
     OrphanSweep,
     VaultCleanup,
   ],
-  exports: [SessionOrchestrator, MaintenanceService],
+  exports: [SessionOrchestrator, MaintenanceService, RunnerRouter, LocalVmRunner],
 })
 export class RunnerModule {}

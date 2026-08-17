@@ -245,6 +245,7 @@ export class SessionOrchestrator {
         handle.runtimeSessionId,
         handle.traceUrl,
         handle.vaultIds ?? [],
+        handle.billingMode ?? "unknown",
       );
     } catch (error) {
       // `destroyQuietly` swallows a failed destroy, which would let this claim

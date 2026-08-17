@@ -1,8 +1,9 @@
-import { agents } from "@agentos/db";
-import { eq } from "drizzle-orm";
+import { agents, skills, taskTemplates } from "@agentos/db";
+import { and, eq, sql } from "drizzle-orm";
 import { parse } from "yaml";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AgentsService } from "../src/agents/agents.service";
+import { CatalogService } from "../src/resources/catalog.service";
 import { TemplatesService } from "../src/templates/templates.service";
 import { ProjectYamlService } from "../src/yaml/project-yaml.service";
 import { createHarness, type Harness } from "./harness";
@@ -13,12 +14,14 @@ describe("agentos.yml", () => {
   let yaml: ProjectYamlService;
   let templates: TemplatesService;
   let agentsService: AgentsService;
+  let catalog: CatalogService;
 
   beforeAll(async () => {
     harness = await createHarness();
     yaml = harness.app.get(ProjectYamlService);
     templates = harness.app.get(TemplatesService);
     agentsService = harness.app.get(AgentsService);
+    catalog = harness.app.get(CatalogService);
   });
 
   afterAll(async () => {
@@ -228,5 +231,54 @@ agents:
     // stable, which is what makes the file safe to keep in git.
     await yaml.push(projectId, pulled);
     expect(await yaml.pull(projectId)).toBe(pulled);
+  });
+
+  it("round-trips installed pack and structured source provenance", async () => {
+    const [project] = await harness.db.execute<{ id: string }>(
+      sql`INSERT INTO projects (name, slug) VALUES ('Sources', 'sources') RETURNING id`,
+    );
+    await agentsService.installPack(project!.id, "mobile");
+    const first = await yaml.pull(project!.id);
+    expect(first).toContain("agentPacks:");
+    expect(first).toContain("mobile:");
+    expect(first).toContain("relationship: original");
+
+    await yaml.push(project!.id, first);
+    expect(await yaml.pull(project!.id)).toBe(first);
+  });
+
+  /**
+   * A pull → push cycle used to convert the whole shipped catalogue into
+   * operator-authored rows, because `builtIn` was absent from the document.
+   * The next `installBuiltIns` would then refuse to update any of them.
+   */
+  it("round-trips catalogue ownership for agents, skills and workflows", async () => {
+    const [project] = await harness.db.execute<{ id: string }>(
+      sql`INSERT INTO projects (name, slug) VALUES ('Owned', 'owned') RETURNING id`,
+    );
+    const projectId = project!.id;
+    await catalog.installBuiltInSkills(projectId);
+    await agentsService.installBuiltIns(projectId, ["senior-dev"]);
+    await templates.installBuiltIns(projectId, ["bugfix-workflow"]);
+
+    const document = await yaml.pull(projectId);
+    expect(document).toContain("builtIn: true");
+    await yaml.push(projectId, document);
+
+    const agentRow = await harness.db.query.agents.findFirst({ where: and(eq(agents.projectId, projectId), eq(agents.name, "senior-dev")) });
+    const skillRow = await harness.db.query.skills.findFirst({ where: and(eq(skills.projectId, projectId), eq(skills.slug, "plan-mode")) });
+    const templateRow = await harness.db.query.taskTemplates.findFirst({ where: and(eq(taskTemplates.projectId, projectId), eq(taskTemplates.name, "bugfix-workflow")) });
+    expect(agentRow!.builtIn).toBe(true);
+    expect(skillRow!.builtIn).toBe(true);
+    expect(templateRow!.builtIn).toBe(true);
+    expect(await yaml.pull(projectId)).toBe(document);
+
+    // And an operator-authored row stays the operator's across the same cycle.
+    const [mine] = await harness.db.insert(skills).values({
+      projectId, name: "Mine", slug: "mine", description: "d", category: "general", kind: "prompt", body: "b", builtIn: false,
+    }).returning();
+    const withMine = await yaml.pull(projectId);
+    await yaml.push(projectId, withMine);
+    expect((await harness.db.query.skills.findFirst({ where: eq(skills.id, mine!.id) }))!.builtIn).toBe(false);
   });
 });

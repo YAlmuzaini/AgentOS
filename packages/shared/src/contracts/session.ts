@@ -91,6 +91,7 @@ export interface SessionDto {
   taskId: string | null;
   goalId: string | null;
   runner: (typeof RUNNERS)[number];
+  billingMode: "subscription" | "metered-api" | "unknown";
   status: (typeof SESSION_STATUSES)[number];
   /** Runtime handle — the Managed Agents session id for the cloud runner. */
   runtimeHandle: string | null;
