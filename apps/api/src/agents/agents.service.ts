@@ -80,6 +80,10 @@ export class AgentsService {
     // Which names already exist decides whether recommended skills are applied
     // at all: they are a starting point for a new agent, never a correction to
     // an existing one. Read once rather than per role.
+    //
+    // An agent installed before the skills existed therefore holds none, and
+    // this button will not fix it — that backfill belongs to the moment the
+    // skills arrive, and lives in `catalog.installBuiltInSkills`.
     const existing = new Set(
       (
         await this.db

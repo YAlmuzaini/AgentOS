@@ -1,7 +1,8 @@
-import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
 import { Layout } from "./app/layout";
 import { ActivityPage } from "./pages/activity";
 import { DashboardPage } from "./pages/dashboard";
+import { AgentDetailPage } from "./pages/agent-detail-page";
 import { AgentsPage } from "./pages/agents";
 import { AutomationsPage } from "./pages/automations";
 import { EnvironmentPage } from "./pages/environment";
@@ -73,11 +74,31 @@ const tasksRoute = createRoute({
   }),
 });
 
+/**
+ * One agent, one address.
+ *
+ * The detail used to be `/agents?id=…` rendered by the index component, which
+ * meant the grid and the agent were the same route: the browser could not tell
+ * them apart, going back from an agent re-rendered the whole index, and the
+ * address of an agent read like a filter. `?id=` still works — it redirects
+ * below — so every link an operator already sent still lands.
+ */
 const agentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/agents",
   component: AgentsPage,
   validateSearch: idSearch,
+  beforeLoad: ({ search }) => {
+    if (search.id) {
+      throw redirect({ to: "/agents/$agentId", params: { agentId: search.id }, replace: true });
+    }
+  },
+});
+
+const agentDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/agents/$agentId",
+  component: AgentDetailPage,
 });
 
 const sessionsRoute = createRoute({
@@ -119,6 +140,10 @@ const skillsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/skills",
   component: SkillsPage,
+  // Skills have no detail screen to deep-link to, so `?q=` is the way in: an
+  // agent's skill chip lands here with the slug already in the filter.
+  validateSearch: (search: Record<string, unknown>): { q?: string } =>
+    typeof search.q === "string" && search.q ? { q: search.q } : {},
 });
 
 const filesRoute = createRoute({
@@ -184,6 +209,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   tasksRoute,
   agentsRoute,
+  agentDetailRoute,
   sessionsRoute,
   inboxRoute,
   goalsRoute,

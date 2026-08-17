@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CATEGORIES, type Category } from "../catalog/categories";
 import { RUNNER_PREFERENCES, REPO_PERMISSIONS } from "../enums";
+import { patchSchema } from "./patch";
 import { slugSchema } from "./project";
 import { mountPathSchema } from "./resources";
 
@@ -63,7 +64,7 @@ export const createAgentSchema = z.object({
 });
 export type CreateAgentInput = z.infer<typeof createAgentSchema>;
 
-export const updateAgentSchema = createAgentSchema.partial().omit({ name: true });
+export const updateAgentSchema = patchSchema(createAgentSchema).omit({ name: true });
 export type UpdateAgentInput = z.infer<typeof updateAgentSchema>;
 
 export interface AgentDto {

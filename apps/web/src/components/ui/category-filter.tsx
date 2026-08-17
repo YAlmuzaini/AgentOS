@@ -19,6 +19,7 @@ export function CategoryFilter({
   value,
   onChange,
   total,
+  className,
 }: {
   /** How many items sit in each category. Empty categories are not offered. */
   counts: Map<Category, number>;
@@ -26,6 +27,7 @@ export function CategoryFilter({
   value: Category | null;
   onChange: (next: Category | null) => void;
   total: number;
+  className?: string;
 }): React.JSX.Element | null {
   const present = [...counts.entries()].filter(([, count]) => count > 0);
   if (present.length < 2) {
@@ -42,6 +44,7 @@ export function CategoryFilter({
         // which is the rule wide content follows everywhere else in this app.
         "snap-x snap-mandatory flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         "sm:flex-wrap sm:overflow-visible",
+        className,
       )}
       role="group"
       aria-label="Filter by category"

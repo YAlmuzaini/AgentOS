@@ -1,23 +1,29 @@
-import { CATEGORIES, type AgentDto, type Category } from "@agentos/shared";
+import {
+  CATEGORIES,
+  CATEGORY_LABELS,
+  type AgentDto,
+  type Category,
+  type SkillDto,
+} from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Bot, Boxes, Cpu, Download, Plus, Terminal } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { Bot, Boxes, Cpu, Download, Plus, SearchX, Sparkles, Terminal } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { CardBody, CardButton, CardGo, CardHead } from "../components/ui/card";
-import { CategoryFilter, countByCategory } from "../components/ui/category-filter";
+import { countByCategory } from "../components/ui/category-filter";
 import { CreatePanel } from "../components/ui/create-panel";
 import { useConfirm } from "../components/ui/confirm";
 import { EmptyState, Skeleton } from "../components/ui/feedback";
+import { FilterBar } from "../components/ui/filter-bar";
 import { IconTile, toneFor } from "../components/ui/icon-tile";
 import { Meta, MetaRow } from "../components/ui/meta";
 import { Page, PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { CountChip, StatusPill } from "../components/ui/pill";
 import { useProjectGate } from "../hooks/use-project";
-import { useUrlSelection } from "../hooks/use-url-selection";
-import { AgentDetail } from "./agent-detail";
+import { matchesAll, queryTerms } from "../lib/search";
 import { AgentForm } from "./agent-form";
 import { agentIcon } from "./agent-icon";
 import { NoProject, ProjectPending } from "./project-states";
@@ -31,29 +37,25 @@ import { NoProject, ProjectPending } from "./project-states";
  * The previous shape was a 280px name list pinned beside the detail. It fit
  * fourteen agents into a scroller 280px wide and showed two fields of the
  * sixteen on `AgentDto`, so choosing between "plan-risk" and "plan-review"
- * meant clicking both. The URL is unchanged — `?id=` still selects — so every
- * inbound link, and the ⌘K palette, still land where they did.
+ * meant clicking both. Opening one goes to `/agents/:id`, its own screen and
+ * its own history entry; `?id=` redirects there, so links sent before the split
+ * still land.
  */
 export function AgentsPage(): React.JSX.Element {
   const { project, pending, absent } = useProjectGate();
   const queryClient = useQueryClient();
-  const { id: idFromUrl } = useSearch({ strict: false }) as { id?: string };
-  const [selected, setSelected] = useUrlSelection(idFromUrl);
   const [creating, setCreating] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  // Deliberately component state rather than a URL parameter: `?id=` is a link
-  // someone sends, a filter is a glance. Putting it in the URL would make the
-  // back button undo a chip press.
+  // Deliberately component state rather than a URL parameter: an agent's
+  // address is a link someone sends, a filter is a glance. Putting a filter in
+  // the URL would make the back button undo a chip press.
   const [category, setCategory] = useState<Category | null>(null);
+  const [query, setQuery] = useState("");
   const [choosingPack, setChoosingPack] = useState(false);
   const navigate = useNavigate();
   const confirm = useConfirm();
 
-  /** Going back to the grid drops `?id=` too, so a reload does not reopen it. */
-  const closeDetail = (): void => {
-    setSelected(null);
-    void navigate({ to: "/agents", search: {} } as never);
-  };
+  const open = (agentId: string): void =>
+    void navigate({ to: "/agents/$agentId", params: { agentId } });
 
   const agents = useQuery({
     queryKey: ["agents", project?.id],
@@ -73,6 +75,16 @@ export function AgentsPage(): React.JSX.Element {
   const installBuiltIns = useMutation({
     mutationFn: () => api.installBuiltInAgents(project!.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["agents", project?.id] }),
+  });
+
+  // Searching by skill is the question "who can do X" — an operator looking for
+  // the agent that holds `commit-discipline` should not have to open fourteen
+  // agents to find it. Same query key the Skills screen uses, so it is a cache
+  // read here.
+  const skills = useQuery({
+    queryKey: ["skills", project?.id],
+    queryFn: () => api.skills(project!.id),
+    enabled: Boolean(project),
   });
 
   // Packs exist because thirty-seven agents is a good library and a bad
@@ -112,7 +124,10 @@ export function AgentsPage(): React.JSX.Element {
           This writes the agents that ship with AgentOS into this project, and refreshes the ones
           it installed before. A newly created agent arrives with its recommended prompt skills and,
           for a coordinator, the collaboration list its job needs; it gets no repository, connection,
-          folder, secret or network access.{" "}
+          folder, secret or network access. A built-in that currently holds{" "}
+          <em className="not-italic text-ink">no</em> skills is given its recommended set too —
+          that is the case when the agents were installed before the skills existed. One you have
+          curated is left alone.{" "}
           <strong className="font-medium text-ink">
             Edits you made to a built-in's title, description, category or prompts are replaced
           </strong>{" "}
@@ -132,59 +147,71 @@ export function AgentsPage(): React.JSX.Element {
   }
 
   const list = agents.data ?? [];
+  // Counts stay on the whole library rather than on the search result. A chip
+  // whose number drops as you type is a chip that disappears mid-word — the row
+  // hides itself under two populated categories — and takes the layout and the
+  // current selection with it.
   const counts = countByCategory(list, CATEGORIES);
+  const terms = queryTerms(query);
+  const filtering = terms.length > 0 || category !== null;
+  const skillsById = new Map((skills.data ?? []).map((skill) => [skill.id, skill]));
+  /** The skills granted to this agent that the typed words actually name. */
+  const matchedSkills = (agent: AgentDto): SkillDto[] =>
+    terms.length === 0
+      ? []
+      : agent.skillIds
+          .map((id) => skillsById.get(id))
+          .filter((skill): skill is SkillDto => Boolean(skill))
+          .filter((skill) => terms.some((term) => matchesAll([term], skill.name, skill.slug)));
   // A filter must never hide the thing the operator is looking at, so the
   // detail view resolves against the whole list.
-  const shown = category ? list.filter((agent) => agent.category === category) : list;
-  const open = list.find((agent) => agent.id === selected);
+  const shown = list.filter(
+    (agent) =>
+      (!category || agent.category === category) &&
+      (matches(agent, terms) ||
+        // Or the words name a skill this agent holds: "who has commit
+        // discipline" is the question, and the answer is a list of agents.
+        matchesAll(
+          terms,
+          ...agent.skillIds.flatMap((id) => {
+            const skill = skillsById.get(id);
+            return skill ? [skill.name, skill.slug] : [];
+          }),
+        )),
+  );
   const runsFor = (agentId: string): number =>
     (sessions.data ?? []).filter((session) => session.agentId === agentId).length;
 
+  const clearFilters = (): void => {
+    setQuery("");
+    setCategory(null);
+  };
+
   const form = (
     <AgentForm
-      key={editingId ?? "new"}
       projectId={project.id}
-      agent={editingId ? list.find((agent) => agent.id === editingId) : undefined}
-      open={creating || Boolean(editingId)}
-      onClose={() => {
-        setCreating(false);
-        setEditingId(null);
-      }}
+      open={creating}
+      onClose={() => setCreating(false)}
     />
   );
-
-  /* One agent, full width. The grid is one click behind the crumb. */
-  if (open) {
-    return (
-      <Page>
-        <PageHeader
-          icon={<Bot />}
-          parent={{ label: "Agents", onClick: closeDetail }}
-          title={open.title}
-          actions={
-            <Button onClick={() => setCreating(true)}>
-              <Plus />
-              New agent
-            </Button>
-          }
-        />
-        {form}
-        <AgentDetail
-          projectId={project.id}
-          agentId={open.id}
-          onEdit={() => setEditingId(open.id)}
-          onDeleted={closeDetail}
-        />
-      </Page>
-    );
-  }
 
   return (
     <Page>
       <PageHeader
         icon={<Bot />}
         title="Agents"
-        meta={list.length > 0 ? <CountChip>{list.length}</CountChip> : undefined}
+        meta={
+          list.length === 0 ? undefined : filtering ? (
+            // While a filter is on, the honest number is how many are on screen
+            // — with the library size kept beside it so the operator can see how
+            // much they have narrowed.
+            <CountChip>
+              {shown.length} of {list.length}
+            </CountChip>
+          ) : (
+            <CountChip>{list.length}</CountChip>
+          )
+        }
         actions={
           // The one near-black surface belongs to the screen's primary action
           // *in its current state*. With agents configured that is "New agent";
@@ -254,11 +281,17 @@ export function AgentsPage(): React.JSX.Element {
 
       {form}
 
-      {list.length > 0 ? (
-        <CategoryFilter
+      {/* One control, two ways in: narrow by word, or narrow by kind. A library
+          of one needs neither. */}
+      {list.length > 1 ? (
+        <FilterBar
+          query={query}
+          onQueryChange={setQuery}
+          label="Search agents"
+          placeholder="Search agents…"
           counts={counts}
-          value={category}
-          onChange={setCategory}
+          category={category}
+          onCategoryChange={setCategory}
           total={list.length}
         />
       ) : null}
@@ -294,6 +327,25 @@ export function AgentsPage(): React.JSX.Element {
             }
           />
         </Panel>
+      ) : shown.length === 0 ? (
+        // A filter that finds nothing has to say what it was looking for and
+        // offer the way back, or the screen reads as an empty project.
+        <Panel>
+          <EmptyState
+            icon={<SearchX />}
+            title={query.trim() ? `No agents match “${query.trim()}”` : "No agents in this category"}
+            hint={
+              category
+                ? `Nothing here under ${CATEGORY_LABELS[category]}. The search covers an agent's name, title, description, model, and the skills granted to it.`
+                : "The search covers an agent's name, title, description, model, and the skills granted to it."
+            }
+            action={
+              <Button variant="outline" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            }
+          />
+        </Panel>
       ) : (
         <CardGrid>
           {shown.map((agent) => (
@@ -301,7 +353,8 @@ export function AgentsPage(): React.JSX.Element {
               key={agent.id}
               agent={agent}
               runs={runsFor(agent.id)}
-              onOpen={() => setSelected(agent.id)}
+              skills={matchedSkills(agent)}
+              onOpen={() => open(agent.id)}
             />
           ))}
         </CardGrid>
@@ -319,6 +372,26 @@ export function AgentsPage(): React.JSX.Element {
 }
 
 /**
+ * The card's own fields, plus the category label — which is what "plan
+ * security" means when "security" is a chip rather than text on the card.
+ *
+ * Deliberately not the prompts: they are long, they are where every agent says
+ * "review" and "commit", and searching them turns a two-word query into half
+ * the library. The card is the contract — a match the operator cannot see on
+ * the card reads as a bug.
+ */
+function matches(agent: AgentDto, terms: string[]): boolean {
+  return matchesAll(
+    terms,
+    agent.name,
+    agent.title,
+    agent.description,
+    agent.model,
+    CATEGORY_LABELS[agent.category],
+  );
+}
+
+/**
  * Three across on a desk, two on a laptop, one on a phone. The minimum column
  * is 280px because that is where the reference's own description stops being
  * three readable lines and becomes six words per line.
@@ -332,10 +405,17 @@ function CardGrid({ children }: { children: React.ReactNode }): React.JSX.Elemen
 function AgentCard({
   agent,
   runs,
+  skills,
   onOpen,
 }: {
   agent: AgentDto;
   runs: number;
+  /**
+   * The granted skills the current query named, if any. A card that turned up
+   * because of a skill has to say so — the words the operator typed are nowhere
+   * else on it, and an unexplained result reads as a broken filter.
+   */
+  skills: SkillDto[];
   onOpen: () => void;
 }): React.JSX.Element {
   const Icon = agentIcon(agent);
@@ -372,6 +452,19 @@ function AgentCard({
       <CardBody>
         {agent.description.trim() || firstSentence(agent.rolePrompt) || "No role prompt set."}
       </CardBody>
+
+      {/* Plain badges, not chips that navigate: the whole card is already a
+          button, and a button inside a button is neither. */}
+      {skills.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {skills.map((skill) => (
+            <StatusPill key={skill.id} tone="neutral" title={skill.description || skill.slug}>
+              <Sparkles className="size-2.5" />
+              {skill.name}
+            </StatusPill>
+          ))}
+        </div>
+      ) : null}
 
       <MetaRow className="mt-auto">
         <Meta icon={<Cpu />} machine title={agent.model}>

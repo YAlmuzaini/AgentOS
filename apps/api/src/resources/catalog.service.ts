@@ -1,12 +1,13 @@
 import {
   type Database,
+  agents,
   envBindings,
   githubInstallations,
   mcpConnections,
   repos,
   skills,
 } from "@agentos/db";
-import { BUILT_IN_MCP, BUILT_IN_SKILLS, normaliseRemote } from "@agentos/shared";
+import { BUILT_IN_MCP, BUILT_IN_SKILLS, findRoleSeed, normaliseRemote } from "@agentos/shared";
 import type {
   CreateEnvBindingInput,
   CreateMcpConnectionInput,
@@ -25,7 +26,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 import { ProjectsService } from "../projects/projects.service";
 import { SecretsService } from "../secrets/secrets.service";
@@ -522,7 +523,55 @@ export class CatalogService {
         });
       }
     }
+    await this.grantRecommendedSkills(projectId, installed);
     return installed;
+  }
+
+  /**
+   * Hands the shipped roles their recommended skills, for the roles that hold
+   * none.
+   *
+   * Agents and skills are two buttons and installing the agents first is the
+   * obvious order — which produced a project with thirty-six built-in agents
+   * and zero skills between them, permanently: `installBuiltIns` applies
+   * recommendations only when it *creates* an agent, and re-running it
+   * deliberately never corrects an existing one, because an operator who
+   * removed a skill meant it.
+   *
+   * The moment the skills arrive is the one moment where "this agent has no
+   * skills" is unambiguous — there were none to grant when it was made. So the
+   * backfill lives here rather than there, and it only ever writes onto an
+   * empty list: a built-in holding one skill is a curated agent and is left
+   * exactly as the operator left it.
+   */
+  private async grantRecommendedSkills(projectId: string, present: SkillDto[]): Promise<void> {
+    const idBySlug = new Map(present.map((skill) => [skill.slug, skill.id]));
+    // `skillIds` is `jsonb`, so "is it empty" is a predicate the driver would
+    // have to spell in raw SQL; the built-in rows of one project are a short
+    // list and filtering them here is clearer than that.
+    const builtIns = await this.db
+      .select({ id: agents.id, name: agents.name, skillIds: agents.skillIds })
+      .from(agents)
+      .where(and(eq(agents.projectId, projectId), eq(agents.builtIn, true)));
+    for (const agent of builtIns.filter((row) => row.skillIds.length === 0)) {
+      const role = findRoleSeed(agent.name);
+      if (!role) {
+        continue;
+      }
+      const recommended = (role.recommendedSkills ?? []).flatMap((slug) => {
+        const id = idBySlug.get(slug);
+        return id ? [id] : [];
+      });
+      if (recommended.length === 0) {
+        continue;
+      }
+      await this.db
+        .update(agents)
+        // The pinned runtime agent version is invalidated exactly as it is for
+        // any other config edit (SPEC §4): the next session re-publishes.
+        .set({ skillIds: recommended, runtimeConfigHash: null, updatedAt: new Date() })
+        .where(eq(agents.id, agent.id));
+    }
   }
 
   /* ── Environment variable bindings ──────────────────────────────────── */

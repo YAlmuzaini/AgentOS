@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CATEGORIES, type Category } from "../catalog/categories";
 import { NETWORKING_MODES } from "../enums";
+import { patchSchema } from "./patch";
 import { slugSchema } from "./project";
 
 /* ── Environments — the network wall (SPEC §5.5) ───────────────────────── */
@@ -13,7 +14,7 @@ export const createEnvironmentSchema = z.object({
 });
 export type CreateEnvironmentInput = z.infer<typeof createEnvironmentSchema>;
 
-export const updateEnvironmentSchema = createEnvironmentSchema.partial().omit({ name: true });
+export const updateEnvironmentSchema = patchSchema(createEnvironmentSchema).omit({ name: true });
 export type UpdateEnvironmentInput = z.infer<typeof updateEnvironmentSchema>;
 
 export interface EnvironmentDto {
@@ -224,9 +225,12 @@ export type CreateMcpConnectionInput = z.infer<typeof createMcpConnectionSchema>
  *
  * Everything here is a partial: sending `{ credentialSecretId }` alone attaches
  * a credential without touching a carefully narrowed URL, which is the common
- * case straight after installing a built-in.
+ * case straight after installing a built-in. `patchSchema` rather than
+ * `.partial()` is what makes that sentence true — see its own comment.
  */
-export const updateMcpConnectionSchema = createMcpConnectionSchema.partial().omit({ name: true });
+export const updateMcpConnectionSchema = patchSchema(createMcpConnectionSchema).omit({
+  name: true,
+});
 export type UpdateMcpConnectionInput = z.infer<typeof updateMcpConnectionSchema>;
 
 export interface McpConnectionDto {

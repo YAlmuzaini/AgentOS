@@ -24,6 +24,12 @@ export function GrantRow(props: {
   items: ReactNode[];
   empty: string;
   last?: boolean;
+  /**
+   * Lay the items out as a run of badges rather than a stack of lines. For the
+   * grants whose items are short names — skills, the collaboration list — where
+   * one name per line is a column of air.
+   */
+  wrap?: boolean;
 }): React.JSX.Element {
   return (
     <div
@@ -39,9 +45,17 @@ export function GrantRow(props: {
         {props.items.length === 0 ? (
           <p className="text-[13px] text-ink-faint">{props.empty}</p>
         ) : (
-          <ul className="space-y-1.5 text-[13px] text-ink">
+          <ul
+            className={
+              props.wrap
+                ? "flex flex-wrap gap-1.5 text-[13px] text-ink"
+                : "space-y-1.5 text-[13px] text-ink"
+            }
+          >
             {props.items.map((item, index) => (
-              <li key={index}>{item}</li>
+              <li key={index} className={props.wrap ? "max-w-full" : undefined}>
+                {item}
+              </li>
             ))}
           </ul>
         )}

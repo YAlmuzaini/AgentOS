@@ -7,15 +7,17 @@ import {
   type SkillDto,
 } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileCode, Plus, Sparkles } from "lucide-react";
+import { useSearch } from "@tanstack/react-router";
+import { Download, FileCode, Plus, SearchX, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
-import { CategoryFilter, countByCategory } from "../components/ui/category-filter";
+import { countByCategory } from "../components/ui/category-filter";
 import { CreatePanel } from "../components/ui/create-panel";
 import { DeleteAction } from "../components/ui/delete-action";
 import { useConfirm } from "../components/ui/confirm";
 import { EmptyState, InlineError, SkeletonRows } from "../components/ui/feedback";
+import { FilterBar } from "../components/ui/filter-bar";
 import { Field, Input, Select, Textarea } from "../components/ui/form";
 import { IconTile, toneFor } from "../components/ui/icon-tile";
 import { Page, PageHeader } from "../components/ui/page";
@@ -23,6 +25,8 @@ import { Panel } from "../components/ui/panel";
 import { CountChip, StatusPill } from "../components/ui/pill";
 import { Table, TableCard, TD, TH, THead, TR } from "../components/ui/table";
 import { useProjectGate } from "../hooks/use-project";
+import { useUrlSelection } from "../hooks/use-url-selection";
+import { matchesAll, queryTerms } from "../lib/search";
 import { NoProject, ProjectPending } from "./project-states";
 
 /**
@@ -42,6 +46,13 @@ export function SkillsPage(): React.JSX.Element {
   const projectId = project?.id;
   const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState<Category | null>(null);
+  // Typing does not touch the URL — a query is a glance, and putting every
+  // keystroke in the address bar would make the back button undo a letter. But
+  // an arriving `?q=` does win, because that is an agent's skill chip saying
+  // which row it meant. Same rule as `?id=`, so the same hook.
+  const { q: queryFromUrl } = useSearch({ strict: false }) as { q?: string };
+  const [selectedQuery, setQuery] = useUrlSelection(queryFromUrl);
+  const query = selectedQuery ?? "";
 
   const confirm = useConfirm();
 
@@ -107,14 +118,50 @@ export function SkillsPage(): React.JSX.Element {
   }
 
   const list = skills.data ?? [];
-  const shown = filter ? list.filter((skill) => skill.category === filter) : list;
+  // Counts stay on the whole library rather than on the search result: a chip
+  // whose number drops as you type is a chip that vanishes mid-word, taking the
+  // row's layout and the current selection with it.
+  const counts = countByCategory(list, CATEGORIES);
+  const terms = queryTerms(query);
+  const filtering = terms.length > 0 || filter !== null;
+  const shown = list.filter(
+    (skill) =>
+      (!filter || skill.category === filter) &&
+      // Everything the table already shows, and nothing it does not: the body
+      // of a prompt skill is a page of instructions, and searching it would
+      // return rows whose match is nowhere on screen.
+      matchesAll(
+        terms,
+        skill.name,
+        skill.slug,
+        skill.description,
+        skill.kind,
+        skill.filePath,
+        CATEGORY_LABELS[skill.category],
+      ),
+  );
+
+  const clearFilters = (): void => {
+    setQuery("");
+    setFilter(null);
+  };
 
   return (
     <Page>
       <PageHeader
         icon={<Sparkles />}
         title="Skills"
-        meta={list.length > 0 ? <CountChip>{list.length}</CountChip> : undefined}
+        meta={
+          list.length === 0 ? undefined : filtering ? (
+            // While a filter is on, the honest number is how many are on screen,
+            // with the library size beside it so the narrowing is visible.
+            <CountChip>
+              {shown.length} of {list.length}
+            </CountChip>
+          ) : (
+            <CountChip>{list.length}</CountChip>
+          )
+        }
         actions={
           <>
             <Button
@@ -255,11 +302,17 @@ export function SkillsPage(): React.JSX.Element {
         )}
       </CreatePanel>
 
-      {list.length > 0 ? (
-        <CategoryFilter
-          counts={countByCategory(list, CATEGORIES)}
-          value={filter}
-          onChange={setFilter}
+      {/* One control, two ways in: narrow by word, or narrow by kind. A library
+          of one needs neither. */}
+      {list.length > 1 ? (
+        <FilterBar
+          query={query}
+          onQueryChange={setQuery}
+          label="Search skills"
+          placeholder="Search skills…"
+          counts={counts}
+          category={filter}
+          onCategoryChange={setFilter}
           total={list.length}
         />
       ) : null}
@@ -278,6 +331,21 @@ export function SkillsPage(): React.JSX.Element {
               <Button variant="outline" onClick={() => setCreating(true)}>
                 <Plus />
                 New skill
+              </Button>
+            }
+          />
+        </Panel>
+      ) : shown.length === 0 ? (
+        // A filter that finds nothing has to say what it was looking for and
+        // offer the way back, or the screen reads as an empty project.
+        <Panel>
+          <EmptyState
+            icon={<SearchX />}
+            title={query.trim() ? `No skills match “${query.trim()}”` : "No skills in this category"}
+            hint="The search covers a skill's name, slug, description, kind and file path."
+            action={
+              <Button variant="outline" onClick={clearFilters}>
+                Clear filters
               </Button>
             }
           />

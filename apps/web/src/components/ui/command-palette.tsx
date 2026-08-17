@@ -33,6 +33,8 @@ interface Hit {
   label: string;
   /** Selects the entity on arrival, so a search result opens what was searched. */
   search?: { id: string };
+  /** For the entities that have a screen of their own rather than a `?id=`. */
+  params?: { agentId: string };
   hint?: string;
   badge?: string;
   to: string;
@@ -110,8 +112,8 @@ export function CommandPalette(props: {
         group: "Agents",
         label: agent.title,
         hint: agent.name,
-        to: "/agents",
-        search: { id: agent.id },
+        to: "/agents/$agentId",
+        params: { agentId: agent.id },
       });
     }
     for (const goal of goals.data ?? []) {
@@ -181,7 +183,7 @@ export function CommandPalette(props: {
     props.onOpenChange(false);
     // The id goes with it: arriving at the list and making the operator
     // find the row again is not what a search result should do.
-    void navigate({ to: hit.to, search: hit.search ?? {} } as never);
+    void navigate({ to: hit.to, search: hit.search ?? {}, params: hit.params ?? {} } as never);
   };
 
   return (

@@ -608,6 +608,55 @@ describe("the shipped catalogue", () => {
     }
   });
 
+  /**
+   * …and installing the skills afterwards is what hands them over.
+   *
+   * Agents first is the obvious order and it used to be a dead end: the agent
+   * install grants recommendations only on create, and re-running it never
+   * corrects an existing agent, so a project could hold every built-in role
+   * with no skill between them and no button that would fix it.
+   */
+  it("backfills recommended skills onto built-in agents that hold none", async () => {
+    const [project] = await harness.db.execute<{ id: string }>(
+      sql`INSERT INTO projects (name, slug) VALUES ('Backfill', 'backfill') RETURNING id`,
+    );
+    const projectId = project!.id;
+    await agents.installBuiltIns(projectId);
+    expect(
+      (await agents.list(projectId)).every((agent) => agent.skillIds.length === 0),
+    ).toBe(true);
+
+    await catalog.installBuiltInSkills(projectId);
+
+    const skillsBySlug = new Map(
+      (await catalog.listSkills(projectId)).map((skill) => [skill.slug, skill.id]),
+    );
+    const seniorDev = (await agents.list(projectId)).find((agent) => agent.name === "senior-dev")!;
+    expect(seniorDev.skillIds).toContain(skillsBySlug.get("commit-discipline"));
+  });
+
+  /** …but it never overrules a curated agent. */
+  it("leaves an agent that already holds a skill alone when skills are installed", async () => {
+    const [project] = await harness.db.execute<{ id: string }>(
+      sql`INSERT INTO projects (name, slug) VALUES ('Curated', 'curated') RETURNING id`,
+    );
+    const projectId = project!.id;
+    await catalog.installBuiltInSkills(projectId);
+    await agents.installBuiltIns(projectId);
+
+    const skillsBySlug = new Map(
+      (await catalog.listSkills(projectId)).map((skill) => [skill.slug, skill.id]),
+    );
+    const seniorDev = (await agents.list(projectId)).find((agent) => agent.name === "senior-dev")!;
+    const one = skillsBySlug.get("context-discipline")!;
+    await agents.update(projectId, seniorDev.id, { skillIds: [one] });
+
+    await catalog.installBuiltInSkills(projectId);
+
+    const after = (await agents.list(projectId)).find((agent) => agent.name === "senior-dev")!;
+    expect(after.skillIds).toEqual([one]);
+  });
+
   /* ── The RAG capability ──────────────────────────────────────────────── */
 
   it("ships a RAG architect with its skills, granted nothing", () => {

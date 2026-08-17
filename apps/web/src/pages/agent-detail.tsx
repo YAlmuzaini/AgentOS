@@ -1,11 +1,13 @@
 import type { AgentDto } from "@agentos/shared";
 import { CATEGORY_LABELS } from "@agentos/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Blocks, Cpu, FileText, Fingerprint, FolderTree, GitBranch, Inbox, Pencil, Server, ShieldCheck, Sparkles, Terminal, Users } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { Blocks, Bot, Cpu, FileText, Fingerprint, FolderTree, GitBranch, Inbox, Pencil, Server, ShieldCheck, Sparkles, Terminal, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { EmptyState, SkeletonRows } from "../components/ui/feedback";
+import { DeadChip, LinkChip } from "../components/ui/link-chip";
 import { DeleteAction } from "../components/ui/delete-action";
 import { IconTile, toneFor } from "../components/ui/icon-tile";
 import { Meta, MetaRow } from "../components/ui/meta";
@@ -50,6 +52,12 @@ export function AgentDetail(props: {
     queryKey: ["repos", props.projectId],
     queryFn: () => api.repos(props.projectId),
   });
+  // The collaboration list holds slugs; this is what turns one into the agent
+  // it names. Same query key the index uses, so it is a cache read.
+  const agents = useQuery({
+    queryKey: ["agents", props.projectId],
+    queryFn: () => api.agents(props.projectId),
+  });
   const environments = useQuery({
     queryKey: ["environments", props.projectId],
     queryFn: () => api.environments(props.projectId),
@@ -59,6 +67,7 @@ export function AgentDetail(props: {
     queryFn: () => api.sessions(props.projectId),
     refetchInterval: 5000,
   });
+  const navigate = useNavigate();
   // An agent that inherits is showing the project's choice, not its own, and
   // "runs inherit" told the operator nothing about where their money goes.
   const settings = useQuery({
@@ -211,13 +220,31 @@ export function AgentDetail(props: {
             ))}
           />
 
+          {/* A skill chip lands on the Skills screen with its slug already
+              typed into the filter, which is the screen that can actually show
+              what the skill says. */}
           <GrantRow
             icon={<Sparkles />}
             label="Skills"
             empty="No skills attached."
-            items={data.skillIds.map((id) => (
-              <span key={id}>{skills.data?.find((s) => s.id === id)?.name ?? id}</span>
-            ))}
+            wrap
+            items={data.skillIds.map((id) => {
+              const skill = skills.data?.find((s) => s.id === id);
+              return skill ? (
+                <LinkChip
+                  key={id}
+                  icon={<Sparkles />}
+                  title={skill.description || `Show ${skill.slug} on the Skills screen.`}
+                  onClick={() => void navigate({ to: "/skills", search: { q: skill.slug } } as never)}
+                >
+                  {skill.name}
+                </LinkChip>
+              ) : (
+                <DeadChip key={id} icon={<Sparkles />} machine title="This skill no longer exists.">
+                  {id.slice(0, 8)}
+                </DeadChip>
+              );
+            })}
           />
 
           <GrantRow
@@ -251,15 +278,42 @@ export function AgentDetail(props: {
             ))}
           />
 
+          {/* The collaboration list is stored as slugs, and a slug can outlive
+              the agent it named — an operator who deleted a specialist has to
+              be able to see that the coordinator still points at it. */}
           <GrantRow
             icon={<Users />}
             label="May spawn"
             empty="Cannot spawn any agent."
-            items={data.collaborationList.map((name) => (
-              <span key={name} className="machine">
-                {name}
-              </span>
-            ))}
+            wrap
+            items={data.collaborationList.map((name) => {
+              const target = agents.data?.find((candidate) => candidate.name === name);
+              return target ? (
+                <LinkChip
+                  key={name}
+                  icon={<Bot />}
+                  machine
+                  title={`Open ${target.title}.`}
+                  onClick={() =>
+                    void navigate({
+                      to: "/agents/$agentId",
+                      params: { agentId: target.id },
+                    } as never)
+                  }
+                >
+                  {name}
+                </LinkChip>
+              ) : (
+                <DeadChip
+                  key={name}
+                  icon={<Bot />}
+                  machine
+                  title="No agent in this project has that name."
+                >
+                  {name}
+                </DeadChip>
+              );
+            })}
           />
 
           <GrantRow

@@ -2,6 +2,9 @@ import {
   createRepoSchema,
   documentRepoSchema,
   documentSkillSchema,
+  updateAgentSchema,
+  updateEnvironmentSchema,
+  updateMcpConnectionSchema,
   updateSettingsSchema,
 } from "@agentos/shared";
 import { describe, expect, it } from "vitest";
@@ -102,4 +105,30 @@ describe("contracts and publishing", () => {
     ).toBe(true);
   });
 
+  /**
+   * An update body carries what was sent and nothing else.
+   *
+   * `create.partial()` does not do that: Zod still applies each field's
+   * `.default()` when the key is absent, so a one-field update arrived at the
+   * service claiming an empty description, a `general` category, and — on an
+   * agent — no MCP connections, no repo access, no filesystem grants and an
+   * empty collaboration list. The web forms send every field, so this only ever
+   * fired for the CLI, the YAML reconciler and direct API calls: the callers
+   * that send one key on purpose.
+   */
+  it("keeps an absent key absent in every update schema", () => {
+    const agent = updateAgentSchema.parse({ skillIds: ["e1a6d8b0-0000-4000-8000-000000000000"] });
+    expect(Object.keys(agent)).toEqual(["skillIds"]);
+
+    const connection = updateMcpConnectionSchema.parse({ credentialSecretId: null });
+    expect(Object.keys(connection)).toEqual(["credentialSecretId"]);
+
+    const environment = updateEnvironmentSchema.parse({ allowedHosts: ["api.github.com"] });
+    expect(Object.keys(environment)).toEqual(["allowedHosts"]);
+
+    // What is sent still has to be valid — stripping the default must not
+    // strip the rule underneath it.
+    expect(updateAgentSchema.safeParse({ category: "not-a-category" }).success).toBe(false);
+    expect(updateEnvironmentSchema.safeParse({ networking: "wide-open" }).success).toBe(false);
+  });
 });

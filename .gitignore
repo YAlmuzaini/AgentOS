@@ -42,3 +42,12 @@ Thumbs.db
 
 # Design references
 design-refs/
+
+# Codex
+.codex/
+
+# Cursor
+.cursor/
+
+# Agents
+.agents/
