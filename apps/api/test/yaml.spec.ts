@@ -142,4 +142,91 @@ agents:
       yaml.push(projectId, "project: test\nagents:\n  broken:\n    title: x\n"),
     ).rejects.toThrow(/not valid/);
   });
+
+  /**
+   * Codex review, finding 10: a name the document references but never defines
+   * used to resolve to `null`. That is not forgiving — a mistyped credential
+   * became a connection with no credential, and a mistyped environment moved an
+   * agent into the most restricted setting there is. Both silent, both found
+   * later and for the wrong reason.
+   */
+  it("refuses a document that references a credential it does not define", async () => {
+    const { projectId } = await harness.seedProject();
+    await expect(
+      yaml.push(
+        projectId,
+        `
+project: test
+mcp:
+  front:
+    url: https://api.front.com/mcp
+    allowedOperations: []
+    credential: front-tokne
+`,
+      ),
+    ).rejects.toThrow(/front-tokne/);
+  });
+
+  it("refuses a document that puts an agent in an environment it does not define", async () => {
+    const { projectId } = await harness.seedProject();
+    await expect(
+      yaml.push(
+        projectId,
+        `
+project: test
+agents:
+  lonely:
+    title: Lonely
+    model: claude-sonnet-5
+    prompt: Do the thing.
+    environment: nowhere
+`,
+      ),
+    ).rejects.toThrow(/nowhere/);
+  });
+
+  /** The new columns survive the round trip like every other field. */
+  it("round-trips an agent's description, category and recommended skills", async () => {
+    const { projectId } = await harness.seedProject();
+    await templates.installBuiltIns(projectId);
+
+    const document = `
+project: test
+skills:
+  house-style:
+    name: House style
+    description: How we write things here, and when that matters.
+    category: engineering
+    kind: prompt
+    body: Write plainly.
+    filePath: null
+agents:
+  scribe:
+    title: Scribe
+    description: Writes the things nobody else will write.
+    category: research
+    model: claude-sonnet-5
+    prompt: Write it down.
+    skills:
+      - house-style
+    mcp: []
+    repos: []
+    filesystem: []
+    collaboration: []
+    environment: null
+    runner: inherit
+    inbox: true
+`;
+    await yaml.push(projectId, document);
+
+    const pulled = await yaml.pull(projectId);
+    expect(pulled).toContain("Writes the things nobody else will write.");
+    expect(pulled).toContain("category: research");
+    expect(pulled).toContain("house-style");
+
+    // And the property that matters: pulling, pushing and pulling again is
+    // stable, which is what makes the file safe to keep in git.
+    await yaml.push(projectId, pulled);
+    expect(await yaml.pull(projectId)).toBe(pulled);
+  });
 });

@@ -65,13 +65,21 @@ export const COMPOUND_ENGINEER_TEMPLATE: CreateTemplateInput = {
         "has an E2E suite, it must pass before you finish. Commit.",
     },
     {
+      // `code-review-coordinator`, not `review-coordinator`. The two are
+      // different jobs with different collaboration lists: the plan coordinator
+      // may spawn the four plan lenses and nobody else, so dispatching a *code*
+      // review to it produced a coordinator instructed to spawn specialists it
+      // had no authorisation to spawn — the step ran, spawned nothing, and
+      // attached a report written from one model's own reading.
       name: "Code review",
-      agentName: "review-coordinator",
+      agentName: "code-review-coordinator",
       approvalGate: false,
       attachmentsFromPrevious: true,
       prompt:
         "Review the implementation on branch {{branchName}}. Spawn the code-review " +
-        "specialists. Consolidate into must-fix and should-fix, each with the file and line " +
+        "specialists on your collaboration list — security-reviewer, test-auditor, " +
+        "simplifier, performance-reviewer — each reading through its own lens only. " +
+        "Consolidate into must-fix and should-fix, each with the file and line " +
         "it applies to. Attach the report.",
     },
     {

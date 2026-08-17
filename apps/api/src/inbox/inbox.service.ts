@@ -9,6 +9,7 @@ import type {
 } from "@agentos/shared";
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
+import { redactRegistered } from "../observability/secret-registry";
 import { DATABASE } from "../db/db.module";
 import { normaliseAnswers, renderAnswers } from "./inbox-answers";
 import { inboxContext, type InboxRow, toDto } from "./inbox-dto";
@@ -113,7 +114,9 @@ export class InboxService {
         taskId: input.taskId,
         goalId: input.goalId ?? null,
         kind: input.kind,
-        body: input.body,
+        // Reaches a push notification and the operator's screen, so it is a
+        // sink like any other.
+        body: redactRegistered(input.body),
         choices: input.choices ?? [],
         questions: input.questions ?? [],
         runtimeToolUseId: input.runtimeToolUseId,

@@ -1,6 +1,7 @@
 import { type Database, goals } from "@agentos/db";
 import { Global, Inject, Injectable, Module } from "@nestjs/common";
 import { eq, sql } from "drizzle-orm";
+import { redactRegistered } from "../observability/secret-registry";
 import { DATABASE } from "../db/db.module";
 import { GoalLeases } from "./goal-leases";
 
@@ -30,7 +31,12 @@ export class GoalLogService {
     body: string,
     options: { marksProgress?: boolean } = {},
   ): Promise<void> {
-    const entry = `\n[${new Date().toISOString()}] ${author}: ${body.trim()}`;
+    // The other persistence sink for runner-authored text. A session summary
+    // is assembled from agent messages and tool results and lands here, so it
+    // gets the same scrub as `sessions.error` — and for the same reason:
+    // chasing every source of a string is unwinnable, so the boundary where it
+    // becomes a row is where the guarantee lives.
+    const entry = redactRegistered(`\n[${new Date().toISOString()}] ${author}: ${body.trim()}`);
     await this.db
       .update(goals)
       .set({

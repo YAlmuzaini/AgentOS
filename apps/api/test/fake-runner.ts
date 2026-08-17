@@ -1,5 +1,6 @@
 import type {
   CommitRecord,
+  PublishOutcome,
   ProvisionInput,
   Runner,
   RunnerEvent,
@@ -21,7 +22,7 @@ export interface ScriptedToolCall {
 
 export type Script = Array<
   | { kind: "tool"; call: ScriptedToolCall }
-  | { kind: "log"; type: string; summary?: string }
+  | { kind: "log"; type: string; summary?: string; name?: string }
 >;
 
 export class FakeRunner implements Runner {
@@ -148,7 +149,13 @@ export class FakeRunner implements Runner {
         };
         continue;
       }
-      yield { kind: "log", eventId, type: step.type, name: null, summary: step.summary ?? "" };
+      yield {
+        kind: "log",
+        eventId,
+        type: step.type,
+        name: step.name ?? null,
+        summary: step.summary ?? "",
+      };
     }
 
     yield { kind: "idle", stopReason: "end_turn" };
@@ -172,6 +179,29 @@ export class FakeRunner implements Runner {
 
   async collectCommits(): Promise<CommitRecord[]> {
     return this.commits ?? [];
+  }
+
+  /** What the next teardown's publish step will report. Unset means no push. */
+  publishWith(outcome: PublishOutcome | null): void {
+    this.publishOutcome = outcome;
+  }
+
+  private publishOutcome: PublishOutcome | null = null;
+
+  /** Makes the next publish call fail the way an unreachable worker does. */
+  failNextPublish(error: Error): void {
+    this.failPublishWith = error;
+  }
+
+  private failPublishWith: Error | null = null;
+
+  async publish(): Promise<PublishOutcome> {
+    if (this.failPublishWith) {
+      const error = this.failPublishWith;
+      this.failPublishWith = null;
+      throw error;
+    }
+    return this.publishOutcome ?? { records: [], retainedWorkspace: null };
   }
 
   /** Makes the next destroy fail, the way a provider outage would. */

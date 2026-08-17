@@ -10,6 +10,7 @@ import {
 } from "@agentos/db";
 import { type AgentosDocument, FOUNDATIONAL_PROMPT } from "@agentos/shared";
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { eq } from "drizzle-orm";
 import { DATABASE } from "../db/db.module";
 
 /**
@@ -19,6 +20,48 @@ import { DATABASE } from "../db/db.module";
  * that reference them, then agents last because agents reference everything.
  * Every write is keyed by name, which is what makes `push` idempotent.
  */
+/**
+ * Refuses a name the document references but never defines.
+ *
+ * Resolving it to `null` looked forgiving and was not: a mistyped credential
+ * produced a resource with no credential, and a mistyped environment moved an
+ * agent into "no environment", which is the most restricted setting there is —
+ * both silent, both only discovered when a session failed for an unrelated
+ * reason.
+ */
+function requireDefined(
+  known: Map<string, string>,
+  reference: string | null | undefined,
+  what: string,
+): void {
+  if (reference && !known.has(reference)) {
+    throw new BadRequestException(`${what} refers to "${reference}", which this document does not define`);
+  }
+}
+
+export interface McpEndpoint {
+  name: string;
+  url: string;
+  credentialSecretId: string | null;
+  providerRef: string | null;
+}
+
+/** Same server, same credential — so an existing verification still refers to it. */
+function sameEndpoint(
+  previous: { url: string; credentialSecretId: string | null; providerRef: string | null },
+  url: string,
+  credentialSecretId: string | null,
+  providerRef: string | null,
+): boolean {
+  return (
+    previous.url === url &&
+    previous.credentialSecretId === credentialSecretId &&
+    // A null previous providerRef means there was no credential attached; the
+    // id comparison above already covers that transition.
+    (previous.providerRef === null || previous.providerRef === providerRef)
+  );
+}
+
 @Injectable()
 export class DocumentWriter {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -71,13 +114,46 @@ export class DocumentWriter {
     return ids;
   }
 
+  /**
+   * What each MCP connection points at right now.
+   *
+   * Read by `push` **before** any upsert runs, because that is the only moment
+   * the previous state still exists: `upsertSecrets` happens first, so reading
+   * the providerRef inside `upsertMcp` compares the new value with itself and
+   * a repointed secret never invalidates its verification.
+   */
+  async mcpEndpoints(projectId: string): Promise<Map<string, McpEndpoint>> {
+    const rows = await this.db
+      .select({
+        name: mcpConnections.name,
+        url: mcpConnections.url,
+        credentialSecretId: mcpConnections.credentialSecretId,
+        // The secret's *target*, not just its id. A push can leave a secret's
+        // id alone and repoint its `providerRef` at a different variable, which
+        // means the connection resolves a different credential while looking
+        // unchanged.
+        providerRef: secretRefs.providerRef,
+      })
+      .from(mcpConnections)
+      .leftJoin(secretRefs, eq(secretRefs.id, mcpConnections.credentialSecretId))
+      .where(eq(mcpConnections.projectId, projectId));
+    return new Map(rows.map((row) => [row.name, row]));
+  }
+
   async upsertMcp(
     projectId: string,
     document: AgentosDocument,
     secretIds: Map<string, string>,
+    before: Map<string, McpEndpoint>,
   ): Promise<Map<string, string>> {
     const ids = new Map<string, string>();
+
     for (const [name, connection] of Object.entries(document.mcp)) {
+      // A credential name the document does not define used to resolve to
+      // `null`, which is not "no credential" — it is a typo silently becoming
+      // an unauthenticated connection that fails on its first call, and a
+      // `pull` that no longer matches the file that was pushed.
+      requireDefined(secretIds, connection.credential, `mcp "${name}" credential`);
       const [row] = await this.db
         .insert(mcpConnections)
         .values({
@@ -100,6 +176,26 @@ export class DocumentWriter {
         })
         .returning();
       ids.set(name, row!.id);
+
+      // A verification is a statement about a URL and a credential, and this is
+      // the second door that can change either. The REST path already cleared
+      // it; `agentos push` did not, so a connection could be repointed at a
+      // different server through the file and keep its green tick.
+      const credentialId = connection.credential
+        ? (secretIds.get(connection.credential) ?? null)
+        : null;
+      const providerRef = connection.credential
+        ? (document.secrets[connection.credential]?.providerRef ?? null)
+        : null;
+      if (
+        before.has(name) &&
+        !sameEndpoint(before.get(name)!, connection.url, credentialId, providerRef)
+      ) {
+        await this.db
+          .update(mcpConnections)
+          .set({ verifiedAt: null, verifiedTools: [], verifyError: null })
+          .where(eq(mcpConnections.id, row!.id));
+      }
     }
     return ids;
   }
@@ -111,6 +207,7 @@ export class DocumentWriter {
   ): Promise<Map<string, string>> {
     const ids = new Map<string, string>();
     for (const [name, repo] of Object.entries(document.repos)) {
+      requireDefined(secretIds, repo.credential, `repo "${name}" credential`);
       const credentialSecretId = repo.credential ? (secretIds.get(repo.credential) ?? null) : null;
       const [row] = await this.db
         .insert(repos)
@@ -150,6 +247,8 @@ export class DocumentWriter {
           projectId,
           slug,
           name: skill.name,
+          description: skill.description,
+          category: skill.category,
           kind: skill.kind,
           body: skill.body,
           filePath: skill.filePath,
@@ -158,6 +257,8 @@ export class DocumentWriter {
           target: [skills.projectId, skills.slug],
           set: {
             name: skill.name,
+            description: skill.description,
+            category: skill.category,
             kind: skill.kind,
             body: skill.body,
             filePath: skill.filePath,
@@ -224,10 +325,14 @@ export class DocumentWriter {
         );
       }
 
+      requireDefined(context.environmentIds, agent.environment, `agent "${name}" environment`);
+
       const values = {
         projectId,
         name,
         title: agent.title,
+        description: agent.description,
+        category: agent.category,
         model: agent.model,
         foundationalPrompt: FOUNDATIONAL_PROMPT,
         rolePrompt: agent.prompt,

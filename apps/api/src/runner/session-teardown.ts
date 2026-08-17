@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ERROR_REPORTER, type ErrorReporter } from "../observability/error-reporter";
 import { SessionsService } from "../sessions/sessions.service";
-import type { Runner, RunnerHandle } from "./runner.types";
+import { safeToDestroyAfterPublish, type Runner, type RunnerHandle } from "./runner.types";
 
 /**
  * Ending a session: recording what happened, and freeing the container.
@@ -41,12 +41,25 @@ export class SessionTeardown {
     // every failure — a repeatable failure could spend the cap many times over
     // while the cap read as untouched.
     const costUsd = await this.readCostQuietly(runner, handle);
+    // A run that broke half way still committed real work, and the workspace is
+    // about to go. Collecting and pushing here as well as on the success path is
+    // the difference between "the session failed" and "the session failed and
+    // took three hours of commits with it".
+    let safeToDestroy = true;
+    if (handle) {
+      await this.collectCommits(runner, handle, sessionId);
+      ({ safeToDestroy } = await this.publish(runner, handle, sessionId));
+    }
     try {
       await this.sessions.finish(sessionId, { status: "failed", error: String(error), costUsd });
     } catch (recordError) {
       this.logger.error(`session ${sessionId}: could not record the failure: ${String(recordError)}`);
     } finally {
-      await this.destroyQuietly(runner, handle, sessionId);
+      if (safeToDestroy) {
+        await this.destroyQuietly(runner, handle, sessionId);
+      } else {
+        await this.deferDestroy(sessionId);
+      }
     }
     return costUsd;
   }
@@ -71,6 +84,28 @@ export class SessionTeardown {
       this.logger.warn(`could not read spend for ${handle.runtimeSessionId}: ${String(error)}`);
       return null;
     }
+  }
+
+  /**
+   * Records that the container was deliberately left running.
+   *
+   * Only reachable on the local backend, and only when we could not ask it
+   * whether the work was pushed. A local workspace costs disk on a machine the
+   * operator owns; deleting commits that exist nowhere else costs the run. The
+   * row keeps its runtime handle, so the orphan sweep and any later teardown
+   * find it again.
+   */
+  private async deferDestroy(sessionId: string): Promise<void> {
+    await this.sessions
+      .recordDestroyFailure(
+        sessionId,
+        "the workspace was not destroyed: this session's commits could not be confirmed as " +
+          "pushed, and deleting it could have discarded the only copy. Retry once the worker " +
+          "is reachable.",
+      )
+      .catch((error: unknown) =>
+        this.logger.error(`session ${sessionId}: ${String(error)}`),
+      );
   }
 
   /**
@@ -154,29 +189,105 @@ export class SessionTeardown {
           `session ${sessionId} produced ${commits.length} commit(s): ` +
             commits.map((commit) => `${commit.repo}@${commit.sha.slice(0, 8)}`).join(", "),
         );
-        // Observed commits come from a workspace that is about to be deleted,
-        // and this backend holds no push credential — it strips the token from
-        // the remote after cloning. Recording the shas without saying that
-        // would leave a session row implying work survived when it did not.
-        // Written to the tool-call log because the event stream has ended by
-        // now: this is the last thing the operator will read about the run.
-        if (runner.name === "local") {
-          await this.sessions.appendToolCalls(sessionId, [
-            {
-              at: new Date().toISOString(),
-              type: "runner.warning",
-              name: null,
-              eventId: null,
-              summary:
-                `${commits.length} commit(s) existed only in this worker's workspace, which is ` +
-                "now deleted: the local backend cannot push. Run git-write agents on the cloud " +
-                "runner, whose runtime git proxy can.",
-            },
-          ]);
-        }
       }
     } catch (error) {
       this.logger.warn(`session ${sessionId}: could not read its commits: ${String(error)}`);
+    }
+  }
+
+  /**
+   * Pushes the session's commits, while there is still a workspace to push
+   * from.
+   *
+   * This is the step that makes a local coding session mean anything. The
+   * agent commits into a directory that is about to be deleted and holds no
+   * push credential — the clone's remote is stripped of its token precisely so
+   * the agent cannot reach one. The worker kept that token, so the worker does
+   * the push, here, after the run has ended.
+   *
+   * Never fatal. A push that fails must not stop the session from ending; what
+   * it does instead is make the worker keep the workspace, and the row below is
+   * how the operator finds out where.
+   */
+  private async publish(
+    runner: Runner,
+    handle: RunnerHandle,
+    sessionId: string,
+  ): Promise<{ safeToDestroy: boolean }> {
+    if (!runner.publish) {
+      return { safeToDestroy: true };
+    }
+    try {
+      const outcome = await runner.publish(handle);
+      if (outcome.forgotten) {
+        // Worth a line on the session, because nothing else will say it: if
+        // this run committed anything, it is now in a directory on the worker
+        // rather than on a remote.
+        await this.sessions.appendToolCalls(sessionId, [
+          {
+            at: new Date().toISOString(),
+            type: "runner.warning",
+            name: null,
+            eventId: null,
+            summary:
+              "the local worker restarted before this session's commits could be pushed. If it " +
+              "produced any, the worker kept its workspace under a `quarantine-` directory — " +
+              "recover them there, then remove it.",
+          },
+        ]);
+        return { safeToDestroy: true };
+      }
+      if (outcome.records.length === 0) {
+        return { safeToDestroy: true };
+      }
+      await this.sessions.recordPublish(sessionId, outcome);
+
+      const failed = outcome.records.filter((record) => !record.pushed);
+      const pushed = outcome.records.filter((record) => record.pushed && record.commits > 0);
+      if (pushed.length > 0) {
+        this.logger.log(
+          `session ${sessionId} pushed ${pushed.map((r) => `${r.repo}→${r.branch}`).join(", ")}`,
+        );
+      }
+      if (failed.length === 0) {
+        return { safeToDestroy: true };
+      }
+
+      // The event stream has ended by now, so the tool-call log is the last
+      // place the operator will read anything about this run — and a failed
+      // push is the one outcome they have to act on by hand.
+      await this.sessions.appendToolCalls(sessionId, [
+        {
+          at: new Date().toISOString(),
+          type: "runner.warning",
+          name: null,
+          eventId: null,
+          summary:
+            `could not push ${failed.map((r) => `${r.repo} (${r.error ?? "unknown error"})`).join("; ")}` +
+            (outcome.retainedWorkspace
+              ? `. The worker kept the workspace at ${outcome.retainedWorkspace} rather than ` +
+                "deleting the only copy of the work — recover it by hand, then remove the directory."
+              : "."),
+        },
+      ]);
+      this.logger.error(
+        `session ${sessionId}: push failed for ${failed.map((r) => r.repo).join(", ")}` +
+          (outcome.retainedWorkspace ? `; workspace retained at ${outcome.retainedWorkspace}` : ""),
+      );
+      return { safeToDestroy: safeToDestroyAfterPublish(outcome).safe };
+    } catch (error) {
+      // We could not even ask. That is the dangerous case: the worker may be
+      // holding a workspace full of commits that reached no remote, and
+      // destroying it now would delete the only copy. Leave it. The session
+      // stays visible to the worker's own listing, so the orphan sweep and a
+      // later teardown are real retries — and a local workspace costs disk,
+      // not money, which is the trade worth making here.
+      this.logger.error(
+        `session ${sessionId}: could not publish its commits (${String(error)}); ` +
+          "the workspace is being left in place rather than destroyed, because it may hold " +
+          "commits that exist nowhere else",
+      );
+      return { safeToDestroy: false };
     }
   }
 
@@ -195,6 +306,12 @@ export class SessionTeardown {
     failure: string | null,
   ): Promise<number | null> {
     await this.collectCommits(runner, handle, sessionId);
+    // After collecting, before destroying — the only window where the commits
+    // both exist and are still reachable. Runs on the failure path too: a
+    // session that broke half way still committed real work, and throwing it
+    // away because the run ended badly is the loss this whole path exists to
+    // prevent. The branch is the operator's to review either way.
+    const { safeToDestroy } = await this.publish(runner, handle, sessionId);
     const costUsd = await runner.readCost(handle);
     try {
       await this.sessions.finish(sessionId, {
@@ -203,7 +320,11 @@ export class SessionTeardown {
         costUsd,
       });
     } finally {
-      await this.destroyQuietly(runner, handle, sessionId);
+      if (safeToDestroy) {
+        await this.destroyQuietly(runner, handle, sessionId);
+      } else {
+        await this.deferDestroy(sessionId);
+      }
     }
     return costUsd;
   }

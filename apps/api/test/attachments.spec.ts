@@ -229,18 +229,31 @@ describe("attachments and commits", () => {
   });
 
   /**
-   * A commit that only exists in a workspace about to be deleted is not a
-   * result, and the local backend cannot push. The session has to say so.
+   * The local backend pushes before its workspace is deleted, and the session
+   * records where the work ended up. This used to be the opposite test — the
+   * commits died with the directory and the row said so — which made local
+   * `git-write` sessions produce shas and nothing a human could reach.
    */
-  it("says on the session when a local backend's commits died with its workspace", async () => {
+  it("records the remote the local backend pushed a session's commits to", async () => {
     const { projectId, agentIds } = await harness.seedProject();
     const task = await card(projectId, agentIds["senior-dev"]!, "Implement locally");
 
-    // The fake backend stands in for the local worker: same contract, and the
-    // control plane decides what the operator is told.
     harness.runner.collectCommitsWith("local", [
       { repo: "app", sha: "d".repeat(40), subject: "work" },
     ]);
+    harness.runner.publishWith({
+      records: [
+        {
+          repo: "app",
+          branch: "feat/x",
+          pushed: true,
+          remoteSha: "d".repeat(40),
+          commits: 1,
+          error: null,
+        },
+      ],
+      retainedWorkspace: null,
+    });
     harness.runner.setScript([
       { kind: "tool", call: { name: "agentos_update_task", input: { status: "done" } } },
     ]);
@@ -249,8 +262,140 @@ describe("attachments and commits", () => {
 
     const [session] = await sessions.list();
     expect(session!.commitShas).toEqual(["d".repeat(40)]);
+    expect(session!.publish?.records[0]).toMatchObject({
+      repo: "app",
+      branch: "feat/x",
+      pushed: true,
+      remoteSha: "d".repeat(40),
+    });
+    // Nothing to warn about when the work reached the remote.
+    expect(session!.toolCallLog.find((entry) => entry.type === "runner.warning")).toBeUndefined();
+  });
+
+  /**
+   * The failure that must never be silent: the push did not land, so the only
+   * copy of the work is a directory on the worker. The row has to name it.
+   */
+  it("says where the workspace was kept when a push failed", async () => {
+    const { projectId, agentIds } = await harness.seedProject();
+    const task = await card(projectId, agentIds["senior-dev"]!, "Implement locally");
+
+    harness.runner.collectCommitsWith("local", [
+      { repo: "app", sha: "e".repeat(40), subject: "work" },
+    ]);
+    harness.runner.publishWith({
+      records: [
+        {
+          repo: "app",
+          branch: "feat/x",
+          pushed: false,
+          remoteSha: null,
+          commits: 2,
+          error: "non-fast-forward",
+        },
+      ],
+      retainedWorkspace: "/var/agentos/quarantine-lsesn_1",
+    });
+    harness.runner.setScript([
+      { kind: "tool", call: { name: "agentos_update_task", input: { status: "done" } } },
+    ]);
+
+    await orchestrator.runTask(task.id);
+
+    const [session] = await sessions.list();
+    expect(session!.publish?.retainedWorkspace).toBe("/var/agentos/quarantine-lsesn_1");
     const warning = session!.toolCallLog.find((entry) => entry.type === "runner.warning");
-    expect(warning?.summary).toMatch(/cannot push/);
+    expect(warning?.summary).toMatch(/could not push/);
+    expect(warning?.summary).toMatch(/quarantine-lsesn_1/);
+  });
+
+  /**
+   * Codex review, blocker 2: a `/publish` call that never reached the worker
+   * used to be swallowed, and teardown destroyed the workspace anyway — so a
+   * momentary network blip between two calls to the same worker deleted the
+   * only copy of the work. Not being able to ask is precisely when destroying
+   * is unsafe.
+   */
+  it("does not destroy the workspace when the push could not even be attempted", async () => {
+    const { projectId, agentIds } = await harness.seedProject();
+    const task = await card(projectId, agentIds["senior-dev"]!, "Implement locally");
+
+    harness.runner.collectCommitsWith("local", [
+      { repo: "app", sha: "f".repeat(40), subject: "work" },
+    ]);
+    harness.runner.failNextPublish(new Error("connect ECONNREFUSED"));
+    harness.runner.setScript([
+      { kind: "tool", call: { name: "agentos_update_task", input: { status: "done" } } },
+    ]);
+
+    await orchestrator.runTask(task.id);
+
+    const [session] = await sessions.list();
+    // The container was deliberately left alone…
+    expect(harness.runner.destroyed).toHaveLength(0);
+    // …and the row says so, in a sentence an operator can act on.
+    expect(session!.error ?? "").toMatch(/could not be confirmed as pushed/);
+  });
+
+  /**
+   * Codex round nine: the cloud runtime's events are provider-controlled and
+   * arrive verbatim. An MCP server that was handed a bearer token can echo it
+   * in an error or a tool name, and the control plane was persisting that
+   * straight into the tool-call log and the session's failure text.
+   */
+  it("scrubs a resolved secret out of anything a runner says", async () => {
+    const { projectId, agentIds } = await harness.seedProject();
+    const task = await card(projectId, agentIds["senior-dev"]!, "Leaky run");
+
+    const { registerSecret } = await import("../src/observability/secret-registry");
+    registerSecret("ghp_a_very_real_looking_token_value");
+
+    harness.runner.setScript([
+      {
+        kind: "log",
+        type: "agent.message",
+        name: "mcp__github__ghp_a_very_real_looking_token_value",
+        summary: "the server said: Authorization ghp_a_very_real_looking_token_value",
+      },
+    ]);
+
+    await orchestrator.runTask(task.id);
+
+    const [session] = await sessions.list();
+    const full = await sessions.get(session!.id);
+    const said = JSON.stringify(full.toolCallLog);
+    expect(said).not.toContain("ghp_a_very_real_looking_token_value");
+    expect(said).toContain("<redacted-secret>");
+  });
+
+  /**
+   * Codex round ten: a tool call's *arguments* are written into task activity,
+   * goal progress and inbox rows by the handlers themselves — none of which
+   * pass through the log, so scrubbing there left these untouched.
+   */
+  it("scrubs a secret out of tool-call arguments before a handler stores them", async () => {
+    const { projectId, agentIds } = await harness.seedProject();
+    const task = await card(projectId, agentIds["senior-dev"]!, "Chatty run");
+
+    const { registerSecret } = await import("../src/observability/secret-registry");
+    registerSecret("ghp_another_real_looking_token");
+
+    harness.runner.setScript([
+      {
+        kind: "tool",
+        call: {
+          name: "agentos_add_activity",
+          input: { note: "used ghp_another_real_looking_token to reach the API" },
+        },
+      },
+    ]);
+
+    await orchestrator.runTask(task.id);
+
+    const activity = await tasks.listActivity(task.id);
+    const said = JSON.stringify(activity);
+    expect(said).not.toContain("ghp_another_real_looking_token");
+    expect(said).toContain("<redacted-secret>");
   });
 
   it("refuses to record a commit from an agent with no git-write grant", async () => {

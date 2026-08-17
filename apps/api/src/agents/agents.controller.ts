@@ -1,5 +1,7 @@
 import {
   type AgentDto,
+  CATALOG_PACKS,
+  type CatalogPack,
   type CreateAgentInput,
   createAgentSchema,
   type UpdateAgentInput,
@@ -41,6 +43,24 @@ export class AgentsController {
   @Post("install-built-ins")
   installBuiltIns(@Param("projectId", ParseUUIDPipe) projectId: string): Promise<AgentDto[]> {
     return this.agents.installBuiltIns(projectId);
+  }
+
+  /** The packs, as data. Static, project-scoped for one base path in the UI. */
+  @Get("packs")
+  packs(): CatalogPack[] {
+    return CATALOG_PACKS;
+  }
+
+  /**
+   * Installs one pack's roles. Same installer, same provenance rules — a pack
+   * is a filter over the shipped catalogue, not a second way in.
+   */
+  @Post("packs/:slug/install")
+  installPack(
+    @Param("projectId", ParseUUIDPipe) projectId: string,
+    @Param("slug") slug: string,
+  ): Promise<AgentDto[]> {
+    return this.agents.installPack(projectId, slug);
   }
 
   @Get()

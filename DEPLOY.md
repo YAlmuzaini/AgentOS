@@ -100,8 +100,8 @@ separate migration step. After the first deploy, seed the roles and templates:
 docker compose -f docker-compose.prod.yml exec api node packages/db/dist/seed.js
 ```
 
-That creates one project, the fourteen role agents, two environments, and the
-two built-in templates. Then read `AGENTOS_OPERATOR_TOKEN` from the Coolify UI,
+That creates one project, the thirty-seven catalogue agents with their recommended
+skills, the twenty shipped skills, two environments, and the two built-in templates. Then read `AGENTOS_OPERATOR_TOKEN` from the Coolify UI,
 open the web app, and paste it in.
 
 ## 5. What to check before trusting it with real work
@@ -278,6 +278,7 @@ CLAUDE_CODE_OAUTH_TOKEN_FILE=/etc/agentos/claude-token   # 0600, owned by this u
 LOCAL_RUNNER_TOKEN=$(openssl rand -hex 32)
 LOCAL_RUNNER_WORK_ROOT=/var/lib/agentos-local
 LOCAL_RUNNER_MAX_SESSION_MINUTES=120
+LOCAL_RUNNER_QUARANTINE_DAYS=14
 LOCAL_RUNNER_PORT=4600
 node apps/local-runner/dist/main.js  # :4600
 ```

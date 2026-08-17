@@ -1,31 +1,21 @@
-import { BUILT_IN_TEMPLATES, FOUNDATIONAL_PROMPT, ROLE_SEEDS } from "@agentos/shared";
+import { builtInRoleInstalls, BUILT_IN_SKILLS, BUILT_IN_TEMPLATES } from "@agentos/shared";
 import { eq } from "drizzle-orm";
 import { createDatabase, requireDatabaseUrl } from "./client";
-import { agents, environments, projects, taskTemplates } from "./schema";
+import { agents, environments, projects, skills, taskTemplates } from "./schema";
 
 /**
- * Seeds one project with the ten roles SPEC §4 requires so the feature template
- * can run, plus a deny-by-default environment. Idempotent: re-running updates
- * prompts in place rather than duplicating agents.
+ * Seeds one project with the whole shipped role catalogue — the fourteen roles
+ * SPEC §4 requires so the feature template can run, plus the specialists — and
+ * a deny-by-default environment. Idempotent: re-running updates the text we
+ * author in place rather than duplicating agents.
+ *
+ * The role list, the model tiers and the collaboration lists all come from
+ * `builtInRoleInstalls()`, which is the same function the "install built-ins"
+ * endpoint calls. They were duplicated here once and drifted the first time a
+ * prompt improved.
  */
 const PROJECT_SLUG = process.env.SEED_PROJECT_SLUG ?? "acme";
 const PROJECT_NAME = process.env.SEED_PROJECT_NAME ?? "Acme";
-const PLANNER_MODEL = "claude-opus-5";
-const WORKER_MODEL = "claude-sonnet-5";
-
-/** The only spawn paths that exist. Absent from this map means: spawns nobody. */
-const COLLABORATION: Record<string, string[]> = {
-  "review-coordinator": ["feasibility", "scope-guardian", "coherence", "plan-risk"],
-};
-
-const WORKER_ROLES = new Set([
-  "customer-support",
-  "linkedin-content",
-  "senior-dev",
-  "implementation-plan-executioner",
-  "librarian",
-  "default",
-]);
 
 async function main(): Promise<void> {
   const db = createDatabase({ url: requireDatabaseUrl(), max: 1 });
@@ -53,27 +43,55 @@ async function main(): Promise<void> {
     ]);
   }
 
-  for (const role of ROLE_SEEDS) {
-    const model = WORKER_ROLES.has(role.name) ? WORKER_MODEL : PLANNER_MODEL;
+  // Skills before agents, and in that order for a reason: a role's recommended
+  // skills are resolved by slug, so seeding agents first produced a project
+  // where every shipped skill existed and no agent held one — which is what an
+  // operator opening a fresh install actually found.
+  for (const skill of BUILT_IN_SKILLS) {
+    await db
+      .insert(skills)
+      .values({ ...skill, projectId: project.id, filePath: null, builtIn: true })
+      .onConflictDoUpdate({
+        target: [skills.projectId, skills.slug],
+        // Metadata only. The body is the operator's to edit, exactly as the
+        // installer treats it.
+        set: { description: skill.description, category: skill.category, updatedAt: new Date() },
+        setWhere: eq(skills.builtIn, true),
+      });
+  }
+  const skillIdBySlug = new Map(
+    (
+      await db
+        .select({ id: skills.id, slug: skills.slug })
+        .from(skills)
+        .where(eq(skills.projectId, project.id))
+    ).map((row) => [row.slug, row.id]),
+  );
+
+  const existingAgents = new Set(
+    (
+      await db.select({ name: agents.name }).from(agents).where(eq(agents.projectId, project.id))
+    ).map((row) => row.name),
+  );
+
+  const roles = builtInRoleInstalls();
+  for (const role of roles) {
+    // Recommendations apply to a new agent only — re-seeding must not restore a
+    // skill the operator deliberately removed.
+    const recommended = existingAgents.has(role.name)
+      ? []
+      : role.recommendedSkills.flatMap((slug) => {
+          const id = skillIdBySlug.get(slug);
+          return id ? [id] : [];
+        });
     await db
       .insert(agents)
       .values({
+        ...role,
         projectId: project.id,
         // Marks provenance: the installer only refreshes rows it created.
         builtIn: true,
-        name: role.name,
-        title: role.title,
-        model,
-        foundationalPrompt: FOUNDATIONAL_PROMPT,
-        rolePrompt: role.rolePrompt,
-        // The coordinator is the only role that spawns anyone, and it may spawn
-        // exactly the four plan reviewers (SPEC §5.10, §10 step 3).
-        collaborationList: COLLABORATION[role.name] ?? [],
-        // Inherit, so the project's own setting decides. Pinning these to
-        // "cloud" meant every seeded agent billed the API no matter what the
-        // operator chose, and nothing in the UI could change it.
-        runnerPreference: "inherit",
-        inboxAccess: true,
+        skillIds: recommended,
       })
       .onConflictDoUpdate({
         target: [agents.projectId, agents.name],
@@ -83,7 +101,9 @@ async function main(): Promise<void> {
         setWhere: eq(agents.builtIn, true),
         set: {
           title: role.title,
-          foundationalPrompt: FOUNDATIONAL_PROMPT,
+          description: role.description,
+          category: role.category,
+          foundationalPrompt: role.foundationalPrompt,
           rolePrompt: role.rolePrompt,
           // `runnerPreference` and `collaborationList` are deliberately
           // absent. What this upsert reconciles is text *we* author — titles
@@ -114,7 +134,8 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `seeded project ${project.slug}: ${ROLE_SEEDS.length} agents, ${BUILT_IN_TEMPLATES.length} templates`,
+    `seeded project ${project.slug}: ${roles.length} agents, ${BUILT_IN_SKILLS.length} skills, ` +
+      `${BUILT_IN_TEMPLATES.length} templates`,
   );
   process.exit(0);
 }

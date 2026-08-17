@@ -124,12 +124,24 @@ export function CreatePanel({
                   ) : null
                 }
               >
-                <Button type="button" variant="ghost" onClick={onClose}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="solid" disabled={disabled || pending}>
-                  {pending ? "Saving…" : submitLabel}
-                </Button>
+                {/* A panel that only presents choices — the catalogue packs,
+                    each with its own install button — has nothing to submit,
+                    and rendering both "Cancel" and "Close" asked the operator
+                    to tell two identical actions apart. It gets one. */}
+                {submitLabel ? (
+                  <>
+                    <Button type="button" variant="ghost" onClick={onClose}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" variant="solid" disabled={disabled || pending}>
+                      {pending ? "Saving…" : submitLabel}
+                    </Button>
+                  </>
+                ) : (
+                  <Button type="button" variant="outline" onClick={onClose}>
+                    Close
+                  </Button>
+                )}
               </FormActions>
             </div>
           </form>

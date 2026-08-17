@@ -128,9 +128,10 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
         // project's own runner setting. Hardcoding 'cloud' here meant the
         // routing tests could never exercise that setting at all.
         const [row] = await db.execute<{ id: string }>(sql`
-          INSERT INTO agents (project_id, name, title, model, foundational_prompt, role_prompt, runner_preference)
-          VALUES (${projectId}, ${role.name}, ${role.title}, 'claude-opus-5',
-                  ${FOUNDATIONAL_PROMPT}, ${role.rolePrompt}, 'inherit')
+          INSERT INTO agents (project_id, name, title, description, category, model,
+                              foundational_prompt, role_prompt, runner_preference)
+          VALUES (${projectId}, ${role.name}, ${role.title}, ${role.description}, ${role.category},
+                  'claude-opus-5', ${FOUNDATIONAL_PROMPT}, ${role.rolePrompt}, 'inherit')
           RETURNING id
         `);
         agentIds[role.name] = row!.id;

@@ -121,7 +121,7 @@ export async function runGrokSession(
           eventId: `grok:${turn}:text`,
           type: "agent.message",
           name: null,
-          summary: reply.content.slice(0, 280),
+          summary: session.scrub(reply.content).slice(0, 280),
         });
       }
 

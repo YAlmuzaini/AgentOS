@@ -8,7 +8,7 @@ import { SessionQueue } from "../queue/session.queue";
 import { SessionsService } from "../sessions/sessions.service";
 import { type TaskRow, TasksService } from "../tasks/tasks.service";
 import { LocalVmRunner } from "./local-runner";
-import { RunnerRouter } from "./runner-router";
+import { LocalRunnerUnavailableError, RunnerRouter } from "./runner-router";
 import { SessionProvisioner } from "./session-provisioner";
 import { SessionTeardown } from "./session-teardown";
 import { type Runner, type RunnerHandle, RUNNER_CLOUD } from "./runner.types";
@@ -54,7 +54,25 @@ export class SessionOrchestrator {
       throw new Error(`task ${taskId} has no assigned agent`);
     }
     const agent = await this.agents.requireById(task.assigneeAgentId);
-    const { runner: requested, preference } = await this.router.resolve({ agent });
+
+    let requested: Runner;
+    let preference: "cloud" | "local" | "auto";
+    try {
+      ({ runner: requested, preference } = await this.router.resolve({ agent }));
+    } catch (error) {
+      // Routing happens before any session row exists, so a routing refusal has
+      // nowhere of its own to be seen. Left as a bare throw it became a failed
+      // queue job and a log line — invisible on the board, and indistinguishable
+      // from the run simply never starting. Record it as a failed session so the
+      // operator finds the sentence that explains it.
+      await this.recordRoutingFailure(error, {
+        projectId: task.projectId,
+        agentId: agent.id,
+        taskId: task.id,
+      });
+      throw error;
+    }
+
     const session = await this.sessions.create({
       projectId: task.projectId,
       agentId: agent.id,
@@ -121,10 +139,23 @@ export class SessionOrchestrator {
     signal?: AbortSignal | null;
   }): Promise<{ sessionId: string; summary: string; costUsd: number | null; parked: boolean }> {
     const agent = await this.agents.requireByName(input.projectId, input.agentName);
-    const { runner: requested, preference } = await this.router.resolve({
-      agent,
-      goalPreference: input.runnerPreference,
-    });
+
+    let requested: Runner;
+    let preference: "cloud" | "local" | "auto";
+    try {
+      ({ runner: requested, preference } = await this.router.resolve({
+        agent,
+        goalPreference: input.runnerPreference,
+      }));
+    } catch (error) {
+      await this.recordRoutingFailure(error, {
+        projectId: input.projectId,
+        agentId: agent.id,
+        goalId: input.goalId,
+      });
+      throw error;
+    }
+
     const session = await this.sessions.create({
       projectId: input.projectId,
       agentId: agent.id,
@@ -239,6 +270,47 @@ export class SessionOrchestrator {
       }
       throw new Error(
         `provisioned ${handle.runtimeSessionId} but could not record it, so it was destroyed: ${String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * A session row for a run that never reached a runtime.
+   *
+   * Pinned to `local` because that is the only preference that refuses this
+   * way, and it is the fact the operator needs: the run did not silently move
+   * to the cloud. Nothing is provisioned, so there is nothing to destroy and no
+   * spend to read — the row exists purely so the failure is visible where every
+   * other session failure is.
+   *
+   * Best effort: if writing this record fails too, the original routing error is
+   * still the one that propagates.
+   */
+  private async recordRoutingFailure(
+    error: unknown,
+    where: { projectId: string; agentId: string; taskId?: string | null; goalId?: string | null },
+  ): Promise<void> {
+    if (!(error instanceof LocalRunnerUnavailableError)) {
+      return;
+    }
+    try {
+      const session = await this.sessions.create({
+        projectId: where.projectId,
+        agentId: where.agentId,
+        taskId: where.taskId ?? null,
+        goalId: where.goalId ?? null,
+        runner: this.localRunner.name,
+      });
+      await this.sessions.finish(session.id, {
+        status: "failed",
+        error: error.message,
+        costUsd: 0,
+      });
+      // Zero rather than null: nothing was provisioned, so this really did cost
+      // nothing, and a goal reading null would treat it as unknown spend.
+    } catch (recordError) {
+      this.logger.error(
+        `could not record the routing failure for agent ${where.agentId}: ${String(recordError)}`,
       );
     }
   }

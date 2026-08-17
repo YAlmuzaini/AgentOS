@@ -13,6 +13,7 @@ import {
   type Runner,
   type RunnerHandle,
   RUNNER_CLOUD,
+  safeToDestroyAfterPublish,
   type RuntimeSessionSummary,
 } from "./runner.types";
 
@@ -167,7 +168,18 @@ export class MaintenanceService {
           this.logger.warn(`could not read spend for ${handle.runtimeSessionId}: ${String(error)}`);
           return null;
         });
-        await this.destroy(session.id, runner, handle);
+        // A parked session that is being reaped may hold commits: it asked a
+        // question after doing work, and nobody answered. Publishing before
+        // the destroy is the same rule teardown follows, and this path had it
+        // missing — the timeout deleted the workspace and the commits with it.
+        //
+        // The answer also decides whether to destroy. Reaping frees a
+        // container, which matters most on the cloud runner where one costs
+        // money; the local worker costs disk, and disk is the cheaper thing to
+        // spend than an afternoon of commits.
+        if (await this.publishedSafely(runner, handle, session.id)) {
+          await this.destroy(session.id, runner, handle);
+        }
       }
     }
 
@@ -205,6 +217,39 @@ export class MaintenanceService {
    * a failure here has to end up somewhere the operator looks — not only in a
    * log line nobody reads.
    */
+  /**
+   * Pushes a reaped session's commits, if the backend can.
+   *
+   * Best effort and never fatal: this path exists to free a container, and a
+   * push that fails must not stop that. The worker keeps the workspace itself
+   * when a push fails, so the work is still recoverable either way.
+   */
+  private async publishedSafely(
+    runner: Runner,
+    handle: RunnerHandle,
+    sessionId: string,
+  ): Promise<boolean> {
+    if (!runner.publish) {
+      return true;
+    }
+    const outcome = await runner.publish(handle).catch((error: unknown) => {
+      this.logger.warn(`session ${sessionId}: could not publish before reaping: ${String(error)}`);
+      return null;
+    });
+    const { safe, reason } = safeToDestroyAfterPublish(outcome);
+    if (!safe) {
+      this.logger.error(`session ${sessionId}: not reaping its container — ${reason}`);
+      return false;
+    }
+    if (outcome?.retainedWorkspace) {
+      this.logger.error(
+        `session ${sessionId}: reaped with unpushed commits; workspace kept at ` +
+          outcome.retainedWorkspace,
+      );
+    }
+    return true;
+  }
+
   private async destroy(
     sessionId: string | null,
     runner: Runner,

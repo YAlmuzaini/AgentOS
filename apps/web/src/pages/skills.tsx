@@ -1,9 +1,17 @@
-import { SKILL_KINDS, type CreateSkillInput, type SkillDto } from "@agentos/shared";
+import {
+  CATEGORIES,
+  CATEGORY_LABELS,
+  SKILL_KINDS,
+  type Category,
+  type CreateSkillInput,
+  type SkillDto,
+} from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, FileCode, Plus, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
+import { CategoryFilter, countByCategory } from "../components/ui/category-filter";
 import { CreatePanel } from "../components/ui/create-panel";
 import { DeleteAction } from "../components/ui/delete-action";
 import { useConfirm } from "../components/ui/confirm";
@@ -33,6 +41,7 @@ export function SkillsPage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const projectId = project?.id;
   const [creating, setCreating] = useState(false);
+  const [filter, setFilter] = useState<Category | null>(null);
 
   const confirm = useConfirm();
 
@@ -50,11 +59,12 @@ export function SkillsPage(): React.JSX.Element {
   /**
    * Bulk creation is worth a beat, even when it cannot destroy anything.
    *
-   * The server inserts with `onConflictDoNothing` on the slug, so a skill you
-   * have edited is left exactly as it is — and that is precisely what the
-   * dialog has to say, because the operator's fear when they see "install" is
-   * that it will overwrite their work. A confirmation that only says "are you
-   * sure?" would leave them no better informed than the button did.
+   * The server never replaces a skill's text, and it only refreshes the
+   * description and category of skills it installed itself. That distinction is
+   * precisely what the dialog has to carry, because the operator's fear when
+   * they see "install" is that it will overwrite their work. A confirmation
+   * that only says "are you sure?" leaves them no better informed than the
+   * button did.
    */
   const confirmInstall = (): void =>
     confirm({
@@ -62,9 +72,11 @@ export function SkillsPage(): React.JSX.Element {
       title: "Install the built-in skills?",
       body: (
         <>
-          This adds the skills that ship with AgentOS to this project. A skill you have already
-          written or edited is left untouched — installing only fills in the ones that are
-          missing, and it is safe to run again.
+          This adds the skills that ship with AgentOS to this project.{" "}
+          <strong className="font-medium text-ink">No skill's instructions are replaced</strong> —
+          your edits to a body stay, and a skill you wrote yourself is untouched on every field.
+          Installing fills in what is missing and refreshes the description and category of the
+          built-ins it installed before. It is safe to run again.
         </>
       ),
       confirmLabel: "Install built-ins",
@@ -81,6 +93,8 @@ export function SkillsPage(): React.JSX.Element {
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState<Category>("general");
   const [kind, setKind] = useState<CreateSkillInput["kind"]>("prompt");
   const [body, setBody] = useState("");
   const [filePath, setFilePath] = useState("");
@@ -93,6 +107,7 @@ export function SkillsPage(): React.JSX.Element {
   }
 
   const list = skills.data ?? [];
+  const shown = filter ? list.filter((skill) => skill.category === filter) : list;
 
   return (
     <Page>
@@ -138,12 +153,16 @@ export function SkillsPage(): React.JSX.Element {
           await create.mutateAsync({
             name,
             slug,
+            description,
+            category,
             kind,
             body,
             filePath: kind === "file" ? filePath || null : null,
           });
           setName("");
           setSlug("");
+          setDescription("");
+          setCategory("general");
           setBody("");
           setFilePath("");
         }}
@@ -179,7 +198,34 @@ export function SkillsPage(): React.JSX.Element {
               </Select>
             )}
           </Field>
+          <Field label="Category">
+            {(id) => (
+              <Select
+                id={id}
+                value={category}
+                onChange={(event) => setCategory(event.target.value as Category)}
+              >
+                {CATEGORIES.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {CATEGORY_LABELS[entry]}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
         </div>
+        {/* What it does and when it applies — the line an operator reads while
+            deciding whether to grant it to an agent. */}
+        <Field label="Description" hint="What this skill does, and when to use it.">
+          {(id) => (
+            <Input
+              id={id}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Runs the repository's checks and pastes the real output before finishing."
+            />
+          )}
+        </Field>
         {/* The skill *is* this text, and a single-line input made anything
             longer than a sentence impossible to read while writing it. */}
         {kind === "prompt" ? (
@@ -209,6 +255,15 @@ export function SkillsPage(): React.JSX.Element {
         )}
       </CreatePanel>
 
+      {list.length > 0 ? (
+        <CategoryFilter
+          counts={countByCategory(list, CATEGORIES)}
+          value={filter}
+          onChange={setFilter}
+          total={list.length}
+        />
+      ) : null}
+
       {skills.isLoading ? (
         <Panel>
           <SkeletonRows />
@@ -233,13 +288,14 @@ export function SkillsPage(): React.JSX.Element {
             <THead>
               <tr>
                 <TH>Skill</TH>
+                <TH>Category</TH>
                 <TH>Kind</TH>
-                <TH>Body / file</TH>
+                <TH>What it is for</TH>
                 <TH aria-label="Actions" />
               </tr>
             </THead>
             <tbody>
-              {list.map((skill: SkillDto) => (
+              {shown.map((skill: SkillDto) => (
                 <TR key={skill.id}>
                   {/* Identity first: the glyph, the name, then the slug an agent
                       actually references. The slug had its own column, which put
@@ -255,17 +311,29 @@ export function SkillsPage(): React.JSX.Element {
                       </div>
                     </div>
                   </TD>
-                  {/* A kind is a category, not a state, so it stays neutral. */}
+                  {/* Both of these are facts with no state attached, so both
+                      stay neutral — the tinted tones mean something here. */}
+                  <TD>
+                    <StatusPill tone="neutral">{CATEGORY_LABELS[skill.category]}</StatusPill>
+                  </TD>
                   <TD>
                     <StatusPill tone="neutral">{skill.kind}</StatusPill>
                   </TD>
+                  {/* The description if there is one, and the content itself
+                      when there is not — a skill written before the column
+                      existed still has to say something here. */}
                   <TD
                     className={`max-w-[22rem] truncate text-xs text-ink-faint ${
-                      skill.kind === "file" ? "machine" : ""
+                      !skill.description && skill.kind === "file" ? "machine" : ""
                     }`}
-                    title={(skill.kind === "prompt" ? skill.body : skill.filePath) ?? undefined}
+                    title={
+                      skill.description ||
+                      (skill.kind === "prompt" ? skill.body : skill.filePath) ||
+                      undefined
+                    }
                   >
-                    {skill.kind === "prompt" ? skill.body : skill.filePath}
+                    {skill.description ||
+                      (skill.kind === "prompt" ? skill.body : skill.filePath)}
                   </TD>
                   <TD className="w-0 text-right">
                     <DeleteAction

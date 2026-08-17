@@ -12,6 +12,22 @@ export interface RoutingRequest {
 }
 
 /**
+ * Raised when the effective preference is `local` and no local worker can take
+ * the session.
+ *
+ * Its own class rather than a bare `Error` so callers can tell "this run cannot
+ * happen where you told it to" apart from "this run broke", and so the session
+ * record carries a reason an operator can act on. It is deliberately a hard
+ * failure: see `runnerFor`.
+ */
+export class LocalRunnerUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LocalRunnerUnavailableError";
+  }
+}
+
+/**
  * Picks the backend for one session (SPEC §16).
  *
  * Precedence, most specific first: an explicit goal preference, then the
@@ -68,8 +84,22 @@ export class RunnerRouter {
     return { runner: await this.runnerFor(preference), preference };
   }
 
+  /**
+   * `local` means local, and the failure it produces is deliberate.
+   *
+   * This used to warn and return the cloud runner when the health check failed.
+   * That is the one fallback this product cannot have: the local worker exists
+   * because it runs under a flat-fee subscription, and cloud is billed per
+   * token. An unreachable worker is a common, transient, unattended condition —
+   * the VM rebooted, the tunnel dropped — so "warn and bill the API" turns a
+   * five-minute outage into an unbounded spend that nobody is watching, and it
+   * surfaces later as a credit balance rather than as an incident.
+   *
+   * `provisionWithFallback` in the orchestrator already refused to fall back
+   * when the worker *rejected* a session under an explicit `local`. This closes
+   * the other door: the worker being *absent*. Both now fail the same way.
+   */
   private async runnerFor(preference: "cloud" | "local" | "auto"): Promise<Runner> {
-
     if (preference === "cloud") {
       return this.cloud;
     }
@@ -78,12 +108,19 @@ export class RunnerRouter {
       if (await this.local.healthy()) {
         return this.local;
       }
-      // Pinned to local but local is down: say so loudly and use cloud rather
-      // than failing the run.
-      this.logger.warn("local runner was requested but is not healthy; using cloud");
-      return this.cloud;
+      throw new LocalRunnerUnavailableError(
+        this.local.configured
+          ? `the local runner is set for this session but ${this.local.endpointForDisplay() ?? "it"} ` +
+            "is not answering, and local means local — this was not sent to the cloud, because " +
+            "cloud sessions are billed per token. Start the worker and re-run, or switch this " +
+            "agent, goal, or the project default to `auto` to allow a cloud fallback."
+          : "the local runner is set for this session but no worker is configured " +
+            "(LOCAL_RUNNER_URL is unset). This was not sent to the cloud, because cloud " +
+            "sessions are billed per token. Configure the worker, or switch to `auto`.",
+      );
     }
 
+    // `auto`, and only `auto`, degrades cost rather than availability.
     return (await this.local.healthy()) ? this.local : this.cloud;
   }
 

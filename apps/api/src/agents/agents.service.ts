@@ -1,7 +1,8 @@
-import { agents, type Database } from "@agentos/db";
+import { agents, type Database, skills } from "@agentos/db";
 import {
   type AgentDto,
   builtInRoleInstalls,
+  findPack,
   type CreateAgentInput,
   FOUNDATIONAL_PROMPT,
   type UpdateAgentInput,
@@ -70,22 +71,56 @@ export class AgentsService {
    * behaviour — rewritten by an installer they ran for unrelated reasons.
    * `built_in` is the provenance marker that makes the difference visible.
    */
-  async installBuiltIns(projectId: string): Promise<AgentDto[]> {
+  async installBuiltIns(projectId: string, onlyNames?: string[]): Promise<AgentDto[]> {
     await this.projects.require(projectId);
+
+    const wanted = onlyNames ? new Set(onlyNames) : null;
+    const roles = builtInRoleInstalls().filter((role) => !wanted || wanted.has(role.name));
+
+    // Which names already exist decides whether recommended skills are applied
+    // at all: they are a starting point for a new agent, never a correction to
+    // an existing one. Read once rather than per role.
+    const existing = new Set(
+      (
+        await this.db
+          .select({ name: agents.name })
+          .from(agents)
+          .where(eq(agents.projectId, projectId))
+      ).map((row) => row.name),
+    );
+    const skillIdBySlug = await this.skillIds(projectId);
+
     const installed: AgentDto[] = [];
-    for (const role of builtInRoleInstalls()) {
+    for (const role of roles) {
+      // Recommendations, resolved against what this project actually has. A
+      // slug whose skill is not installed is skipped rather than failing the
+      // install — skills and agents are two buttons, pressed in either order.
+      const recommended = existing.has(role.name)
+        ? []
+        : role.recommendedSkills.flatMap((slug) => {
+            const id = skillIdBySlug.get(slug);
+            return id ? [id] : [];
+          });
+
       const [row] = await this.db
         .insert(agents)
-        .values({ ...role, projectId, builtIn: true })
+        .values({ ...role, projectId, builtIn: true, skillIds: recommended })
         .onConflictDoUpdate({
           target: [agents.projectId, agents.name],
           set: {
             title: role.title,
+            // Description and category are ours to author, exactly like the
+            // title: re-installing is how a project picks up a better one.
+            description: role.description,
+            category: role.category,
             foundationalPrompt: role.foundationalPrompt,
             rolePrompt: role.rolePrompt,
             updatedAt: new Date(),
           },
           // An operator's own agent with this name keeps everything it has.
+          // `skillIds` is absent from this set on purpose: an operator who
+          // removed a recommended skill meant it, and a re-install that put it
+          // back would be the same bug as a re-seed rewriting a role prompt.
           setWhere: eq(agents.builtIn, true),
         })
         .returning();
@@ -94,6 +129,31 @@ export class AgentsService {
       }
     }
     return installed;
+  }
+
+  /**
+   * Installs one catalogue pack.
+   *
+   * A pack is a named subset of the same shipped roles, so this is
+   * `installBuiltIns` with a filter rather than a second code path — which is
+   * what keeps provenance, collision handling and the recommended-skill rule
+   * identical between the two.
+   */
+  async installPack(projectId: string, slug: string): Promise<AgentDto[]> {
+    const pack = findPack(slug);
+    if (!pack) {
+      throw new NotFoundException(`no catalogue pack named "${slug}"`);
+    }
+    return this.installBuiltIns(projectId, pack.roles);
+  }
+
+  /** Slug → id for the skills this project has, for resolving recommendations. */
+  private async skillIds(projectId: string): Promise<Map<string, string>> {
+    const rows = await this.db
+      .select({ id: skills.id, slug: skills.slug })
+      .from(skills)
+      .where(eq(skills.projectId, projectId));
+    return new Map(rows.map((row) => [row.slug, row.id]));
   }
 
   async get(projectId: string, id: string): Promise<AgentDto> {
@@ -160,6 +220,8 @@ export function toDto(row: AgentRow): AgentDto {
     projectId: row.projectId,
     name: row.name,
     title: row.title,
+    description: row.description,
+    category: row.category as AgentDto["category"],
     model: row.model,
     foundationalPrompt: row.foundationalPrompt,
     rolePrompt: row.rolePrompt,

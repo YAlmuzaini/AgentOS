@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { APP_CONFIG, type AppConfig } from "../config/config";
 import type {
+  PublishOutcome,
   CommitRecord,
   ProvisionInput,
   Runner,
@@ -191,7 +192,16 @@ export class LocalVmRunner implements Runner {
    * the session, and nothing downstream could record or retry it.
    */
   async destroy(handle: RunnerHandle): Promise<void> {
-    await this.call(`/sessions/${handle.runtimeSessionId}`, { method: "DELETE" });
+    // A 404 means the worker has no such session, which is the *goal* state,
+    // not a failure. Treating it as one made teardown non-idempotent in the
+    // ordinary case: the first DELETE succeeds, its 204 is lost to a dropped
+    // connection, the retry gets 404, and the session row is stamped
+    // "container was not destroyed" for a container that certainly was —
+    // sending someone to look for a workspace that no longer exists.
+    await this.call(`/sessions/${handle.runtimeSessionId}`, {
+      method: "DELETE",
+      allowNotFound: true,
+    });
   }
 
   /**
@@ -205,6 +215,57 @@ export class LocalVmRunner implements Runner {
     const response = await this.call(`/sessions/${handle.runtimeSessionId}/commits`);
     const body = (await response.json()) as CommitRecord[];
     return Array.isArray(body) ? body : [];
+  }
+
+  /**
+   * Pushes this session's commits to the granted remotes.
+   *
+   * The worker holds the installation token; the agent never did. Failure is
+   * reported rather than thrown so teardown continues — the important part of a
+   * failed push is that the worker kept the workspace, and the operator needs
+   * the session row to say so.
+   */
+  async publish(handle: RunnerHandle): Promise<PublishOutcome> {
+    const response = await this.call(`/sessions/${handle.runtimeSessionId}/publish`, {
+      method: "POST",
+      // The worker has already forgotten this session: there is no workspace
+      // left to push from, and saying so is not the same as failing to ask.
+      allowNotFound: true,
+    });
+    if (response.status === 404) {
+      // A 404 is two different answers wearing one status. It means "no such
+      // session" from a worker that has this route, and "no such route" from
+      // one that predates it — and the second is a *live* session whose
+      // commits are still there. Destroying on that reading deletes them, so
+      // the worker is asked what it can do before the 404 is believed.
+      if (!(await this.supportsPublish())) {
+        throw new Error(
+          "this worker does not implement /publish, so whether this session's commits were " +
+            "pushed cannot be established. Upgrade the worker, or recover the workspace by hand.",
+        );
+      }
+      // The worker has this route and still says no such session: it
+      // restarted. Its boot sweep keeps any workspace that held a checkout,
+      // and that directory is the only place the work now exists.
+      return { records: [], retainedWorkspace: null, forgotten: true };
+    }
+    const body = (await response.json()) as PublishOutcome;
+    return {
+      records: Array.isArray(body?.records) ? body.records : [],
+      retainedWorkspace: body?.retainedWorkspace ?? null,
+    };
+  }
+
+  /** Whether this worker implements `/publish`, per its own health report. */
+  private async supportsPublish(): Promise<boolean> {
+    try {
+      const response = await this.call("/health");
+      const body = (await response.json()) as { capabilities?: unknown };
+      return Array.isArray(body.capabilities) && body.capabilities.includes("publish");
+    } catch {
+      // Could not ask, so nothing is established.
+      return false;
+    }
   }
 
   /**
@@ -239,15 +300,19 @@ export class LocalVmRunner implements Runner {
     };
   }
 
-  private async call(route: string, init: RequestInit = {}): Promise<Response> {
+  private async call(
+    route: string,
+    init: RequestInit & { allowNotFound?: boolean } = {},
+  ): Promise<Response> {
     if (!this.configured) {
       throw new Error("LOCAL_RUNNER_URL is not set");
     }
+    const { allowNotFound, ...request } = init;
     const response = await fetch(`${this.base()}${route}`, {
-      ...init,
+      ...request,
       headers: { ...this.headers(), ...(init.headers ?? {}) },
     });
-    if (!response.ok) {
+    if (!response.ok && !(allowNotFound && response.status === 404)) {
       throw new Error(`local runner ${route}: ${response.status} ${await response.text()}`);
     }
     return response;

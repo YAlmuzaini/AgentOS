@@ -38,6 +38,25 @@ export interface ProvisionBody {
   budgetUsd: number | null;
 }
 
+/** One repository's outcome from the publish step. */
+export interface PublishRecord {
+  repo: string;
+  branch: string;
+  pushed: boolean;
+  remoteSha: string | null;
+  commits: number;
+  error: string | null;
+}
+
+export interface PublishResponse {
+  records: PublishRecord[];
+  /**
+   * Set when a push failed and the worker kept the workspace rather than
+   * deleting the only copy of the work. An operator path, not an automatic one.
+   */
+  retainedWorkspace: string | null;
+}
+
 export type RunnerEvent =
   | { kind: "log"; type: string; name: string | null; summary: string; eventId: string | null }
   | {

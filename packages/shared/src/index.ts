@@ -15,6 +15,5 @@ export * from "./contracts/task";
 export * from "./contracts/session";
 export * from "./contracts/inbox";
 export * from "./prompts/foundational";
-export * from "./prompts/roles";
-export * from "./prompts/skills";
+export * from "./catalog";
 export * from "./contracts/settings";

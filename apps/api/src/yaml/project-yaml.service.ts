@@ -100,7 +100,14 @@ export class ProjectYamlService {
       skills: Object.fromEntries(
         skillRows.map((row) => [
           row.slug,
-          { name: row.name, kind: row.kind, body: row.body, filePath: row.filePath },
+          {
+            name: row.name,
+            description: row.description,
+            category: row.category,
+            kind: row.kind,
+            body: row.body,
+            filePath: row.filePath,
+          },
         ]),
       ),
       agents: Object.fromEntries(
@@ -108,6 +115,8 @@ export class ProjectYamlService {
           row.name,
           {
             title: row.title,
+            description: row.description,
+            category: row.category,
             model: row.model,
             prompt: row.rolePrompt,
             skills: row.skillIds.flatMap((id) => (skillSlug.has(id) ? [skillSlug.get(id)!] : [])),
@@ -169,9 +178,16 @@ export class ProjectYamlService {
     const before = await this.read(projectId, project.slug);
     const result: PushResult = { created: [], updated: [], skipped: [] };
 
+    // Taken before anything is written. `upsertMcp` needs to know what each
+    // connection pointed at *before* this push in order to invalidate a stale
+    // verification — and reading it after `upsertSecrets` compared the new
+    // providerRef with itself, so repointing a secret's target kept the green
+    // tick.
+    const endpointsBefore = await this.writer.mcpEndpoints(projectId);
+
     const secretIds = await this.writer.upsertSecrets(projectId, document);
     const environmentIds = await this.writer.upsertEnvironments(projectId, document);
-    const mcpIds = await this.writer.upsertMcp(projectId, document, secretIds);
+    const mcpIds = await this.writer.upsertMcp(projectId, document, secretIds, endpointsBefore);
     const repoIds = await this.writer.upsertRepos(projectId, document, secretIds);
     const skillIds = await this.writer.upsertSkills(projectId, document);
     await this.writer.upsertTemplates(projectId, document);

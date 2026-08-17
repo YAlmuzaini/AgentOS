@@ -30,6 +30,18 @@ export const agents = pgTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     title: text("title").notNull(),
+    /**
+     * What this agent is for, and when to reach for it.
+     *
+     * The operator's question at the moment of assigning a task is "who does
+     * this?", and a title alone does not answer it once there are more than a
+     * dozen roles. Defaults to empty rather than null so every read path has a
+     * string; an agent written before this column existed shows nothing rather
+     * than "null".
+     */
+    description: text("description").notNull().default(""),
+    /** One of `CATEGORY`, for grouping and filtering. Never null. */
+    category: text("category").notNull().default("general"),
     model: text("model").notNull(),
     foundationalPrompt: text("foundational_prompt").notNull(),
     rolePrompt: text("role_prompt").notNull(),

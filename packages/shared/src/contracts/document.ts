@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { CATEGORIES } from "../catalog/categories";
 import { NETWORKING_MODES, REPO_PERMISSIONS, RUNNER_PREFERENCES } from "../enums";
-import { mountPathSchema } from "./resources";
+import { mcpUrlSchema, mountPathSchema } from "./resources";
 import { filesystemGrantSchema } from "./agent";
 import { slugSchema } from "./project";
 import { templateStepSchema } from "./template";
@@ -20,6 +21,13 @@ export const documentEnvironmentSchema = z.object({
 
 export const documentAgentSchema = z.object({
   title: z.string().min(1),
+  /**
+   * Defaulted rather than required, so a hand-written agent stays three lines
+   * long. `pull` always writes it, which is what keeps push-then-pull an
+   * identity once the field exists on the row.
+   */
+  description: z.string().max(1024).default(""),
+  category: z.enum(CATEGORIES).default("general"),
   model: z.string().min(1),
   prompt: z.string().min(1),
   skills: z.array(slugSchema).default([]),
@@ -43,6 +51,8 @@ export const documentAgentSchema = z.object({
 export const documentSkillSchema = z
   .object({
     name: z.string().min(1),
+    description: z.string().max(1024).default(""),
+    category: z.enum(CATEGORIES).default("general"),
     kind: z.enum(["prompt", "file"]).default("prompt"),
     body: z.string().default(""),
     filePath: z.string().nullable().default(null),
@@ -61,14 +71,18 @@ export const documentTemplateSchema = z.object({
 });
 
 export const documentMcpSchema = z.object({
-  url: z.string().url(),
+  // The same rule the REST door enforces: a credential in a URL is a secret in
+  // the database, and `agentos push` must not be the way around that.
+  url: mcpUrlSchema,
   allowedOperations: z.array(z.string().min(1)).default([]),
   /** Name of a secret reference, resolved by the control plane. */
   credential: slugSchema.nullable().default(null),
 });
 
 export const documentRepoSchema = z.object({
-  remoteUrl: z.string().url(),
+  // As at the REST door: `agentos push` must not be the way to get a
+  // credential into a stored URL.
+  remoteUrl: mcpUrlSchema,
   // Shared with the REST schema on purpose: YAML is a second door into the
   // same database, and a traversal-bearing mount path is no safer for having
   // arrived through a file.

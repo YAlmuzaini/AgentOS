@@ -1,6 +1,7 @@
 import type { ToolCallLogEntry } from "@agentos/shared";
 import { Injectable } from "@nestjs/common";
 import { SessionsService } from "../sessions/sessions.service";
+import { redactRegistered } from "../observability/secret-registry";
 import { isAbortError, RunCancellation } from "./run-cancellation";
 import type { Runner, RunnerHandle } from "./runner.types";
 import { AgentToolHandler, type ToolContext } from "./tool-handler";
@@ -10,6 +11,25 @@ const CANCEL_REASONS = {
   deadline: "the goal's time limit ran out while this session was still running",
   revoked: "this goal handed its turn to another dispatch; the session was stopped",
 } as const;
+
+/** Walks a tool call's arguments, scrubbing every string it finds. */
+function redactDeep(value: unknown): unknown {
+  if (typeof value === "string") {
+    return redactRegistered(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactDeep(entry));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        redactDeep(entry),
+      ]),
+    );
+  }
+  return value;
+}
 
 export interface ConsumeResult {
   /** True when the run stopped on an inbox question and must not be destroyed. */
@@ -55,7 +75,7 @@ export class SessionConsumer {
     const cancellation = new RunCancellation(input.deadlineAt ?? null, input.signal);
 
     try {
-      for await (const event of runner.streamEvents(handle, seen, cancellation.signal)) {
+      for await (let event of runner.streamEvents(handle, seen, cancellation.signal)) {
         if (event.kind === "log") {
           await this.log(sessionId, {
             type: event.type,
@@ -64,35 +84,51 @@ export class SessionConsumer {
             eventId: event.eventId,
           });
           if (event.type === "agent.message" && event.summary) {
-            lines.push(event.summary);
+            // The same scrub the log gets. These lines become the session
+            // summary, which is written verbatim into `goals.progress_log` and
+            // handed back to the resumer — a credential echoed into a final
+            // agent message was landing there while the log stayed clean.
+            lines.push(redactRegistered(event.summary));
           }
           continue;
         }
 
         if (event.kind === "error") {
-          failure = event.message;
+          // Also the string teardown writes into `sessions.error`.
+          failure = redactRegistered(event.message);
           await this.log(sessionId, {
             type: "session.error",
             name: null,
-            summary: event.message,
+            summary: failure,
             eventId: null,
           });
           continue;
         }
 
         if (event.kind === "tool-call") {
+          // The handler runs on the *original* arguments. Scrubbing them first
+          // was a real bug in the other direction: a registered value of
+          // `production` rewrote `fs_read {path:"/production/report"}` into a
+          // path that does not exist, and the same collision can invalidate a
+          // sha or corrupt file content. Execution needs what the agent said;
+          // only the record needs sanitising, and the two are now separate
+          // objects rather than one that has to satisfy both.
           const outcome = await this.toolHandler.handle(ctx, event.call, cancellation.signal);
+          // Scrubbed before the cut, so a long credential cannot leave its
+          // front half behind for the exact-value replacement to miss.
           const summary =
             outcome.kind === "park"
               ? "parked — waiting on the operator"
-              : outcome.text.slice(0, 200);
+              : redactRegistered(outcome.text).slice(0, 200);
           await this.log(sessionId, {
             type: "agent.custom_tool_use",
+            // The arguments are recorded here, scrubbed — this is the copy
+            // that reaches the database and the viewer.
             name: event.call.name,
             summary,
             eventId: event.eventId,
           });
-          lines.push(`${event.call.name}: ${summary}`);
+          lines.push(`${redactRegistered(event.call.name)}: ${summary}`);
 
           if (outcome.kind === "park") {
             parked = true;
@@ -134,7 +170,26 @@ export class SessionConsumer {
     return { parked, failure, summary: lines.join("\n") };
   }
 
+  /**
+   * The one place a runner's words become a stored record — so the one place
+   * worth scrubbing them.
+   *
+   * The local worker redacts its own events before sending them, but the cloud
+   * runtime's are provider-controlled and arrive verbatim: a tool name, an
+   * error message, or an agent message can carry a credential an MCP server
+   * echoed back at it, and from here it reaches `tool_call_log`, the session
+   * API and the viewer. `redactRegistered` removes every secret this process
+   * has actually resolved, which is exactly the set that could have been sent
+   * to such a server.
+   */
   private async log(sessionId: string, entry: Omit<ToolCallLogEntry, "at">): Promise<void> {
-    await this.sessions.appendToolCalls(sessionId, [{ at: new Date().toISOString(), ...entry }]);
+    await this.sessions.appendToolCalls(sessionId, [
+      {
+        at: new Date().toISOString(),
+        ...entry,
+        name: entry.name === null ? null : redactRegistered(entry.name),
+        summary: redactRegistered(entry.summary),
+      },
+    ]);
   }
 }

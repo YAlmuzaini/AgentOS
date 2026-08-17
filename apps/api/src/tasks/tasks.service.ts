@@ -17,6 +17,7 @@ import {
 } from "@nestjs/common";
 import { and, asc, eq, ne, notInArray, sql } from "drizzle-orm";
 import { AgentsService } from "../agents/agents.service";
+import { redactRegistered } from "../observability/secret-registry";
 import { DATABASE } from "../db/db.module";
 import { FilesService } from "../files/files.service";
 import { ProjectsService } from "../projects/projects.service";
@@ -278,7 +279,12 @@ export class TasksService {
         taskId: input.taskId,
         sessionId: input.sessionId ?? null,
         agentId: input.agentId ?? null,
-        body: input.body,
+        // Agent-authored free text becoming a row, so the same scrub the
+        // session log and the goal progress get. Applied here rather than
+        // before dispatch: scrubbing a tool's *arguments* corrupts them —
+        // a granted value of `production` rewrites a real path — so the
+        // handler runs on what the agent said and the record is sanitised.
+        body: redactRegistered(input.body),
       })
       .returning();
     return activityToDto(row!);

@@ -1,0 +1,15 @@
+-- Record what happened when a local session's commits were pushed.
+--
+-- Until now the local backend committed into a throwaway directory and then
+-- deleted it, so a local `git-write` session produced commit shas on the row
+-- and no commits anywhere a human could reach. The worker now pushes with the
+-- installation token it holds — a token the agent never sees — and this column
+-- is where that outcome lands, written *before* the workspace is destroyed.
+--
+-- Nullable with no default: null means the question was never asked (a cloud
+-- session, or a run with no repository), which is different from "asked and
+-- nothing was pushed". Every existing row is therefore correct as-is.
+--
+-- Safe to show. Repository and branch names, a sha, and an error string the
+-- worker has already stripped of any credential git quoted back at it.
+ALTER TABLE "sessions" ADD COLUMN "publish" jsonb;

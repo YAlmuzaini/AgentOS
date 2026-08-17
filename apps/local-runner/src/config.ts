@@ -11,6 +11,11 @@ export interface WorkerConfig {
   port: number;
   /** Shared secret the control plane sends as a bearer token. */
   authToken: string;
+  /**
+   * How long a retained (`quarantine-*`) workspace is kept before the boot
+   * sweep removes it. Zero keeps them forever.
+   */
+  quarantineDays: number;
   /** Where session workspaces are created. */
   workRoot: string;
   /**
@@ -86,6 +91,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       readIfPresent(env.GROK_API_KEY_FILE) ?? env.GROK_API_KEY ?? env.XAI_API_KEY ?? "",
     maxSessionMinutes: positive(env.LOCAL_RUNNER_MAX_SESSION_MINUTES, 120, "LOCAL_RUNNER_MAX_SESSION_MINUTES"),
     maxSessionRequests: positive(env.LOCAL_RUNNER_MAX_SESSION_REQUESTS, 500, "LOCAL_RUNNER_MAX_SESSION_REQUESTS"),
+    // A retained workspace holds work that reached no remote, so it is kept —
+    // but "kept" without a horizon is a disk that fills up on a machine nobody
+    // is watching. Two weeks is long enough to notice and act; `0` disables the
+    // expiry for an operator who would rather run out of disk than lose a
+    // commit, which is a legitimate preference and theirs to make.
+    quarantineDays: Number.isFinite(Number(env.LOCAL_RUNNER_QUARANTINE_DAYS))
+      ? Math.max(0, Number(env.LOCAL_RUNNER_QUARANTINE_DAYS))
+      : 14,
   };
 }
 

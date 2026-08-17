@@ -1,4 +1,5 @@
 import type { AgentDto } from "@agentos/shared";
+import { CATEGORY_LABELS } from "@agentos/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Blocks, Cpu, FileText, Fingerprint, FolderTree, GitBranch, Inbox, Pencil, Server, ShieldCheck, Sparkles, Terminal, Users } from "lucide-react";
 import type { ReactNode } from "react";
@@ -92,12 +93,18 @@ export function AgentDetail(props: {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="truncate text-[15px] font-semibold text-ink">{data.title}</h2>
+                {/* A category is a fact with no state attached, so it stays
+                    neutral — the tinted tones each carry one meaning here. */}
+                <StatusPill tone="neutral">{CATEGORY_LABELS[data.category]}</StatusPill>
                 {data.inboxAccess ? (
                   <StatusPill tone="idle">inbox access</StatusPill>
                 ) : (
                   <StatusPill tone="neutral">no inbox</StatusPill>
                 )}
               </div>
+              {data.description.trim() ? (
+                <p className="mt-1.5 text-[13px] text-ink-muted">{data.description}</p>
+              ) : null}
               <MetaRow className="mt-1.5">
                 <Meta icon={<Fingerprint />} machine>
                   {data.name}

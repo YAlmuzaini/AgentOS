@@ -1,11 +1,13 @@
-import type { AgentDto } from "@agentos/shared";
+import { CATEGORIES, type AgentDto, type Category } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Bot, Cpu, Download, Plus, Terminal } from "lucide-react";
+import { Bot, Boxes, Cpu, Download, Plus, Terminal } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { Button } from "../components/ui/button";
 import { CardBody, CardButton, CardGo, CardHead } from "../components/ui/card";
+import { CategoryFilter, countByCategory } from "../components/ui/category-filter";
+import { CreatePanel } from "../components/ui/create-panel";
 import { useConfirm } from "../components/ui/confirm";
 import { EmptyState, Skeleton } from "../components/ui/feedback";
 import { IconTile, toneFor } from "../components/ui/icon-tile";
@@ -39,6 +41,11 @@ export function AgentsPage(): React.JSX.Element {
   const [selected, setSelected] = useUrlSelection(idFromUrl);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Deliberately component state rather than a URL parameter: `?id=` is a link
+  // someone sends, a filter is a glance. Putting it in the URL would make the
+  // back button undo a chip press.
+  const [category, setCategory] = useState<Category | null>(null);
+  const [choosingPack, setChoosingPack] = useState(false);
   const navigate = useNavigate();
   const confirm = useConfirm();
 
@@ -68,15 +75,33 @@ export function AgentsPage(): React.JSX.Element {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["agents", project?.id] }),
   });
 
+  // Packs exist because thirty-seven agents is a good library and a bad
+  // starting screen. Installing one grants nothing — it writes agent rows with
+  // no repos, no connections and no folders, like every other install here.
+  const packs = useQuery({
+    queryKey: ["agent-packs", project?.id],
+    queryFn: () => api.agentPacks(project!.id),
+    enabled: Boolean(project),
+  });
+
+  const installPack = useMutation({
+    mutationFn: (slug: string) => api.installAgentPack(project!.id, slug),
+    onSuccess: () => {
+      setChoosingPack(false);
+      void queryClient.invalidateQueries({ queryKey: ["agents", project?.id] });
+    },
+  });
+
   /**
-   * The one install in the app that genuinely overwrites work.
+   * Narrower than it once was, and the dialog has to keep up with it.
    *
-   * `agents.service.ts` inserts with `onConflictDoUpdate`, so an agent whose
-   * name matches a built-in is *replaced* — role prompt, model and grants. An
-   * operator who had tightened `plan-risk` and then pressed this would lose
-   * that silently, and the button gave them no way to know. Skills and
-   * triggers skip what already exists; this one does not, and the dialog is
-   * the only place that difference is ever stated.
+   * `agents.service.ts` refreshes only rows it created (`built_in = true`) and
+   * only the text *we* author — title, description, category and the prompts.
+   * Model, runner, grants and the collaboration list are left exactly as the
+   * operator set them, and an agent they wrote themselves is untouched even
+   * when it shares a built-in's name. The dialog used to promise the opposite
+   * on all three counts, which is its own kind of wrong: an operator who
+   * believed it would never press the button.
    */
   const confirmInstall = (): void =>
     confirm({
@@ -84,12 +109,15 @@ export function AgentsPage(): React.JSX.Element {
       title: "Install the built-in agents?",
       body: (
         <>
-          This writes the agents that ship with AgentOS into this project.{" "}
+          This writes the agents that ship with AgentOS into this project, and refreshes the ones
+          it installed before. A newly created agent arrives with its recommended prompt skills and,
+          for a coordinator, the collaboration list its job needs; it gets no repository, connection,
+          folder, secret or network access.{" "}
           <strong className="font-medium text-ink">
-            An agent whose name matches a built-in is overwritten
+            Edits you made to a built-in's title, description, category or prompts are replaced
           </strong>{" "}
-          — its role prompt, model and grants are replaced with the shipped ones, and any edits
-          you made to it here are lost. Agents you named yourself are untouched.
+          — its model, runner, grants and collaboration list are not, and an agent you created
+          yourself is left alone even if it shares a name.
         </>
       ),
       confirmLabel: "Install built-ins",
@@ -104,6 +132,10 @@ export function AgentsPage(): React.JSX.Element {
   }
 
   const list = agents.data ?? [];
+  const counts = countByCategory(list, CATEGORIES);
+  // A filter must never hide the thing the operator is looking at, so the
+  // detail view resolves against the whole list.
+  const shown = category ? list.filter((agent) => agent.category === category) : list;
   const open = list.find((agent) => agent.id === selected);
   const runsFor = (agentId: string): number =>
     (sessions.data ?? []).filter((session) => session.agentId === agentId).length;
@@ -158,14 +190,78 @@ export function AgentsPage(): React.JSX.Element {
           // *in its current state*. With agents configured that is "New agent";
           // with none it is "Install built-ins" in the empty state below, and
           // two solid buttons would leave neither of them primary.
-          <Button variant={list.length > 0 ? "solid" : "outline"} onClick={() => setCreating(true)}>
-            <Plus />
-            New agent
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => setChoosingPack(true)}>
+              <Boxes />
+              Install a pack
+            </Button>
+            <Button
+              variant={list.length > 0 ? "solid" : "outline"}
+              onClick={() => setCreating(true)}
+            >
+              <Plus />
+              New agent
+            </Button>
+          </>
         }
       />
 
+      <CreatePanel
+        open={choosingPack}
+        onClose={() => setChoosingPack(false)}
+        title="Install a catalogue pack"
+        description="A named subset of the shipped roles. Installing writes agents with no repositories, MCP connections, folders, secrets or network access. A new agent does arrive with its recommended prompt skills, and a coordinator with the collaboration list its job needs — both visible on the agent, and neither restored if you remove them."
+        submitLabel=""
+        pending={false}
+        disabled={false}
+        onSubmit={async () => setChoosingPack(false)}
+      >
+        <div className="space-y-2">
+          {(packs.data ?? []).map((pack) => {
+            const present = pack.roles.filter((role) =>
+              list.some((agent) => agent.name === role),
+            ).length;
+            return (
+              <div
+                key={pack.slug}
+                className="flex items-start gap-3 rounded-control border border-edge p-3"
+              >
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="text-[13px] font-medium text-ink">{pack.name}</p>
+                  <p className="text-xs leading-relaxed text-ink-faint">{pack.description}</p>
+                  <p className="machine text-[11px] text-ink-faint">
+                    {present} of {pack.roles.length} already installed
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => installPack.mutate(pack.slug)}
+                  disabled={installPack.isPending}
+                >
+                  <Download />
+                  {installPack.isPending && installPack.variables === pack.slug
+                    ? "Installing…"
+                    : present === pack.roles.length
+                      ? "Reinstall"
+                      : "Install"}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      </CreatePanel>
+
       {form}
+
+      {list.length > 0 ? (
+        <CategoryFilter
+          counts={counts}
+          value={category}
+          onChange={setCategory}
+          total={list.length}
+        />
+      ) : null}
 
       {agents.isLoading ? (
         <CardGrid>
@@ -200,7 +296,7 @@ export function AgentsPage(): React.JSX.Element {
         </Panel>
       ) : (
         <CardGrid>
-          {list.map((agent) => (
+          {shown.map((agent) => (
             <AgentCard
               key={agent.id}
               agent={agent}
@@ -268,9 +364,14 @@ function AgentCard({
         }
       />
 
-      {/* The role prompt is the agent's one-job contract, and its first
-          sentence is the closest thing the product has to a description. */}
-      <CardBody>{firstSentence(agent.rolePrompt) || "No role prompt set."}</CardBody>
+      {/* The authored description says what this agent is for and when to
+          reach for it, which is the question the grid exists to answer. Agents
+          written before that field existed fall back to the first sentence of
+          the role prompt — their one-job contract, and the closest thing they
+          have to a description. */}
+      <CardBody>
+        {agent.description.trim() || firstSentence(agent.rolePrompt) || "No role prompt set."}
+      </CardBody>
 
       <MetaRow className="mt-auto">
         <Meta icon={<Cpu />} machine title={agent.model}>

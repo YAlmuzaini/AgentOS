@@ -27,6 +27,9 @@ import type {
   InboxMessageDto,
   RunnerStatusDto,
   McpConnectionDto,
+  McpSeed,
+  UpdateMcpConnectionInput,
+  CatalogPack,
   PatchTaskInput,
   ProjectDto,
   RepoDto,
@@ -167,6 +170,27 @@ export const api = {
     request<McpConnectionDto[]>(`/projects/${projectId}/mcp-connections`),
   deleteMcpConnection: (projectId: string, id: string) =>
     request<void>(`/projects/${projectId}/mcp-connections/${id}`, { method: "DELETE" }),
+  /** The connections AgentOS ships, as data — hosts and credential names included. */
+  mcpCatalog: (projectId: string) =>
+    request<McpSeed[]>(`/projects/${projectId}/mcp-connections/catalog`),
+  installBuiltInMcp: (projectId: string) =>
+    request<McpConnectionDto[]>(`/projects/${projectId}/mcp-connections/install-built-ins`, {
+      method: "POST",
+    }),
+  updateMcpConnection: (projectId: string, id: string, body: UpdateMcpConnectionInput) =>
+    request<McpConnectionDto>(`/projects/${projectId}/mcp-connections/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  /** Operator-triggered handshake. Never called automatically. */
+  verifyMcpConnection: (projectId: string, id: string) =>
+    request<McpConnectionDto>(`/projects/${projectId}/mcp-connections/${id}/verify`, {
+      method: "POST",
+    }),
+  agentPacks: (projectId: string) =>
+    request<CatalogPack[]>(`/projects/${projectId}/agents/packs`),
+  installAgentPack: (projectId: string, slug: string) =>
+    request<AgentDto[]>(`/projects/${projectId}/agents/packs/${slug}/install`, { method: "POST" }),
   createMcpConnection: (projectId: string, body: CreateMcpConnectionInput) =>
     request<McpConnectionDto>(`/projects/${projectId}/mcp-connections`, {
       method: "POST",

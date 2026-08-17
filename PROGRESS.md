@@ -6,6 +6,204 @@ Update every session. Read on boot alongside `RECIPE.md`, `PRODUCT.md`, `SPEC.md
 
 ---
 
+## Local was the plan, and local did not work
+
+The catalogue landed, and then four things about it turned out to be wrong in ways a test suite
+had no reason to notice. All four are fixed, and the fixes are what this session is.
+
+**The flagship workflow reviewed nothing.** `compound-engineer-workflow` dispatched its *code*
+review step to `review-coordinator` — whose collaboration list is the four **plan** lenses. So the
+step ran a coordinator instructed to spawn specialists it had no authorisation to spawn, spawned
+nobody, and attached a report written from one model's own reading of the diff. It looks exactly
+like a real review, which is what makes it expensive. The step now dispatches to
+`code-review-coordinator`, and three tests hold the wiring shut: every template step names an agent
+the catalogue ships, every coordinator's brief names only specialists its collaboration list
+authorises, and each of the two review steps names its own coordinator.
+
+**`local` could still bill the cloud.** `provisionWithFallback` already refused to fall back when
+the worker *rejected* a session under an explicit `local` — but `RunnerRouter.runnerFor` warned and
+returned the cloud runner when the worker was merely *unreachable*. That is the more common case by
+far: a rebooted VM, a dropped tunnel, nobody at the desk. The local worker exists because it runs
+under a flat-fee subscription; cloud is billed per token. So `local` now throws
+`LocalRunnerUnavailableError` and the session is recorded as failed with a sentence explaining that
+it was **not** sent to the cloud and how to allow a fallback if that is what you want. `auto` is
+the only preference that degrades cost rather than availability, and the routing table is asserted
+for every combination and every source of the preference.
+
+**Local `git-write` produced commits nobody could reach.** The worker clones with a token and then
+strips it from the remote so the agent cannot read it — good — and then deleted the workspace,
+taking the commits with it. The old code even said so in a warning. The worker now **pushes**
+after the run, with the credential it kept, and the rules are the interesting part: the destination
+is the *granted* remote and never the clone's `origin`, because an agent with a shell can repoint
+`origin` and following it would turn "publish the work" into an exfiltration primitive; `git-write`
+only; fast-forward only, never a force; and the token reaches git through the child's environment
+and an inline credential helper rather than through argv, where every process on the machine can
+read it. The clone was changed to do the same — it used to embed the token in the URL, which put it
+in `ps` for the duration and in `.git/config` until a second command removed it. A failed push **retains** the workspace instead of deleting it, moved out of the
+`session-` namespace the boot sweep clears, with the path on the session row — and a push that could
+not even be attempted, because the worker was unreachable, leaves the container alone rather than
+destroying on an unconfirmed result. Every other path that deletes a workspace now publishes first:
+the worker's own timeout, a reaped parked session, an archived orphan, and the boot sweep, which
+keeps anything still holding commits no remote has. Seven tests drive
+real `git` against real repositories, including the repointed-origin case and the diverged-remote
+case.
+
+**Every agent had an empty skill list.** Twenty roles now carry recommended skills, applied when
+the agent is first created and never restored afterwards — remove one and the installer leaves it
+removed. The seed installs skills before agents so a fresh project actually gets them, which is the
+bug that made the recommendation invisible in the first place.
+
+## Four limits that a fix cannot close
+
+Eleven adversarial review rounds ended with these, and an independent reviewer named each of them
+structural rather than unfixed. They are written here in the form an operator can act on, because
+the alternative — another round of patching — provably does not converge.
+
+**Secret redaction is best-effort, not a boundary.** Credentials are removed from stored text by
+exact-value replacement at the two sinks where text becomes a row (`sessions.error` and the goal
+progress log) and at the worker before an event leaves it. Three gaps follow from the mechanism
+rather than from any missing call. The registry that holds resolved values is global and bounded at
+500 entries, so a long-lived MCP token can be evicted by a burst of hourly-rotating installation
+tokens and stop being redacted while its session is still running. Values shorter than eight
+characters are not registered at all, because replacing a six-character string mangles every report
+that happens to contain those letters. And matching is substring, so a granted value of `password`
+redacts that ordinary word out of unrelated projects' errors. The real fix is per-session secret
+ownership with reference counting, which retires the cap, the floor and the cross-project bleed
+together. **Operator consequence:** treat a session log as sensitive, not as sanitised.
+
+**A credential in a URL cannot be detected reliably.** MCP and repository URLs refuse userinfo over
+http(s), and refuse query and fragment parameters whose names end in `key`, `token`, `secret`,
+`password`, `credential` or `signature`. That catches every spelling this catalogue and its vendors
+use, and it caught `apikey`, `refreshtoken`, `idtoken`, `clientsecret` and `privatekey` in review —
+but `jwt`, `pat`, `code` and a key hidden in a *path segment* all pass, and no list finishes. The
+robust alternatives are refusing query strings categorically, which breaks Apify and Exa, or
+storing a separately sanitised endpoint. **Operator consequence:** the guard is defence in depth.
+Put credentials in a secret reference; a URL is stored and displayed verbatim.
+
+**A workspace can lose a commit made during its own teardown.** The worker refuses to delete a
+workspace holding commits no remote has, checked against a clone-time sha it recorded before the
+agent existed, across every ref rather than only `HEAD`. What it cannot do is stop a subprocess it
+never spawned — the Grok engine's shell tool, for instance — from committing between that check and
+the delete. Closing it needs the worker to own the agent's process group and reap it before the
+final snapshot, which is a change to how sessions are *started*. **Operator consequence:** the
+window is milliseconds and the loss is loud in the logs, but it exists.
+
+**Tool arguments are executed as written and stored scrubbed.** Redacting arguments before dispatch
+corrupted them — a granted value of `production` rewrote `fs_read {path:"/production/report"}` into
+a path that does not exist — so the handler now receives the original and only the record is
+sanitised. That is correct, and it means anything a handler writes *itself*, rather than through the
+log, is covered only by the sink-level scrub above. **Operator consequence:** the same as the first
+limit, and for the same reason.
+
+## Two things designed and deliberately not built
+
+**An AgentOS-controlled MCP gateway.** The per-tool asymmetry between the runners is structural:
+the cloud runtime filters tools because Managed Agents accepts a per-toolset config, and Claude Code
+does not, so the local worker can only take a server whole or refuse it. The way out is a small
+proxy owned by AgentOS that every session's MCP traffic goes through: it holds the credential (so a
+token never enters a session at all), enforces `allowedOperations` per call identically on both
+backends, and gives one place to log, rate-limit, and cap spend on a billable server. That also
+retires the "no OAuth" limitation, because the gateway can hold a refresh token the runners cannot.
+It is not built here — it is a network component with its own availability and blast radius, and
+bolting it on inside this change would have been the kind of large untested thing this repository
+is careful about. The metadata it would need (`transport`, `auth`, `localRequiresAllTools`,
+`risks`, `hosts`) now exists on every catalogue entry, which is the part worth having early.
+
+**Worker-side persistence of pending publishes.** The worker keeps its sessions in memory, so a
+worker restart between a run ending and its push loses unpushed commits. Publishing mid-run would
+mean putting the credential back within the agent's reach, which is exactly what the current design
+avoids. The fix is a small on-disk record of "this workspace has commits that have not reached a
+remote", written at run end and drained at boot before the stale-workspace sweep — the sweep already
+skips the `quarantine-` prefix, so the mechanism is half there. Tested the same way the push is:
+real `git`, real repositories, a killed worker in between.
+
+## What the MCP catalogue is allowed to claim
+
+The first pass called nine endpoints "working". They had been checked against vendor documentation
+and nothing else, so the catalogue now says **cataloged** and the UI keeps five words apart —
+cataloged, configured, granted, network-reachable, live-verified — of which only the last is
+evidence. Verification is a real MCP handshake (`initialize`, then `tools/list`), opt-in and
+operator-triggered, and it **never calls a tool**, because a catalogued server can charge money,
+issue a refund, or open a pull request. It refuses http, embedded credentials, private and
+link-local addresses, and redirects — a 302 is how an approved URL becomes a request that carries
+your bearer token to `169.254.169.254`.
+
+Two defaults were hardened against their own vendors' documentation. **GitHub** now defaults to the
+documented `/readonly` endpoint, so a prompt injection in an issue body cannot open a pull request
+regardless of what the token allows; the read/write endpoint is catalogued and not installed.
+**Apify's** default tool set includes Actor execution, which is billed to the operator, so the
+installed entry is `?tools=docs&telemetry-enabled=false` and the billable one is separate and
+labelled. **Stripe** is catalogued, never installed, and marked high-risk: it has no read-only URL
+and its tool list includes `stripe_api_write` and `create_refund`, so the restricted key's scopes
+are the only boundary there is.
+
+The local runner's limitation is now stated where it applies rather than buried: Claude Code
+attaches an MCP server whole, so a connection with a narrowed operation list is **refused** locally
+rather than widened — fail closed, already correct in the code, and now visible on the row — and a
+connection with an empty list hands a local session every tool the server exposes.
+
+## The RAG capability
+
+A `rag-engineering-architect` role and four short skills — `rag-architecture`,
+`retrieval-evaluation`, `rag-security`, `document-ingestion-discipline`.
+
+The provenance is worth stating exactly. MCP Market lists a skill by that name; the listing itself
+is unfetchable behind a bot wall, and a full search of the repository it points at
+(`sickn33/agentic-awesome-skills`) finds **no skill by that name** — the nearest are `rag-engineer`,
+which its own frontmatter attributes upstream to `vibeship-spawner-skills` under Apache-2.0, and
+`rag-implementation`. There was therefore no artefact to adapt, the licences never came into play,
+and **nothing was copied**: the text is original and those sources are cited as research
+inspiration. The role designs and reviews; it is granted no vector store, no corpus, and no cloud
+credential by existing.
+
+## A new project was an empty screen
+
+The build shipped fourteen role agents, three skills and no MCP connections, which is enough for
+the two templates to run and not enough to answer the question an operator actually asks: *who
+should take this?* Nothing on an agent said what it was for or grouped it with anything else, so
+the Agents page was a flat grid whose only description was the first sentence of a role prompt.
+
+The public skill directories were read for the shape of the answer rather than for content — their
+category taxonomy, and the jobs that recur across thousands of authors under different names: a
+verification loop, a security pass, an E2E harness, a migration guard, a repository audit, an
+evidence-first research pass. That is now a **catalogue**: 36 agents across 13 categories, 16
+skills, and 9 MCP connections, each carrying a `description` that says what it does and when to
+reach for it, and a `category` that groups it. Migration 0019 adds both columns to `agents` and
+`skills`, NOT NULL with a default, so every row that predates them is valid and lands in `general`
+rather than nowhere.
+
+Three things were deliberately *not* done, and each is a constraint the code already had rather
+than a decision made here:
+
+**Only bearer-token and no-auth remote MCP servers ship.** Both runners carry exactly one shape —
+the cloud path publishes `auth: { type: "static_bearer", mcp_server_url, token }` to Managed Agents
+(`cloud-publisher.ts`), the local path builds `{ type: "http", url, headers }` for the SDK
+(`local-runner/src/agent.ts`). A `npx`-launched **stdio** server cannot be expressed at all, which
+rules out most of the published ecosystem, and an **OAuth** server cannot either, which is why
+Linear, Notion, Sentry and Atlassian are absent rather than listed and broken. `catalog.spec.ts`
+asserts the constraint so a future entry cannot quietly violate it.
+
+**Skills stay flat prompt text.** Anthropic's Agent Skills format is a folder — frontmatter, a
+SKILL.md body, and bundled `references/` and `scripts/` loaded only when triggered. This system
+inlines a skill's whole body into the system prompt of every session that holds it, so there is no
+progressive disclosure and a skill costs its full length every run. The shipped skills are short
+for that reason, and `catalog.spec.ts` holds them under 2000 characters. Adopting the real format
+means touching the skill schema, the session prompt builder, the filesystem MCP and both runners;
+it is a separate piece of work, not a field.
+
+**Installing the catalogue grants nothing.** Every shipped agent lists no repos, no connections and
+no folders; installing the nine MCP connections writes nine inert rows and attaches no credential.
+Default deny is the product (SPEC §5.1), and a catalogue that installed access would be a hole in
+it dressed as convenience. The test asserts that no agent's `mcpConnectionIds` grows.
+
+Two pieces of user-facing text were wrong before this and are now correct. The MCP page said an
+empty allowed-operations list meant "none granted"; it means the opposite — the publisher only
+writes a per-tool config when the list is non-empty, so blank leaves **every** tool callable. And
+the Agents page warned that installing built-ins replaces an agent's "role prompt, model and
+grants" and that operator-written agents are untouched; the service stopped doing the first two a
+while ago and the provenance flag handles the third, so the dialog was frightening operators away
+from a narrower action than it described.
+
 ## What the operator could not see
 
 The founder opened the app and found three things missing that no test would ever catch, because

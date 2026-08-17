@@ -17,11 +17,14 @@ const secrets = new Set<string>();
 /**
  * Values shorter than this are not registered.
  *
- * A short secret would match far too much ordinary text — redacting every
- * occurrence of a four-character value would destroy the report it is meant to
- * make safe, and a secret that short is not one worth protecting this way.
+ * A short secret matches far too much ordinary text: redacting every
+ * occurrence of a four-character value destroys the report it is meant to make
+ * safe. Eight rather than twelve so this agrees with the local worker's own
+ * floor — a granted value the worker treats as a credential and scrubs was
+ * otherwise ignored here, so the same string was protected on one path and
+ * stored on the other.
  */
-const MIN_LENGTH = 12;
+const MIN_LENGTH = 8;
 
 /**
  * Bounded so a long-running process cannot grow this without limit.

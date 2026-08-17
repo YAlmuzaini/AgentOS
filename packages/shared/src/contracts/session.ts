@@ -56,6 +56,34 @@ export const sessionAccessSchema = z.object({
 });
 export type SessionAccess = z.infer<typeof sessionAccessSchema>;
 
+/**
+ * What happened when the local worker tried to push a session's commits.
+ *
+ * Safe to show, like everything else on a session row: repository and branch
+ * names, a sha, and an error string the worker has already stripped of any
+ * credential git may have quoted back at it.
+ */
+export const sessionPublishSchema = z.object({
+  records: z
+    .array(
+      z.object({
+        repo: z.string(),
+        branch: z.string(),
+        pushed: z.boolean(),
+        remoteSha: z.string().nullable().default(null),
+        commits: z.number().int().nonnegative().default(0),
+        error: z.string().nullable().default(null),
+      }),
+    )
+    .default([]),
+  /**
+   * Where the worker kept the workspace because a push failed, so the operator
+   * can go and recover commits that exist nowhere else. Null is the normal case.
+   */
+  retainedWorkspace: z.string().nullable().default(null),
+});
+export type SessionPublish = z.infer<typeof sessionPublishSchema>;
+
 export interface SessionDto {
   id: string;
   projectId: string;
@@ -76,6 +104,8 @@ export interface SessionDto {
   endedAt: string | null;
   /** Null for sessions that ran before this was recorded. */
   access: SessionAccess | null;
+  /** Local sessions only. Null when no push was attempted. */
+  publish: SessionPublish | null;
   /** Name of the agent that ran, so a session reads without a second fetch. */
   agentName: string | null;
 }

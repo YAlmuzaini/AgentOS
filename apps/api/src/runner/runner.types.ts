@@ -176,12 +176,89 @@ export interface Runner {
    * rather than observed, and labelled that way on the session row.
    */
   collectCommits?(handle: RunnerHandle): Promise<CommitRecord[]>;
+  /**
+   * Pushes what this session committed, before the workspace is destroyed.
+   *
+   * Optional, and implemented only by the local backend, because it is the
+   * only one that needs it: the cloud runtime holds its own git credential and
+   * the agent pushes from inside the container. Locally the credential is
+   * deliberately kept out of the agent's reach — the clone's remote is stripped
+   * of its token — so the worker has to do the push itself, afterwards, or the
+   * commits die with the directory.
+   */
+  publish?(handle: RunnerHandle): Promise<PublishOutcome>;
 }
 
 export interface CommitRecord {
   repo: string;
   sha: string;
   subject: string;
+}
+
+export interface PublishRecord {
+  repo: string;
+  branch: string;
+  pushed: boolean;
+  remoteSha: string | null;
+  commits: number;
+  error: string | null;
+}
+
+export interface PublishOutcome {
+  records: PublishRecord[];
+  /** Where the worker kept the work when a push failed, if anywhere. */
+  retainedWorkspace: string | null;
+  /**
+   * The worker has no such session, so nothing here was asked or answered.
+   *
+   * Distinct from "nothing to push". Destroying is still safe — there is no
+   * container left to destroy — but the operator needs telling, because a
+   * restart that forgot this session may have left its commits in a quarantine
+   * directory that nothing else will mention.
+   */
+  forgotten?: boolean;
+}
+
+/**
+ * Whether a container may now be destroyed, given what publishing did.
+ *
+ * The rule is the same everywhere a workspace is about to be deleted —
+ * teardown, the parked-session reaper, the orphan sweep — and it was written
+ * three times before it was written once. Destroying is safe when there was
+ * nothing to push, when everything pushed, or when the worker has told us it
+ * kept the work aside. It is *not* safe when we could not ask, or when a push
+ * failed and nothing was retained: that is the case where the directory is the
+ * only copy.
+ */
+export function safeToDestroyAfterPublish(
+  outcome: PublishOutcome | null,
+): { safe: boolean; reason: string | null } {
+  if (!outcome) {
+    return {
+      safe: false,
+      reason:
+        "this session's commits could not be confirmed as pushed, and deleting it could have " +
+        "discarded the only copy. Retry once the worker is reachable.",
+    };
+  }
+  if (outcome.forgotten) {
+    // Nothing to destroy and nothing to keep: the worker has already dealt
+    // with whatever was left, one way or the other.
+    return { safe: true, reason: null };
+  }
+  const failed = outcome.records.filter((record) => !record.pushed);
+  if (failed.length === 0) {
+    return { safe: true, reason: null };
+  }
+  if (outcome.retainedWorkspace) {
+    return { safe: true, reason: null };
+  }
+  return {
+    safe: false,
+    reason:
+      `could not push ${failed.map((record) => record.repo).join(", ")}, and the worker did not ` +
+      "keep the workspace aside — it was left in place rather than destroyed.",
+  };
 }
 
 export interface RuntimeSessionSummary {

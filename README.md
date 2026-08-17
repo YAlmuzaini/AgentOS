@@ -61,7 +61,7 @@ cp .env.example .env
 pnpm install
 pnpm infra:up          # postgres :5433, redis :6380, minio :9000
 pnpm db:migrate
-pnpm db:seed           # one project, 14 role agents, 2 environments, 2 templates
+pnpm db:seed           # one project, 37 agents, 20 skills, 2 environments, 2 templates
 pnpm --filter @agentos/api dev     # :3001
 pnpm --filter @agentos/web dev     # :5173
 ```
@@ -102,7 +102,7 @@ pnpm --filter @agentos/local-runner test  # the worker's egress wall and Grok en
 pnpm --filter @agentos/cli test           # the CLI's capability flags
 ```
 
-144 control-plane tests, 18 worker tests and 4 CLI tests, covering all fourteen acceptance tests in `SPEC.md`
+228 control-plane tests, 18 worker tests and 4 CLI tests, covering all fourteen acceptance tests in `SPEC.md`
 §22. The control-plane suite runs against a real Postgres
 and a `FakeRunner` that implements the `Runner` contract, so the whole control plane — gates,
 grants, chains, rails, webhooks, resume, spawning, attachments, commits — is exercised **without an
@@ -130,9 +130,105 @@ agentos template run --project acme --template compound-engineer-workflow \
   --var branchName=feat/onboarding --var feature="operator onboarding"
 ```
 
-`push` then `pull` is byte-identical, which is what makes `agentos.yml` safe to keep in git.
+`pull` → `push` → `pull` is byte-identical, which is what makes `agentos.yml` safe to keep in git.
+Note the starting point: `pull` renders the document from the database with sorted keys, so pushing
+a **hand-written** file and pulling it back returns the same *content*, not the same bytes — your
+comments, key order and omitted defaults are not preserved. Keep the pulled form in git.
+
+## What ships in the box
+
+A new project is a library to pick from rather than an empty screen. Everything below installs
+**inert**: an agent with no grants, a skill attached to nobody, a connection no agent may call.
+
+| | Count | Installed by |
+|---|---|---|
+| **Agents** | 37 across 13 categories | `POST /projects/:id/agents/install-built-ins`, or a pack |
+| **Packs** | 8 named subsets | `POST /projects/:id/agents/packs/:slug/install` |
+| **Skills** | 20 prompt skills | `POST /projects/:id/skills/install-built-ins` |
+| **MCP connections** | 8 installed, 3 more catalogued | `POST /projects/:id/mcp-connections/install-built-ins` |
+| **Templates** | 2 workflows | `POST /projects/:id/templates/install-built-ins` |
+
+Thirty-seven agents is a good library and a bad starting screen, so a **pack** installs a named
+subset — core engineering, frontend/design, data & RAG, DevOps/release, research/docs,
+product/content, operations/support, mobile. Packs overlap and installing twice is a no-op.
+
+### Recommendation is not a grant
+
+Twenty roles carry a **recommended skill list** — `senior-dev` gets commit discipline, the
+verification loop, no-fake-completion and change hygiene; `db-architect` gets schema-change safety.
+Those are applied **when the agent is first created and never again**: remove one and re-running the
+installer leaves it removed, for the same reason a re-seed never rewrites a role prompt you edited.
+
+Nothing that reaches outside AgentOS is granted by installing: no repository, MCP connection,
+filesystem folder, secret, environment, or network access. Two things a *newly created* agent does
+arrive with, both visible on the agent and neither restored once you remove them: its recommended
+prompt skills, and — for a coordinator — the collaboration list its job is defined by, which is
+spawn authorisation over other agents that have no grants either.
+
+### The five words this UI keeps apart
+
+| Word | Means |
+|---|---|
+| **cataloged** | AgentOS ships this URL, and has declared its transport, auth and risks from the vendor's docs |
+| **configured** | A row exists in this project — possibly with no credential |
+| **granted** | At least one agent lists it, so a session can reach it |
+| **network-reachable** | The environment's allowlist permits its hosts |
+| **live-verified** | A real MCP handshake succeeded from here — `initialize` and `tools/list` |
+
+Only the last is evidence. Verification is **opt-in and operator-triggered** (`POST
+/projects/:id/mcp-connections/:id/verify`): it performs the handshake, records the server identity
+and the tool names it reported, and **never calls a tool** — a catalogued server can charge money,
+issue a refund, or open a pull request.
+
+### MCP: what this can and cannot carry
+
+**Every shipped connection is a remote server over HTTPS with a static bearer token or no auth.**
+That is not a shortlist; it is the whole of what both runners speak. The cloud path publishes
+`auth: { type: "static_bearer", mcp_server_url, token }` to Managed Agents; the local path builds an
+`http` server for the SDK. So:
+
+- **No stdio.** A `npx`-launched server cannot be expressed at all, which excludes most of the
+  published ecosystem.
+- **No OAuth.** Linear, Notion, Sentry, Atlassian and Asana publish remote endpoints that need an
+  authorisation-code flow, so they are absent rather than listed and broken.
+- **No per-tool filtering on the local runner.** Claude Code attaches an MCP server whole. A
+  connection with a non-empty `allowedOperations` is therefore **refused** by the local worker
+  rather than silently widened, and the omission is reported in the session log. The cloud runner
+  does enforce the list per tool. A connection with an *empty* list gives a local session **every
+  tool the server exposes** — the MCPs screen says so on the row.
+
+Defaults are chosen, not copied: GitHub defaults to the documented **`/readonly`** endpoint, and
+Apify to `?tools=docs&telemetry-enabled=false` because its default tool set can execute Actors,
+which is billed to you. The read/write GitHub endpoint, Apify Actor execution, and Stripe are
+catalogued and **not installed** — one click away, with their risks labelled.
+
+### What is best-effort, and what is a boundary
+
+Two things in this system are **guarantees**, enforced server-side and tested: least privilege
+(nothing is granted that is not listed) and local-only cost (an explicit `local` never reaches the
+cloud). Two are **best-effort**, and `PROGRESS.md` says exactly why:
+
+- **Credential redaction in stored text.** Removed by exact-value matching at the points where text
+  becomes a row. The registry is global, bounded, and ignores values under eight characters, so
+  treat a session log as sensitive rather than sanitised.
+- **Detecting a credential inside a URL.** Userinfo over http(s) is refused, and query parameters
+  named like credentials are refused; a key in a path segment is not detectable. Put credentials in
+  a secret reference.
+
+### Skills are inlined, not progressively disclosed
+
+A skill's body is injected into the system prompt of **every session that holds it**. AgentOS does
+not implement Anthropic's `SKILL.md` progressive disclosure, so there is no "loads only when
+triggered" here — which is why every shipped skill is short, and why a long one belongs on the agent
+filesystem as a `file` skill whose path the agent reads on demand.
 
 ## The five properties that are the product
+
+0. **Local means local.** An agent, goal, or project set to the `local` runner is never sent to
+   the cloud. The local worker runs under a flat-fee subscription; cloud sessions are billed per
+   token, so an unreachable worker **fails the session with an explanation** rather than quietly
+   spending money nobody is watching. `auto` is the only setting that falls back, and it says so.
+   The failure is recorded as a session row, not just a log line.
 
 1. **Least privilege, default deny.** An agent gets no MCP, repo, env var, filesystem write, network
    host, or spawn right that is not listed on it. Four independent walls, and the spawn list is the
@@ -145,6 +241,39 @@ agentos template run --project acme --template compound-engineer-workflow \
 4. **Inbox is the only human channel.** No Slack, no email, no second chat product.
 5. **Goals have rails.** Spend cap, max duration, stuck-at-19 — checked before every dispatch and
    again after. A goal without a spend cap needs explicit confirmation.
+
+### Local git durability
+
+The local worker clones with a short-lived credential and then **strips the token from the remote**,
+so the agent never holds one. That used to mean a local `git-write` session committed into a
+directory that was then deleted. It now doesn't: after the run ends, the **worker** pushes with the
+credential it kept, to the **granted** remote rather than whatever `origin` says — an agent with a
+shell can repoint `origin`, and following it would be an exfiltration primitive. Fast-forward only,
+never a force, `git-write` grants only, and the token reaches git through the child's environment
+rather than argv — the clone does the same, so no credential is written into `.git/config` either.
+
+If a push fails, the workspace is **retained** rather than deleted, moved out of the swept
+`session-` namespace, and the session row records where — losing the only copy of three hours of
+work is the worse failure by a wide margin. The same holds when the worker cannot be reached to ask:
+teardown leaves the container alone rather than destroying on an unconfirmed push. The worker also
+publishes on its own hard timeout, when a parked session is reaped, and when an orphaned container
+is archived; its boot sweep keeps, rather than deletes, any leftover workspace that still holds
+commits no remote has.
+
+**The gap that remains** is narrower than it was. A worker restart between the run ending and the
+push no longer loses ordinary commits: the boot sweep inspects each leftover workspace and keeps,
+rather than deletes, any that still holds commits no remote has — including a commit reachable only
+from a detached `HEAD`, and including any workspace whose git metadata it cannot read at all, which
+is judged pessimistically on purpose. A retained workspace is kept for `LOCAL_RUNNER_QUARANTINE_DAYS`
+(14 by default, `0` to keep forever), timed from the moment it was set aside.
+
+Two pieces are **not** built, and both are stated here rather than implied away. First, worker-side
+persistence of *pending publishes*, so a restart resumes the push instead of leaving it for a human;
+pushing mid-run would need the credential closer to the agent, which is exactly what this design
+avoids. Second, the check-then-delete window: the worker signals cancellation but cannot wait for a
+shell subprocess it did not spawn, so a commit completing between the final check and the delete is
+still lost. Closing that needs the worker to own the agent's process group and reap it before
+teardown — a change to how sessions are started, not to how they are cleaned up.
 
 ## Conventions
 

@@ -1,4 +1,4 @@
-import type { SessionAccess, ToolCallLogEntry } from "@agentos/shared";
+import type { SessionAccess, SessionPublish, ToolCallLogEntry } from "@agentos/shared";
 import { sql } from "drizzle-orm";
 import {
   index,
@@ -66,6 +66,20 @@ export const sessions = pgTable(
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    /**
+     * What happened when the worker tried to push this session's commits.
+     *
+     * Only the local backend fills this in; the cloud runtime pushes from
+     * inside its own container. It is recorded *before* the workspace is
+     * destroyed, because after that there is no one left to ask — and a failed
+     * push is the case where the operator has to go and find a directory the
+     * worker deliberately kept.
+     *
+     * Null means the question was never asked: a cloud session, or a run that
+     * ended before any repository was involved.
+     */
+    publish: jsonb("publish").$type<SessionPublish>(),
+
     /**
      * What this session was given, as it was decided at provision (SPEC §13).
      *

@@ -2,6 +2,7 @@ import { agents, type Database, sessions } from "@agentos/db";
 import {
   type Runner,
   type SessionAccess,
+  type SessionPublish,
   type SessionDto,
   type SessionStatus,
   type SessionSummaryDto,
@@ -17,6 +18,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { and, asc, desc, eq, gt, inArray, lt, notInArray, or, sql } from "drizzle-orm";
+import { redactRegistered } from "../observability/secret-registry";
 import { DATABASE } from "../db/db.module";
 import { toDto } from "./session-dto";
 import { pendingVaultQuery } from "./pending-vaults";
@@ -69,6 +71,9 @@ export class SessionsService {
         startedAt: sessions.startedAt,
         endedAt: sessions.endedAt,
         access: sessions.access,
+        // Small, and the list is where a failed push has to be visible — a
+        // session that kept its workspace needs the operator to notice.
+        publish: sessions.publish,
         // Joined rather than fetched per row: the list is what the operator
         // scans, and "which agent" is the first thing they want from it.
         agentName: agents.name,
@@ -85,6 +90,7 @@ export class SessionsService {
     return rows.map((row) => ({
       ...row,
       access: row.access ?? null,
+      publish: row.publish ?? null,
       costUsd: row.costUsd != null ? Number(row.costUsd) : null,
       startedAt: row.startedAt.toISOString(),
       endedAt: row.endedAt?.toISOString() ?? null,
@@ -321,7 +327,7 @@ export class SessionsService {
     const existing = row?.error ? `${row.error}\n` : "";
     await this.db
       .update(sessions)
-      .set({ error: `${existing}container was not destroyed: ${detail}` })
+      .set({ error: redactRegistered(`${existing}container was not destroyed: ${detail}`) })
       .where(eq(sessions.id, id));
   }
 
@@ -362,6 +368,17 @@ export class SessionsService {
     return commitShas;
   }
 
+  /**
+   * The outcome of the push the worker attempted before deleting the workspace.
+   *
+   * Written whole rather than merged: teardown asks once, the worker memoises
+   * its answer, so a second call carries the same records rather than a partial
+   * update to reconcile.
+   */
+  async recordPublish(id: string, publish: SessionPublish): Promise<void> {
+    await this.db.update(sessions).set({ publish }).where(eq(sessions.id, id));
+  }
+
   async finish(
     id: string,
     input: { status: Extract<SessionStatus, "destroyed" | "failed">; error?: string | null; costUsd?: number | null },
@@ -370,7 +387,13 @@ export class SessionsService {
       .update(sessions)
       .set({
         status: input.status,
-        error: input.error ?? null,
+        // The last gate before an error becomes a stored record. Auditing
+        // every `String(error)` in the codebase is unwinnable — SDK errors
+        // quote requests, wrappers quote wrappers — so the scrub happens where
+        // the text stops being a variable and becomes a row.
+        error: input.error === null || input.error === undefined
+          ? null
+          : redactRegistered(input.error),
         costUsd: input.costUsd != null ? input.costUsd.toFixed(4) : null,
         endedAt: new Date(),
       })

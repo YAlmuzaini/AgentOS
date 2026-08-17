@@ -134,6 +134,34 @@
       "when": 1786884494625,
       "tag": "0018_fuzzy_diamondback",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786909330004,
+      "tag": "0019_agent_skill_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786910214676,
+      "tag": "0020_builtin_skills",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786912023765,
+      "tag": "0021_session_publish",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786913015062,
+      "tag": "0022_mcp_verification",
+      "breakpoints": true
     }
   ]
 }

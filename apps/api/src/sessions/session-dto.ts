@@ -23,6 +23,7 @@ export function toDto(row: SessionRow, agentName: string | null = null): Session
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt?.toISOString() ?? null,
     access: row.access ?? null,
+    publish: row.publish ?? null,
     agentName,
   };
 }

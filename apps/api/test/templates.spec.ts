@@ -1,4 +1,4 @@
-import { COMPOUND_ENGINEER_TEMPLATE } from "@agentos/shared";
+import { BUILT_IN_TEMPLATES, ROLE_SEEDS, COMPOUND_ENGINEER_TEMPLATE } from "@agentos/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { TasksService } from "../src/tasks/tasks.service";
 import { TemplatesService } from "../src/templates/templates.service";
@@ -140,12 +140,82 @@ describe("template chains", () => {
       "review-coordinator",
       "plan",
       "implementation-plan-executioner",
-      "review-coordinator",
+      // The *code* coordinator. Both steps used to name `review-coordinator`,
+      // whose collaboration list is the four plan lenses — so the code review
+      // step instructed a coordinator to spawn specialists it had no
+      // authorisation to spawn, and it spawned nobody.
+      "code-review-coordinator",
       "senior-dev",
       "librarian",
       "human",
     ]);
     // The fourth plan reviewer is named in the coordinator's brief.
     expect(COMPOUND_ENGINEER_TEMPLATE.steps[2]!.prompt).toContain("plan-risk");
+  });
+
+  /**
+   * The wiring, checked against the shipped catalogue rather than by eye.
+   *
+   * A template step names an agent by string, and a name nobody ships is a
+   * chain that fails at dispatch — hours into a run, on a card the operator
+   * has stopped watching.
+   */
+  it("dispatches every template step to an agent the catalogue ships", () => {
+    const shipped = new Set(ROLE_SEEDS.map((role) => role.name));
+    for (const template of BUILT_IN_TEMPLATES) {
+      for (const step of template.steps) {
+        // `human` is the approval gate, not an agent.
+        if (step.agentName === "human") {
+          continue;
+        }
+        expect(shipped.has(step.agentName), `${template.name} → ${step.agentName}`).toBe(true);
+      }
+    }
+  });
+
+  it("uses the plan coordinator for plan review and the code coordinator for code review", () => {
+    const byName = (name: string) =>
+      COMPOUND_ENGINEER_TEMPLATE.steps.find((step) => step.name === name)!;
+    expect(byName("Plan review").agentName).toBe("review-coordinator");
+    expect(byName("Code review").agentName).toBe("code-review-coordinator");
+  });
+
+  /**
+   * A coordinator's brief has to name specialists its collaboration list
+   * actually authorises. Naming one it cannot spawn produces a report written
+   * from the coordinator's own reading, which looks exactly like a real review.
+   */
+  it("only asks a coordinator to spawn specialists it is authorised to spawn", () => {
+    const coordinators = [
+      { step: "Plan review", agent: "review-coordinator" },
+      { step: "Code review", agent: "code-review-coordinator" },
+    ];
+
+    for (const { step, agent } of coordinators) {
+      const role = ROLE_SEEDS.find((candidate) => candidate.name === agent)!;
+      const authorised = role.collaboration ?? [];
+      expect(authorised.length, `${agent} has no collaboration list`).toBeGreaterThan(0);
+
+      const prompt = COMPOUND_ENGINEER_TEMPLATE.steps.find((s) => s.name === step)!.prompt;
+
+      // Every authorised specialist is actually named in the brief, so the
+      // coordinator is not left to guess which of its four lenses to use.
+      for (const spawned of authorised) {
+        expect(prompt, `${step} should name ${spawned}`).toContain(spawned);
+        expect(ROLE_SEEDS.some((r) => r.name === spawned), `${agent} spawns ${spawned}`).toBe(true);
+      }
+
+      // And the brief names nobody it cannot spawn. Only hyphenated role names
+      // are checked: `plan`, `spec` and `verifier` are ordinary English in
+      // these briefs, and matching them as identifiers tests the prose rather
+      // than the wiring.
+      const unambiguous = ROLE_SEEDS.map((r) => r.name).filter((name) => name.includes("-"));
+      for (const named of unambiguous) {
+        if (named === agent || !new RegExp(`\\b${named}\\b`).test(prompt)) {
+          continue;
+        }
+        expect(authorised, `${step} names ${named}`).toContain(named);
+      }
+    }
   });
 });

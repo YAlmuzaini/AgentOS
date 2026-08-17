@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CATEGORIES, type Category } from "../catalog/categories";
 import { RUNNER_PREFERENCES, REPO_PERMISSIONS } from "../enums";
 import { slugSchema } from "./project";
 import { mountPathSchema } from "./resources";
@@ -34,6 +35,17 @@ export type FilesystemGrant = z.infer<typeof filesystemGrantSchema>;
 export const createAgentSchema = z.object({
   name: slugSchema,
   title: z.string().min(1).max(200),
+  /**
+   * What this agent is for and when to reach for it.
+   *
+   * Optional, because an operator writing a one-off agent should not be stopped
+   * by a form field — but it is the text the Agents page shows under the title,
+   * and the one thing that makes a library of thirty roles navigable. Capped at
+   * the same 1024 characters Anthropic's Agent Skills spec puts on a skill
+   * description, for the same reason: past that it stops being a summary.
+   */
+  description: z.string().max(1024).default(""),
+  category: z.enum(CATEGORIES).default("general"),
   model: z.string().min(1),
   /** Shared AgentOS prompt. Defaults to the reconstructed contract in prompts/. */
   foundationalPrompt: z.string().optional(),
@@ -59,6 +71,8 @@ export interface AgentDto {
   projectId: string;
   name: string;
   title: string;
+  description: string;
+  category: Category;
   model: string;
   foundationalPrompt: string;
   rolePrompt: string;

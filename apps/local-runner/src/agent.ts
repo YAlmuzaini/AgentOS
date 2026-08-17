@@ -216,7 +216,10 @@ function translate(session: LocalSession, message: Record<string, unknown>): voi
           eventId: String(block.id ?? `${message.uuid ?? ""}:text`),
           type: "agent.message",
           name: null,
-          summary: block.text.slice(0, 280),
+          // Scrubbed before the cut: slicing first can leave the front of a
+          // long credential behind, which no exact-value replacement will
+          // then recognise.
+          summary: session.scrub(block.text).slice(0, 280),
         });
       }
       if (block.type === "tool_use" && typeof block.name === "string") {

@@ -6,6 +6,7 @@ import {
   type Runner,
   type RunnerHandle,
   RUNNER_CLOUD,
+  safeToDestroyAfterPublish,
   type RuntimeSessionSummary,
 } from "./runner.types";
 
@@ -115,6 +116,32 @@ export class OrphanSweep {
 
   private async destroy(runner: Runner, handle: RunnerHandle): Promise<boolean> {
     try {
+      // An orphan has no session row, which makes it exactly the case where
+      // nobody else will ever ask this container for its commits. Publishing
+      // first is the difference between archiving a stray container and
+      // destroying work that reached no remote.
+      //
+      // And the answer decides whether to destroy at all. Catching the failure
+      // and carrying on was the same bug this sweep exists downstream of: a
+      // session whose teardown deliberately left the container alone becomes
+      // terminal, drops out of the live-handle set, and arrives here — where a
+      // second failed publish followed by an unconditional destroy would throw
+      // away exactly what the first refusal protected.
+      if (runner.publish) {
+        const outcome = await runner.publish(handle).catch((error: unknown) => {
+          this.logger.warn(
+            `could not publish ${handle.runtimeSessionId} before archiving it: ${String(error)}`,
+          );
+          return null;
+        });
+        const { safe, reason } = safeToDestroyAfterPublish(outcome);
+        if (!safe) {
+          this.logger.error(
+            `not archiving ${handle.runtimeSessionId}: ${reason ?? "its commits are unconfirmed"}`,
+          );
+          return false;
+        }
+      }
       await runner.destroy(handle);
       return true;
     } catch (error) {

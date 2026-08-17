@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentRow } from "../src/agents/agents.service";
 import type { LocalVmRunner } from "../src/runner/local-runner";
-import { RunnerRouter } from "../src/runner/runner-router";
+import { LocalRunnerUnavailableError, RunnerRouter } from "../src/runner/runner-router";
 import type { Runner } from "../src/runner/runner.types";
 import type { SettingsService } from "../src/settings/settings.service";
 import type { DefaultRunner } from "@agentos/shared";
@@ -14,11 +14,18 @@ describe("runner routing", () => {
    * @param projectDefault what the operator chose on the settings screen. An
    *   agent that inherits follows this, which is the whole point of the switch.
    */
-  function router(localHealthy: boolean, projectDefault: DefaultRunner = "auto"): RunnerRouter {
+  function router(
+    localHealthy: boolean,
+    projectDefault: DefaultRunner = "auto",
+    // Configured-but-unhealthy and not-configured-at-all are different
+    // operator mistakes and get different sentences, so they are separable here.
+    configured: boolean = localHealthy,
+  ): RunnerRouter {
     const local = {
       name: "local",
-      configured: localHealthy,
+      configured,
       healthy: async () => localHealthy,
+      endpointForDisplay: () => (configured ? "http://localhost:4001" : null),
     } as unknown as LocalVmRunner;
     const settings = {
       read: async () => ({ defaultRunner: projectDefault }),
@@ -40,9 +47,34 @@ describe("runner routing", () => {
     expect(picked.name).toBe("local");
   });
 
-  it("falls back to cloud rather than failing when a pinned local runner is down", async () => {
-    const picked = await router(false).pick({ agent: agent("local") });
-    expect(picked.name).toBe("cloud");
+  /**
+   * The cost rail, and the reason it is a hard failure.
+   *
+   * The local worker runs under a flat-fee subscription; cloud is billed per
+   * token. An unreachable worker is transient and unattended — a reboot, a
+   * dropped tunnel — so falling back "just this once" turns a five-minute
+   * outage into unbounded spend nobody is watching. `local` means local.
+   */
+  it("refuses rather than billing the cloud when a pinned local runner is down", async () => {
+    await expect(router(false, "auto", true).pick({ agent: agent("local") })).rejects.toThrow(
+      LocalRunnerUnavailableError,
+    );
+  });
+
+  it("refuses when local is pinned and no worker is configured at all", async () => {
+    await expect(router(false, "auto", false).pick({ agent: agent("local") })).rejects.toThrow(
+      /no worker is configured/,
+    );
+  });
+
+  /** The refusal has to say why, or the operator reads it as a generic crash. */
+  it("explains that the run was not sent to the cloud, and how to allow it", async () => {
+    await expect(router(false, "auto", true).pick({ agent: agent("local") })).rejects.toThrow(
+      /not sent to the cloud/,
+    );
+    await expect(router(false, "auto", true).pick({ agent: agent("local") })).rejects.toThrow(
+      /`auto`/,
+    );
   });
 
   it("prefers the cheap runner on auto when it is healthy", async () => {
@@ -68,10 +100,11 @@ describe("runner routing", () => {
     expect(pinnedLocal.name).toBe("local");
   });
 
-  /** A project pinned to local still falls back rather than failing the run. */
-  it("falls back to cloud when the project default is local but nothing is there", async () => {
-    const picked = await router(false, "local").pick({ agent: agent("inherit") });
-    expect(picked.name).toBe("cloud");
+  /** An inherited `local` is still an explicit `local`, and refuses the same way. */
+  it("refuses when the project default is local but nothing is there", async () => {
+    await expect(
+      router(false, "local", true).pick({ agent: agent("inherit") }),
+    ).rejects.toThrow(LocalRunnerUnavailableError);
   });
 
   /** An agent's own choice still beats the project default. */
@@ -87,5 +120,52 @@ describe("runner routing", () => {
       goalPreference: "cloud",
     });
     expect(picked.name).toBe("cloud");
+  });
+
+  /**
+   * The whole table, stated once, so a future change to `runnerFor` cannot
+   * quietly re-open the fallback for one combination while the individual
+   * cases above still pass.
+   *
+   * `local` is the only row that refuses, and it refuses in every position the
+   * preference can be set from: the goal, the agent, and the project default.
+   */
+  it("never selects cloud for an explicit local, from any preference source", async () => {
+    const sources: Array<{ label: string; call: (r: RunnerRouter) => Promise<Runner> }> = [
+      { label: "goal", call: (r) => r.pick({ agent: agent("inherit"), goalPreference: "local" }) },
+      { label: "agent", call: (r) => r.pick({ agent: agent("local") }) },
+      { label: "project default", call: (r) => r.pick({ agent: agent("inherit") }) },
+    ];
+
+    for (const source of sources) {
+      // Healthy: it runs locally.
+      const healthy = await source.call(router(true, "local", true));
+      expect(healthy.name, `${source.label} / healthy`).toBe("local");
+
+      // Down: it refuses. It must never answer "cloud".
+      await expect(source.call(router(false, "local", true)), source.label).rejects.toThrow(
+        LocalRunnerUnavailableError,
+      );
+    }
+  });
+
+  /** `auto` is the only effective preference allowed to spend money on a fallback. */
+  it("degrades to cloud only when the effective preference is auto", async () => {
+    const effectivelyAuto = await router(false, "auto", true).pick({ agent: agent("inherit") });
+    expect(effectivelyAuto.name).toBe("cloud");
+  });
+
+  /**
+   * A goal set to `auto` does not *widen* an agent pinned to local.
+   *
+   * `auto` on a goal means "no opinion", not "cloud is allowed" — `preferenceFor`
+   * skips it and falls through to the agent. So the agent's `local` still holds
+   * and still refuses, which is the conservative reading and the one that keeps
+   * the cost rail intact.
+   */
+  it("does not let an auto goal widen an agent pinned to local", async () => {
+    await expect(
+      router(false, "cloud", true).pick({ agent: agent("local"), goalPreference: "auto" }),
+    ).rejects.toThrow(LocalRunnerUnavailableError);
   });
 });

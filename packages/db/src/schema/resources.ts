@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   index,
   jsonb,
   pgTable,
@@ -53,6 +54,23 @@ export const mcpConnections = pgTable(
     credentialSecretId: uuid("credential_secret_id").references(() => secretRefs.id, {
       onDelete: "set null",
     }),
+    /**
+     * The last time a real MCP handshake against this server succeeded.
+     *
+     * The distinction the UI is built on: a connection can be *cataloged* (we
+     * wrote its URL down), *configured* (it exists here, maybe with a
+     * credential), *granted* (an agent lists it), and only then *verified* —
+     * meaning `initialize` and `tools/list` actually answered. Null means
+     * nobody has ever checked, which is not the same as broken.
+     */
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    /** Tool names the server reported at that handshake. Names only. */
+    verifiedTools: jsonb("verified_tools")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    /** What the server or the network said, credential already stripped. */
+    verifyError: text("verify_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -131,11 +149,26 @@ export const skills = pgTable(
   "skills",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * True only for a skill AgentOS itself installed.
+     *
+     * The same provenance marker `agents` carries, and it exists for the same
+     * reason: without it the installer cannot tell a shipped skill from an
+     * operator's own skill that happens to share a slug, so it has to leave
+     * every existing row alone — including the ones it wrote itself, which is
+     * how three built-in skills sat in `general` with no description after the
+     * category column arrived.
+     */
+    builtIn: boolean("built_in").notNull().default(false),
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
+    /** What it does and when it applies. Read when picking a skill to grant. */
+    description: text("description").notNull().default(""),
+    /** One of `CATEGORY`, for grouping and filtering. Never null. */
+    category: text("category").notNull().default("general"),
     /** `prompt` inlines the body; `file` points at the agent filesystem. */
     kind: text("kind").notNull().default("prompt"),
     body: text("body").notNull().default(""),

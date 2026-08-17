@@ -1,5 +1,5 @@
-import type { AgentDto, CreateAgentInput } from "@agentos/shared";
-import { RUNNER_PREFERENCES } from "@agentos/shared";
+import type { AgentDto, Category, CreateAgentInput } from "@agentos/shared";
+import { CATEGORIES, CATEGORY_LABELS, RUNNER_PREFERENCES } from "@agentos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Blocks, FolderTree, GitBranch, Server } from "lucide-react";
 import type { ReactNode } from "react";
@@ -43,6 +43,8 @@ export function AgentForm(props: {
 
   const [name, setName] = useState(props.agent?.name ?? "");
   const [title, setTitle] = useState(props.agent?.title ?? "");
+  const [description, setDescription] = useState(props.agent?.description ?? "");
+  const [category, setCategory] = useState<Category>(props.agent?.category ?? "general");
   const [model, setModel] = useState(props.agent?.model ?? "claude-sonnet-5");
   const [rolePrompt, setRolePrompt] = useState(props.agent?.rolePrompt ?? "");
   const [environmentId, setEnvironmentId] = useState(props.agent?.environmentId ?? "");
@@ -95,6 +97,8 @@ export function AgentForm(props: {
     mutationFn: () => {
       const body = {
         title,
+        description,
+        category,
         model,
         rolePrompt,
         skillIds,
@@ -189,6 +193,41 @@ export function AgentForm(props: {
             />
           )}
         </Field>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* What it is for, in one line. The role prompt below says how it
+              works; this says whether you want it, and it is what the Agents
+              grid and the assignee picker show. */}
+          <Field
+            label="Description"
+            hint="What this agent is for, and when to assign it."
+          >
+            {(id) => (
+              <Input
+                id={id}
+                value={description}
+                placeholder="Writes release notes from the commit range and drafts the rollback."
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            )}
+          </Field>
+
+          <Field label="Category" hint="Groups this agent on the Agents page.">
+            {(id) => (
+              <Select
+                id={id}
+                value={category}
+                onChange={(event) => setCategory(event.target.value as Category)}
+              >
+                {CATEGORIES.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {CATEGORY_LABELS[entry]}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        </div>
 
         <Field
           label="Role prompt"

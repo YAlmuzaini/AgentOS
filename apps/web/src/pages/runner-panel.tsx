@@ -11,10 +11,13 @@ import { Panel, PanelHeader, PanelTitle, Well } from "../components/ui/panel";
  * difference is the whole reason the local backend exists, so this panel is
  * blunt about which one is about to spend.
  *
- * It also refuses to imply more than it can deliver. Choosing `local` while no
- * worker is reachable routes every run to the cloud and bills for it — an
- * operator who switched precisely to stop paying per token would find out on
- * their invoice. So availability is shown next to the choice, not hidden.
+ * It also refuses to imply more than it can deliver. `local` now means
+ * local-only: an unreachable worker fails the session rather than quietly
+ * billing the API, because an operator who switched precisely to stop paying
+ * per token would otherwise find out on their invoice. That makes worker
+ * availability an operational fact rather than a footnote, so it is shown
+ * next to the choice — and when `local` is selected and the worker is down,
+ * the warning says runs will *fail*, not that they will move.
  */
 export function RunnerPanel({
   value,
@@ -82,9 +85,13 @@ export function RunnerPanel({
             muted prose inside a red border. */}
         {value !== "cloud" && !localConfigured ? (
           <InlineError className="leading-relaxed">
-            No local worker is configured. Sessions will use the cloud runner. Set{" "}
-            <span className="machine">LOCAL_RUNNER_URL</span> in <span className="machine">.env</span>{" "}
-            and start <span className="machine">apps/local-runner</span>, then restart the API.
+            No local worker is configured.{" "}
+            {value === "local"
+              ? "Sessions set to run locally will fail rather than move to the cloud."
+              : "Sessions will use the cloud runner and consume API credits."}{" "}
+            Set <span className="machine">LOCAL_RUNNER_URL</span> in{" "}
+            <span className="machine">.env</span> and start{" "}
+            <span className="machine">apps/local-runner</span>, then restart the API.
           </InlineError>
         ) : null}
 
@@ -93,15 +100,19 @@ export function RunnerPanel({
             A local worker is configured at{" "}
             {/* A URL is copyable, and this is the one an operator is about to go
                 and check, so it never wraps mid-host. */}
-            <span className="machine break-all">{status?.local.url}</span> but is unavailable.
-            Sessions will use the cloud runner and consume API credits.
+            <span className="machine break-all">{status?.local.url}</span> but is unavailable.{" "}
+            {value === "local"
+              ? "Sessions will fail with an explanation rather than move to the cloud — local means local. Switch to Automatic to allow a paid fallback."
+              : "Sessions will use the cloud runner and consume API credits."}
           </InlineError>
         ) : null}
 
         {value !== "cloud" && localReachable ? (
           <Well className="text-xs leading-relaxed text-ink-muted">
-            The local worker cannot enforce restricted network policies. Agents with restricted
-            egress will use the cloud runner. Assign an{" "}
+            The local worker cannot enforce restricted network policies. Under{" "}
+            <span className="machine text-ink">auto</span>, agents with restricted egress use the
+            cloud runner; under <span className="machine text-ink">local</span> the worker refuses
+            them and the session fails. Assign an{" "}
             <span className="machine text-ink">open</span> environment to run them locally.
           </Well>
         ) : null}
@@ -114,12 +125,16 @@ const OPTIONS: Array<{ value: DefaultRunner; label: string; hint: string }> = [
   {
     value: "auto",
     label: "Automatic",
-    hint: "Use the local worker when available; otherwise use the cloud runner.",
+    hint:
+      "Use the local worker when available; otherwise fall back to the cloud runner and " +
+      "consume API credits.",
   },
   {
     value: "local",
     label: "Local worker only",
-    hint: "Prefer the local worker. The cloud runner is used when the worker is unavailable.",
+    hint:
+      "Use the local worker, or fail. Sessions are never sent to the cloud, so an unavailable " +
+      "worker stops runs instead of billing API credits.",
   },
   {
     value: "cloud",

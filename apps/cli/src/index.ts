@@ -40,12 +40,15 @@ Creating
                       [--cap <usd> | --no-cap] [--max-minutes <n>]
   agentos agent create --project <slug> --agent <name> --title <text> --model <id>
                       --prompt-file <path> (--inbox | --no-inbox)
+                      [--description <text>] [--category <category>]
                       [--runner cloud|local|inherit] [--collaborators a,b]
   agentos agent update --project <slug> --agent <name> [--model <id>] [--prompt-file <path>]
-                      [--title <text>] [--runner cloud|local|inherit] [--collaborators a,b]
+                      [--title <text>] [--description <text>] [--category <category>]
+                      [--runner cloud|local|inherit] [--collaborators a,b]
                       [--inbox | --no-inbox]
   agentos skill create --project <slug> --slug <slug> --name <name>
                       [--body-file <path> | --kind file --file-path /skills/x.py]
+                      [--description <text>] [--category <category>]
   agentos template run --project <slug> --template <name> --var k=v [--var k=v ...]
 
 Environment
@@ -201,6 +204,11 @@ async function agentCreate(flags: Flags): Promise<number> {
       body: {
         name: required(flags.agent, "--agent"),
         title: required(flags.title, "--title"),
+        // Optional, because an agent created from the command line is usually
+        // a one-off. Both are what the Agents page groups and filters by, so a
+        // long-lived agent wants them.
+        ...(flags.description ? { description: flags.description } : {}),
+        ...(flags.category ? { category: flags.category } : {}),
         model: required(flags.model, "--model"),
         rolePrompt: await readFile(required(flags["prompt-file"], "--prompt-file"), "utf8"),
         runnerPreference: flags.runner ?? "inherit",
@@ -221,6 +229,8 @@ async function skillCreate(flags: Flags): Promise<number> {
       body: {
         slug: required(flags.slug, "--slug"),
         name: required(flags.name, "--name"),
+        ...(flags.description ? { description: flags.description } : {}),
+        ...(flags.category ? { category: flags.category } : {}),
         kind,
         ...(kind === "file"
           ? { filePath: required(flags["file-path"], "--file-path"), body: "" }
@@ -246,6 +256,12 @@ async function agentUpdate(flags: Flags): Promise<number> {
   if (flags.title) {
     body.title = flags.title;
   }
+  if (flags.description !== undefined) {
+    body.description = flags.description;
+  }
+  if (flags.category) {
+    body.category = flags.category;
+  }
   if (flags.runner) {
     body.runnerPreference = flags.runner;
   }
@@ -261,8 +277,8 @@ async function agentUpdate(flags: Flags): Promise<number> {
   }
   if (Object.keys(body).length === 0) {
     throw new Error(
-      "nothing to update — pass --model, --title, --runner, --collaborators, " +
-        "--inbox/--no-inbox and/or --prompt-file",
+      "nothing to update — pass --model, --title, --description, --category, " +
+        "--runner, --collaborators, --inbox/--no-inbox and/or --prompt-file",
     );
   }
   return print(await call(`/projects/${id}/agents/${agent.id}`, { method: "PUT", body }));
